@@ -1,0 +1,35 @@
+version: '3.9'
+
+services:
+  backend:
+    image: backend-app
+    container_name: backend 
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+  
+  # frontend:
+  #   image: frontend-app
+  #   container_name: frontend
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     - backend
+    
+  
+  db: 
+    image: postgres:15
+    container_name: postgres_db 
+    environment:
+      - POSTGRES_USER=${DATABASE_USER}
+      - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
+      - POSTGRES_DB=${DATABASE_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+  
+volumes:
+  postgres_data:
+    
