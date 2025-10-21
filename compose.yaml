@@ -4,6 +4,8 @@ services:
   backend:
     image: backend-app
     container_name: backend 
+    environment:
+      - DB_URL=${DB_URL}
     ports:
       - "8000:8000"
     depends_on:
