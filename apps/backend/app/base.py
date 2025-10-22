@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from .core import (settings, init_db, engine)
-from typing import Generator
 from contextlib import asynccontextmanager
+from .routers import app_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,7 +26,12 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
 
-    #TODO: Add Middleware For CORS & Exception Handlers 
+    #TODO: Add Middleware For CORS 
 
+    #TODO: Add Exception Handlers For 
+
+    #TODO: Add JWT Request Filter 
+
+    app.include_router(app_router)
 
     return app
