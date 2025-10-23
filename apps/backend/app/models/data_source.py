@@ -1,6 +1,7 @@
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import List
+from sqlalchemy import ForeignKey
 
 class DataSource(Base):
     __tablename__ = "data_source"
@@ -15,7 +16,7 @@ class DataSource(Base):
     url: Mapped[str] = mapped_column(nullable=True, comment="URL corresponding to public/private repostiory this data may correspond to")
 
 
-    
+    # one to many relationship with IngestionJob
     data_source: Mapped[List["IngestionJob"]] = relationship(
         back_populates="data_source",
         cascade="all, delete-orphan"
