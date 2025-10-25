@@ -7,6 +7,7 @@ from sqlalchemy import text
 # avoid warning 
 if TYPE_CHECKING:
     from .ingestion_job import IngestionJob 
+    from .project_data import ProjectData
 
 class DataSource(Base):
     __tablename__ = "data_source"
@@ -22,8 +23,11 @@ class DataSource(Base):
 
 
     # one to many relationship with IngestionJob
-    data_source: Mapped[List["IngestionJob"]] = relationship(
+    ingestion_jobs: Mapped[List["IngestionJob"]] = relationship(
         back_populates="data_source",
         cascade="all, delete-orphan"
     )
+
+    # many to many relationship with Project 
+    project_data: Mapped[List["ProjectData"]] = relationship(back_populates="data_source")
     
