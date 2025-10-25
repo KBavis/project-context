@@ -1,7 +1,7 @@
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import ForeignKey, text
-from sqlalchemy.dialects.postgresql import UUID
+from uuid import UUID
 from typing import TYPE_CHECKING
 
 

@@ -1,8 +1,8 @@
 from .base import Base
 from typing import TYPE_CHECKING
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import mapped_column, Mapped, relationship
 from sqlalchemy import ForeignKey
+from uuid import UUID
 
 if TYPE_CHECKING:
     from .data_source import DataSource

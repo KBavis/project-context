@@ -1,8 +1,8 @@
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import List, TYPE_CHECKING
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import text
+from uuid import UUID
 
 # avoid warning 
 if TYPE_CHECKING:
