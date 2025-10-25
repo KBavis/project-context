@@ -1,12 +1,17 @@
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from typing import List
-from sqlalchemy import ForeignKey
+from typing import List, TYPE_CHECKING
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import text
+
+# avoid warning 
+if TYPE_CHECKING:
+    from .ingestion_job import IngestionJob 
 
 class DataSource(Base):
     __tablename__ = "data_source"
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    id: Mapped[UUID] = mapped_column(primary_key=True, index=True, server_default=text("gen_random_uuid()"))
     provider: Mapped[str] = mapped_column(nullable=False, comment="Specific provider this datasource belongs to (GitHub, BitBucket, Confluence, etc)")
     source_type: Mapped[str] = mapped_column(nullable=False, comment="Type of data this datasource contains (Messages, Documentation, Code)") 
 
