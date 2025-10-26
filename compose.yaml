@@ -1,15 +1,19 @@
 version: '3.9'
 
 services:
+
   backend:
     image: backend-app
     container_name: backend 
     environment:
-      - DB_URL=${DB_URL}
+      - REL_DB_URL=${REL_DB_URL}
+      - VECTOR_DB_HOST=${VECTOR_DB_HOST}
+      - VECTOR_DB_PORT=${VECTOR_DB_PORT}
     ports:
       - "8000:8000"
     depends_on:
       - db
+      - chromadb
   
   # frontend:
   #   image: frontend-app
@@ -18,15 +22,23 @@ services:
   #     - "3000:3000"
   #   depends_on:
   #     - backend
+
+  chromadb:
+    image: chromadb/chroma:latest 
+    container_name: chroma_db
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
     
   
   db: 
     image: postgres:15
     container_name: postgres_db 
     environment:
-      - POSTGRES_USER=${DATABASE_USER}
-      - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
-      - POSTGRES_DB=${DATABASE_NAME}
+      - POSTGRES_USER=${REL_DATABASE_USER}
+      - POSTGRES_PASSWORD=${REL_DATABASE_PASSWORD}
+      - POSTGRES_DB=${REL_DATABASE_NAME}
     ports:
       - "5432:5432"
     volumes:
@@ -34,4 +46,5 @@ services:
   
 volumes:
   postgres_data:
+  chroma_data:
     
