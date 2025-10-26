@@ -26,7 +26,7 @@ class ProjectService:
         self.db.add(project)
         self.db.flush() 
 
-        # create new ChromaDB colleciton 
+        # create new ChromaDB collection fro new project
         self.create_new_collection(request.name)
 
         return {
@@ -71,6 +71,9 @@ class ProjectService:
 
 
     def create_new_collection(self, project_name: str) -> None:
+        """
+        Create a new ChromaDB collection corresponding to the new Project 
+        """
         
         # check if project with this name already exists 
         chroma_client = self.chroma_manager.get_sync_client() #TODO: Make this configurable for async vs sync
