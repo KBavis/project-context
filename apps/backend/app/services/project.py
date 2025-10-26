@@ -1,13 +1,14 @@
 from sqlalchemy.orm import Session
 from app.pydantic import ProjectRequest
 from app.models import Project
-from uuid import UUID
+from app.core import ChromaClientManager
 from sqlalchemy import select
 
 
 class ProjectService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, chroma_manager: ChromaClientManager):
         self.db = db 
+        self.chroma_manager = chroma_manager
     
 
     def create_project(self, request: ProjectRequest) -> dict:
@@ -24,6 +25,9 @@ class ProjectService:
         # persist & flush new record 
         self.db.add(project)
         self.db.flush() 
+
+        # create new ChromaDB colleciton 
+        self.create_new_collection(request.name)
 
         return {
             "id": project.id,
@@ -63,3 +67,17 @@ class ProjectService:
             "id": project.id, 
             "name": project.project_name
         } for project in projects]
+
+
+
+    def create_new_collection(self, project_name: str) -> None:
+        
+        # check if project with this name already exists 
+        chroma_client = self.chroma_manager.get_sync_client() #TODO: Make this configurable for async vs sync
+
+        collection = chroma_client.get_collection(project_name)
+        if collection is not None:
+            raise Exception(f"Project with the name {project_name} already exists")
+        
+        # create new collection 
+        chroma_client.create_collection(name=project_name) #TODO: Use embedding manager for configurable embeddings and pass in embedding function 
