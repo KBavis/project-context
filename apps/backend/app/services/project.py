@@ -10,7 +10,7 @@ class ProjectService:
         self.db = db 
     
 
-    def create_project(self, request: ProjectRequest) -> Project:
+    def create_project(self, request: ProjectRequest) -> dict:
         """
         Functionality to persist new Project based on specified request
 
@@ -25,10 +25,13 @@ class ProjectService:
         self.db.add(project)
         self.db.flush() 
 
-        return project 
+        return {
+            "id": project.id,
+            "name": project.project_name
+        }
     
 
-    def get_project_by_id(self, project_id):
+    def get_project_by_id(self, project_id) -> dict:
         """
         Functionality to retreive a given Project by a Project Id
 
@@ -36,7 +39,14 @@ class ProjectService:
         """
 
         stmt = select(Project).where(Project.id == project_id)
-        return self.db.execute(stmt).scalars().first()
+        project = self.db.execute(stmt).scalars().first()
+
+        return {
+            "id": project.id,
+            "name": project.project_name 
+        }  if project else {
+            "message": f"No project found corresponding to ID {project_id}"
+        }
 
 
     def get_all_projects(self):
@@ -47,4 +57,9 @@ class ProjectService:
         """
 
         stmt = select(Project)
-        return self.db.execute(stmt).scalars().all()
+        projects = self.db.execute(stmt).scalars().all()
+
+        return [{
+            "id": project.id, 
+            "name": project.project_name
+        } for project in projects]
