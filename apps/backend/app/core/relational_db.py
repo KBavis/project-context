@@ -3,7 +3,7 @@ from .config import settings
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from typing import Generator
-from ..models import (Base,DataSource, IngestionJob)
+from ..models import (Base)
 
 
 
