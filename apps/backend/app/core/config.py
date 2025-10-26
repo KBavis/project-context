@@ -6,7 +6,7 @@ class Settings(BaseSettings):
 
     PROJECT_NAME: str = "Project Context"
     PYTHONDONTWRITEBYTECODE: int = 1
-    DB_URL: Optional[str] = None
+    DB_URL: str = ""
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[2] / '.env',
