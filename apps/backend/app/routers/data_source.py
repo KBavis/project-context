@@ -1,28 +1,57 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core import get_db_session
+from app.services import DataSourceService
+from app.pydantic import DataSourceRequest
+from uuid import UUID
 
 
 router = APIRouter(prefix="/data/sources")
 
 
-@router.post("/{data_source_id}", summary="Connect to external data source")
-def create_datasource(db: Session = Depends(get_db_session)):
+@router.post("/{project_id}", summary="Connect to external data source")
+def create_datasource(data_source: DataSourceRequest, project_id: UUID, db: Session = Depends(get_db_session)):
     """
     Connect application to an external datasource in order to ingest data from
     """
 
-@router.get("/", summary="Get connected data sources")
-def get_datsources(db: Session = Depends(get_db_session)):
+    try:
+        svc = DataSourceService(db) 
+        return svc.create_data_source(data_source, project_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"{str(e)}"
+        )
+
+
+@router.post("/", summary="Connect to external data source")
+def create_datasource(data_source: DataSourceRequest, db: Session = Depends(get_db_session)):
     """
-    Retrieve data sources corresponding to authenticated user
+    Connect application to an external datasource in order to ingest data from
     """
 
     try:
-        #TODO: Use DataSourceService object to retrieve data sources 
-        print('Getting datasources!')
-
+        svc = DataSourceService(db) 
+        return svc.create_data_source(data_source)
     except Exception as e:
-        print("An exception occurred while retrieving data sources")
-        #TODO:  raise corresponding Exception to be handled by Controlelr advice and change to logging
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"{str(e)}"
+        )
     
+
+@router.get("/{project_id}", summary="Get connected data sources")
+def get_project_data_sources(project_id: UUID, db: Session = Depends(get_db_session)):
+    """
+    Retrieve data sources corresponding to a Project that the authenticated user is able to view
+    """
+
+    try:
+        svc = DataSourceService(db)
+        return svc.get_project_data_sources(project_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"{str(e)}"
+        )
