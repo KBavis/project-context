@@ -9,22 +9,6 @@ from uuid import UUID
 router = APIRouter(prefix="/data/sources")
 
 
-@router.post("/{project_id}", summary="Connect to external data source")
-def create_datasource(data_source: DataSourceRequest, project_id: UUID, db: Session = Depends(get_db_session)):
-    """
-    Connect application to an external datasource in order to ingest data from
-    """
-
-    try:
-        svc = DataSourceService(db) 
-        return svc.create_data_source(data_source, project_id)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"{str(e)}"
-        )
-
-
 @router.post("/", summary="Connect to external data source")
 def create_datasource(data_source: DataSourceRequest, db: Session = Depends(get_db_session)):
     """
