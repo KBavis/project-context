@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
+from typing import Optional
 
 class Settings(BaseSettings):
 
@@ -13,9 +14,9 @@ class Settings(BaseSettings):
     DOCS_EMBEDDING_API_KEY: str = "api-key"
     DOCS_EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
 
-    CODE_EMBEDDING_PROVIDER: str = "HuggingFace"
-    CODE_EMBEDDING_API_KEY: str = "api-key"
-    CODE_EMBEDDING_MODEL: str = "jinaai/ina-embeddings-v2-base-code"
+    CODE_EMBEDDING_PROVIDER: Optional[str] = None
+    CODE_EMBEDDING_API_KEY: Optional[str] = None
+    CODE_EMBEDDING_MODEL: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[2] / '.env',
