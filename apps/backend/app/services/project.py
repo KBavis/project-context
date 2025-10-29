@@ -26,8 +26,8 @@ class ProjectService:
         self.db.add(project)
         self.db.flush() 
 
-        # create new ChromaDB collection fro new project
-        self.create_new_collection(request.name)
+        # create new ChromaDB collections for new project
+        self.create_new_collections(request.name)
 
         return {
             "id": project.id,
@@ -70,17 +70,38 @@ class ProjectService:
 
 
 
-    def create_new_collection(self, project_name: str) -> None:
+    def create_new_collections(self, project_name: str) -> None:
         """
         Create a new ChromaDB collection corresponding to the new Project 
+
+        TODO: Consider moving this functionality out of Project Service into its own ChromaDbService or soemthing 
         """
-        
-        # check if project with this name already exists 
+
+        PROJECT = project_name.upper()
         chroma_client = self.chroma_manager.get_sync_client() #TODO: Make this configurable for async vs sync
 
-        collection = chroma_client.get_collection(project_name)
-        if collection is not None:
-            raise Exception(f"Project with the name {project_name} already exists")
+        def verify_collection_dne(postifx: str) -> None:
+            """
+            Helper function for verifying relevant collections for specified project do not exist already
+            """
+            collection = chroma_client.get_collection(f"{PROJECT}_{postifx}")
+            if collection is not None:
+                raise Exception(f"Project with the name {PROJECT}_{postifx} already exists")
+
+
+        # verify docs collection is not existent
+        verify_collection_dne("DOCS") 
+        verify_collection_dne("CODE")
         
-        # create new collection 
-        chroma_client.create_collection(name=project_name) #TODO: Use embedding manager for configurable embeddings and pass in embedding function 
+
+        # create new CODE and DOCS collections for project
+        """
+        TODO: Use configured embedding functions for Code & Docs instead of default embeddings when creating collections. In the long run, 
+        this should be transitioned to only create a CODE collection in the case that this relates to SWE project (indicated via Project request)
+
+        To account for two collections per project, a sophisitcated way of using RAG will need to be implemented. Either some sort of routing functionality
+        based on the posed question or a conveint way to query information from both collecitons if the the posed question corresponds to both.
+        """
+        chroma_client.create_collection(name=f"{PROJECT}_CODE") 
+        chroma_client.create_collection(name=f"{PROJECT}_DOCS")
+    
