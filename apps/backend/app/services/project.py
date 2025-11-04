@@ -67,6 +67,13 @@ class ProjectService:
             "id": project.id, 
             "name": project.project_name
         } for project in projects]
+    
+
+    def get_project_name(self, project_name) -> str:
+        """
+        Retrieve normalize project name for creating chroma DB collection
+        """
+        return "".join(c.upper() for c in project_name if c.isalnum())
 
 
 
@@ -77,7 +84,7 @@ class ProjectService:
         TODO: Consider moving this functionality out of Project Service into its own ChromaDbService or soemthing 
         """
 
-        PROJECT = project_name.upper()
+        PROJECT = self.get_project_name(project_name)
         chroma_client = self.chroma_manager.get_sync_client() #TODO: Make this configurable for async vs sync
 
         def verify_collection_dne(postifx: str) -> None:
