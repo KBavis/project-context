@@ -2,14 +2,16 @@ from sqlalchemy.orm import Session
 from app.pydantic import ProjectRequest
 from app.models import Project
 from app.core import ChromaClientManager
+from app.embeddings.manager import EmbeddingManager
+from chromadb.api import ClientAPI
 from sqlalchemy import select
 
 
 class ProjectService:
-    def __init__(self, db: Session, chroma_manager: ChromaClientManager):
+    def __init__(self, db: Session, chroma_manager: ChromaClientManager, embedding_manager: EmbeddingManager):
         self.db = db 
         self.chroma_manager = chroma_manager
-    
+        self.embedding_manager = embedding_manager
 
     def create_project(self, request: ProjectRequest) -> dict:
         """
@@ -87,18 +89,8 @@ class ProjectService:
         PROJECT = self.get_project_name(project_name)
         chroma_client = self.chroma_manager.get_sync_client() #TODO: Make this configurable for async vs sync
 
-        def verify_collection_dne(postifx: str) -> None:
-            """
-            Helper function for verifying relevant collections for specified project do not exist already
-            """
-            collection = chroma_client.get_collection(f"{PROJECT}_{postifx}")
-            if collection is not None:
-                raise Exception(f"Project with the name {PROJECT}_{postifx} already exists")
-
-
-        # verify docs collection is not existent
-        verify_collection_dne("DOCS") 
-        verify_collection_dne("CODE")
+        # verify docs collection do not exist
+        self._verify_project_collections_dne(chroma_client, PROJECT, original_name=project_name)
         
 
         # create new CODE and DOCS collections for project
@@ -109,6 +101,23 @@ class ProjectService:
         To account for two collections per project, a sophisitcated way of using RAG will need to be implemented. Either some sort of routing functionality
         based on the posed question or a conveint way to query information from both collecitons if the the posed question corresponds to both.
         """
-        chroma_client.create_collection(name=f"{PROJECT}_CODE") 
-        chroma_client.create_collection(name=f"{PROJECT}_DOCS")
+        chroma_client.create_collection(
+            name=f"{PROJECT}_CODE", 
+            embedding_function=self.embedding_manager.get_embedding_function("CODE")
+        ) 
+        chroma_client.create_collection(
+            name=f"{PROJECT}_DOCS",
+            embedding_function=self.embedding_manager.get_embedding_function("DOCS")
+        )
+    
+
+
+    def _verify_project_collections_dne(self, chroma_client: ClientAPI, project_name: str, original_name: str) -> None:
+        """
+        Helper function for verifying relevant collections for specified project do not exist already
+        """
+        docs_collection = chroma_client.get_collection(f"{project_name}_DOCS")
+        code_collection = chroma_client.get_collection(f"{project_name}_CODE")
+        if docs_collection or code_collection:
+            raise Exception(f"Project with the name {original_name} already exists")
     
