@@ -115,9 +115,27 @@ class ProjectService:
     def _verify_project_collections_dne(self, chroma_client: ClientAPI, project_name: str, original_name: str) -> None:
         """
         Helper function for verifying relevant collections for specified project do not exist already
+
+        NOTE: ChromaDB will raise exception in the case the collction does not exist by name
         """
-        docs_collection = chroma_client.get_collection(f"{project_name}_DOCS")
-        code_collection = chroma_client.get_collection(f"{project_name}_CODE")
-        if docs_collection or code_collection:
+
+        project_dne = True
+
+        # attempt to retrieve docs chroma db collection
+        try:
+            chroma_client.get_collection(f"{project_name}_DOCS")
+            project_dne = False
+        except Exception as e:
+            pass
+
+        # attempt to retrieve code chromadb collection
+        try:
+            chroma_client.get_collection(f"{project_name}_CODE")
+            project_dne = False
+        except Exception as e:
+            pass
+
+        # error out if either one exists (as this indicates a project with this name is in use)           
+        if project_dne == False:
             raise Exception(f"Project with the name {original_name} already exists")
     
