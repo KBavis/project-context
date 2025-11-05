@@ -18,13 +18,13 @@ class EmbeddingManager():
 
         match self._code_provider:
             
-            case 'openai':
+            case 'OpenAI':
                 import chromadb.utils.embedding_functions as embedding_functions
                 return embedding_functions.OpenAIEmbeddingFunction(
                     api_key = settings.OPEN_AI_API_KEY,
                     model_name = self._code_model if source_type == "CODE" else self._docs_model
                 )
-            case 'huggingface':
+            case 'HuggingFace':
                 import chromadb.utils.embedding_functions as embedding_functions
                 return embedding_functions.HuggingFaceEmbeddingFunction(
                     api_key = settings.HUGGING_FACE_API_KEY,
