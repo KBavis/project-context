@@ -14,25 +14,39 @@ class EmbeddingManager():
         self._docs_model = settings.DOCS_EMBEDDING_MODEL
     
 
-    def get_embedding_function(self, source_type):
+    def get_embedding_model(self, source_type: str):
+        """
+        Retrieve the relevant embedding model to be utilize 
+        based on configurations and the specified source type
+        """
+        return self.get_docs_embedding_model() if source_type == "DOCS" else self.get_code_embedding_model()
+
+
+    def get_docs_embedding_model(self):
+
+        match self._docs_provider:
+            
+            # Local Embedding Providers 
+            case 'HuggingFace':
+                from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+                return HuggingFaceEmbedding(model_name=settings.DOCS_EMBEDDING_MODEL)
+            case _:
+                logging.error(f"The embedidng provider specified, '{self._code_provider}', is not curretly set up for this application")
+                raise Exception(f'Invalid embedding provider specified: {self._docs_provider}')
+    
+
+    def get_code_embedding_model(self):
 
         match self._code_provider:
             
-            case 'OpenAI':
-                import chromadb.utils.embedding_functions as embedding_functions
-                return embedding_functions.OpenAIEmbeddingFunction(
-                    api_key = settings.OPEN_AI_API_KEY,
-                    model_name = self._code_model if source_type == "CODE" else self._docs_model
-                )
+            # Local Embedding Providers 
             case 'HuggingFace':
-                import chromadb.utils.embedding_functions as embedding_functions
-                return embedding_functions.HuggingFaceEmbeddingFunction(
-                    api_key = settings.HUGGING_FACE_API_KEY,
-                    model_name = self._code_model
-                )
+                from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+                return HuggingFaceEmbedding(model_name=settings.CODE_EMBEDDING_MODEL)
             case _:
                 logging.error(f"The embedidng provider specified, '{self._code_provider}', is not curretly set up for this application")
                 raise Exception(f'Invalid embedding provider specified: {self._code_provider}')
+
 
 
 
