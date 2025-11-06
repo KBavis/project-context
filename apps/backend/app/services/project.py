@@ -102,12 +102,10 @@ class ProjectService:
         based on the posed question or a conveint way to query information from both collecitons if the the posed question corresponds to both.
         """
         chroma_client.create_collection(
-            name=f"{PROJECT}_CODE", 
-            embedding_function=self.embedding_manager.get_embedding_function("CODE")
+            name=f"{PROJECT}_CODE",
         ) 
         chroma_client.create_collection(
-            name=f"{PROJECT}_DOCS",
-            embedding_function=self.embedding_manager.get_embedding_function("DOCS")
+            name=f"{PROJECT}_DOCS"
         )
     
 
