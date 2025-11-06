@@ -9,12 +9,16 @@ from typing import List
 class DataSourceService:
     def __init__(self, db: Session):
         self.db = db 
+        self.valid_providers = ['GitHub', 'BitBucket', 'Confluence']
+        self.valid_source_types = ['Documentation', 'Code']
     
 
     def create_data_source(self, request: DataSourceRequest) -> dict:
         """
         Functionality to persist new DataSource based on specified request
         """
+
+        self._validate_data_source_request(request)
         
         # create data source
         data_source = DataSource(
@@ -73,4 +77,15 @@ class DataSourceService:
 
 
     
+
+    def _validate_data_source_request(self, request):
+        """
+        Ensure the specified request is valid
+        """
+
+        if request.provider not in self.valid_providers:
+            raise Exception(f'Invalid provider specified when attempting to create Data Source. Valid Providers: {self.valid_providers}')
+        
+        if request.source_type not in self.valid_source_types:
+            raise Exception(f'Invalid source type specified when attempting to create Data Source. Valid Source Types: {self.valid_source_types}')
 
