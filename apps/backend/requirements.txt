@@ -2,8 +2,12 @@ uvicorn==0.34.0
 SQLAlchemy==2.0.40
 psycopg2-binary==2.9.9
 fastapi==0.115.12
-pydantic==2.11.3
+pydantic==2.12.4
 pydantic-settings==2.8.1
 python-dotenv==1.1.0
 chromadb==1.2.1
 openai==2.7.1
+
+llama-index-core==0.14.7
+llama-index-vector-stores-chroma==0.5.3
+llama-index-embeddings-huggingface==0.6.1
