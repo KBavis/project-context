@@ -11,9 +11,7 @@ from ..models import (Base)
 def _make_engine() -> Engine:
     """Create database Engine"""
     engine = create_engine(
-        settings.REL_DB_URL,
-        echo=True,
-        echo_pool=True
+        settings.REL_DB_URL
     )
     return engine
 
