@@ -1,10 +1,12 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+from app.core import settings
 from models import DataSource
 from pathlib import Path
 import logging
 import re
 import requests
+import uuid
 
 
 class IngestionJobService:
@@ -42,9 +44,11 @@ class IngestionJobService:
         in order to quickly determine what's already been retireving before
         """
 
-        # create temporary data directory 
-        path = Path("tmp")
-        path.mkdir()
+        # create temporary data directories
+        docs_path = Path("tmp/docs")
+        docs_path.mkdir()
+        code_path = Path("/tmp/code")
+        code_path.mkdir()
 
 
         # retrieve data differently based on provider & store within temp directory
@@ -69,7 +73,8 @@ class IngestionJobService:
         # use ChromaVectorStore to store 
 
         # remove temporary directory with retrieved files
-        path.rmdir()
+        code_path.rmdir()
+        docs_path.rmdir()
     
 
     def _fetch_github_repository_content(self, url: str): 
@@ -77,6 +82,9 @@ class IngestionJobService:
         Functionality to parse our GitHub Url and invoke relevant functionality
         to DFS through repository and retrieve relevant files to store within our 
         temporary directory to be stored by Chroma DB 
+
+        TODO: GitHub repositories may contain a /docs folder or some README files. These should 
+        be stored within our docs collection 
 
         Args:
             url (str) - relevant URL 
@@ -94,7 +102,7 @@ class IngestionJobService:
         repository = url_parts[4]
 
         # reach out to GitHub and recurisvely fetch and store documentation within our temp directory 
-        files = self._retrieve_repository_content(f"https://api.github.com/repos/{user}/{repository}/contents?ref=main")
+        self._retrieve_repository_content(f"https://api.github.com/repos/{user}/{repository}/contents?ref=main")
 
         # store the files in the temporary directory to be ingested into Chroma DB 
 
@@ -104,11 +112,13 @@ class IngestionJobService:
 
         TODO: Look into doing these reuqests async
 
+        TODO: Look into handling private GitHub repositories 
+
         Args:
             url (str) - current URL to retrieve content from 
         """
 
-
+        # make request to retrieve content from specific directory 
         content = None
         try:
             response = requests.get(curr_url)
@@ -123,20 +133,53 @@ class IngestionJobService:
             
             # download file and put into temp directory
             if node['type'] == "file":
-                self._download_file(node['download_url'])
+                self._download_file(node['download_url'], node['name'])
+            else:
+                # recursively download files in specificied directory 
+                self._retrieve_repository_content(self, node['url'])
 
     
 
     def _download_file(self, url: str, file_name: str):
+        """
+        Helper function to download a file and store within relevant temporary directory
+        """
+
+        # ensure valid file name 
+        if not file_name or "." not in file_name:
+            logging.warning(f'Skipping attempt to download file from URL={url} and file_name={file_name}')
+            return 
+
+        # ensure valid file type          
+        file_extension = file_name.split(".")[-1]  
+
+        file_type = ""
+        if file_extension in settings.CODE_FILE_EXTENSIONS:
+            file_type = "CODE"
+        elif file_extension in settings.DOCS_FILE_EXTENSIONS:
+            file_type = "DOCS"
+        else:
+            logging.warning(f"File extension {file_extension} not a valid Docs / Code file extension, skipping download")
+            return 
+
 
         try:
+            # retrieve file from specific URL 
             response = requests.get(url, stream=True)
             response.raise_for_status()
 
-            # TODO: Determine if we should either download the file into the temporary directory or actually just instantly chunk it and store into our Vector DB
+            # write file to temporary directory 
+            dir = "/tmp/docs" if file_type == "DOCS" else "/tmp/code"
+            temp_file_name = f"{dir}/file_{str(uuid.uuid4())}" 
+
+            with open(temp_file_name, 'wb') as f:
+                for chunk in response.iter_content(8192):
+                    f.write(chunk)
+
 
         except Exception as e:
             raise Exception(f"Failure occurred while attempt to download file: {file_name}")
+
 
                 
 
