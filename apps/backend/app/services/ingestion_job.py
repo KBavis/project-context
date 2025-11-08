@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.core import settings
-from models import DataSource
+from app.models import DataSource
 from pathlib import Path
 import logging
 import re
@@ -17,7 +17,8 @@ class IngestionJobService:
     def ingest_data(self, data_source_id):
         
         # retrieve data source 
-        data_source = select(DataSource).where(DataSource.id == data_source_id)
+        stmt = select(DataSource).where(DataSource.id == data_source_id)
+        data_source = self.db.execute(stmt).scalar_one_or_none()
 
         if not data_source:
             raise Exception('Invalid specified Data Source ID to ingest data from')
