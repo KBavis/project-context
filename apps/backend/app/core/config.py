@@ -38,7 +38,9 @@ class Settings(BaseSettings):
         'sql',
         'xml',
         'json',
-        'md'
+        'md',
+        'yaml',
+        'yml'
     }
 
     DOCS_FILE_EXTENSIONS: Set[str] = {
