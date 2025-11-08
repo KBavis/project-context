@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     CODE_EMBEDDING_PROVIDER: Optional[str] = "HuggingFace"
     CODE_EMBEDDING_MODEL: Optional[str] = "jinaai/ina-embeddings-v2-base-code"
 
+    GITHUB_SECRET_TOKEN: Optional[str] = None
     HUGGING_FACE_API_KEY: Optional[str] = None
     OPEN_AI_API_KEY: Optional[str] = None
 
