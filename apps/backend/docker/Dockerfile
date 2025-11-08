@@ -7,7 +7,9 @@ WORKDIR /build
 
 COPY requirements.txt . 
 
-RUN pip install --no-cache-dir --no-warn-script-location --user --root-user-action=ignore -r requirements.txt
+# user docker buildkit to cache deps locally and reduce build times
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir --no-warn-script-location --user --root-user-action=ignore -r requirements.txt
 
 # production stage 
 FROM python:3.12-slim AS production
