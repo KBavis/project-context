@@ -59,11 +59,6 @@ class IngestionJobService:
                 self._fetch_github_repository_content(data_source.url)
             case _:
                 logging.error(f"The specified Data Source provider is not configured for this application") 
-        
-        if not data:
-            raise Exception('Failed to retrieve data from provider')
-
-
         # iterate through each file and chunk intelligently 
 
         # retrieve relevant projects corresponding to Data Source 
@@ -101,12 +96,15 @@ class IngestionJobService:
         user = url_parts[3]
         repository = url_parts[4]
 
+        # generate headers
+        headers =  {'Authorization': f'token {settings.GITHUB_SECRET_TOKEN}'} if settings.GITHUB_SECRET_TOKEN else {}
+
         # reach out to GitHub and recurisvely fetch and store documentation within our temp directory 
-        self._retrieve_repository_content(f"https://api.github.com/repos/{user}/{repository}/contents?ref=main")
+        self._retrieve_repository_content(f"https://api.github.com/repos/{user}/{repository}/contents?ref=main", headers)
 
         # store the files in the temporary directory to be ingested into Chroma DB 
 
-    def _retrieve_repository_content(self, curr_url: str):
+    def _retrieve_repository_content(self, curr_url: str, headers: dict = {}):
         """
         Functionality to recurisvely download files from the specified repository 
 
@@ -116,12 +114,13 @@ class IngestionJobService:
 
         Args:
             url (str) - current URL to retrieve content from 
+            headers (dict) - relevant headers to make request
         """
 
         # make request to retrieve content from specific directory 
         content = None
         try:
-            response = requests.get(curr_url)
+            response = requests.get(curr_url, headers=headers)
             response.raise_for_status()
             content = response.json() 
         except Exception as e:
@@ -134,14 +133,14 @@ class IngestionJobService:
             
             # download file and put into temp directory
             if node['type'] == "file":
-                self._download_file(node['download_url'], node['name'])
+                self._download_file(node['download_url'], node['name'], headers)
             else:
                 # recursively download files in specificied directory 
                 self._retrieve_repository_content(node['url'])
 
     
 
-    def _download_file(self, url: str, file_name: str):
+    def _download_file(self, url: str, file_name: str, headers: dict):
         """
         Helper function to download a file and store within relevant temporary directory
         """
@@ -166,7 +165,7 @@ class IngestionJobService:
 
         try:
             # retrieve file from specific URL 
-            response = requests.get(url, stream=True)
+            response = requests.get(url, stream=True, headers=headers)
             response.raise_for_status() 
 
             # write file to temporary directory 
@@ -191,15 +190,20 @@ class IngestionJobService:
             docs_path: directory storing docs files
         """                 
 
-        for path in zip(code_path, docs_path):
+        for path in [code_path, docs_path]:
 
             # remove files            
             for file_path in path.iterdir():
                 if file_path.is_file():
                     file_path.unlink()
 
-            # remove dir 
+            # remove child dir 
             path.rmdir()  
+        
+
+        # remove /tmp parent dir 
+        path = Path('tmp')
+        path.rmdir()
         
 
 
