@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Set
 
 class Settings(BaseSettings):
 
@@ -20,6 +20,33 @@ class Settings(BaseSettings):
     OPEN_AI_API_KEY: Optional[str] = None
 
     VALID_PROIVDERS: list = ["OpenAI", "HuggingFace"] 
+
+    CODE_FILE_EXTENSIONS: Set[str] = set{
+        'c', 
+        'cpp',
+        'cs',
+        'java',
+        'js',
+        'py',
+        'php',
+        'html',
+        'css',
+        'swift',
+        'rb',
+        'pl',
+        'sh',
+        'sql',
+        'xml',
+        'json',
+        'md'
+    }
+
+    DOCS_FILE_EXTENSIONS: Set[str] = set{
+        'doc',
+        'docx',
+        'pdf',
+        'txt'
+    }
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[2] / '.env',
