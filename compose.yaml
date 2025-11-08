@@ -3,11 +3,8 @@ services:
   backend:
     image: backend-app
     container_name: backend 
-    environment:
-      - REL_DB_URL=${REL_DB_URL}
-      - VECTOR_DB_HOST=${VECTOR_DB_HOST}
-      - VECTOR_DB_PORT=${VECTOR_DB_PORT}
-      - HUGGING_FACE_API_KEY=${HUGGING_FACE_API_KEY}
+    env_file:
+      - ./apps/backend/.env
     ports:
       - "8000:8000"
     depends_on:
