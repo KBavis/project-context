@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     VALID_PROIVDERS: list = ["OpenAI", "HuggingFace"] 
 
-    CODE_FILE_EXTENSIONS: Set[str] = set{
+    CODE_FILE_EXTENSIONS: Set[str] = set(
         'c', 
         'cpp',
         'cs',
@@ -39,14 +39,14 @@ class Settings(BaseSettings):
         'xml',
         'json',
         'md'
-    }
+    )
 
-    DOCS_FILE_EXTENSIONS: Set[str] = set{
+    DOCS_FILE_EXTENSIONS: Set[str] = set(
         'doc',
-        'docx',
-        'pdf',
-        'txt'
-    }
+        'docx', 
+        'pdf', 
+        'txt' 
+    )
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[2] / '.env',
