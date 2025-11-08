@@ -47,16 +47,16 @@ class IngestionJobService:
 
         # create temporary data directories
         docs_path = Path("tmp/docs")
-        docs_path.mkdir()
-        code_path = Path("/tmp/code")
-        code_path.mkdir()
+        docs_path.mkdir(exist_ok=True, parents=True)
+        code_path = Path("tmp/code")
+        code_path.mkdir(exist_ok=True, parents=True)
 
 
         # retrieve data differently based on provider & store within temp directory
-        data = None
         match data_source.provider:
             case 'GitHub':
-                data = self._fetch_github_repository_content(data_source.url)
+                logging.info(f'Attempting to retrieve data from GitHub provider for URL: {data_source.url}')
+                self._fetch_github_repository_content(data_source.url)
             case _:
                 logging.error(f"The specified Data Source provider is not configured for this application") 
         
@@ -74,8 +74,7 @@ class IngestionJobService:
         # use ChromaVectorStore to store 
 
         # remove temporary directory with retrieved files
-        code_path.rmdir()
-        docs_path.rmdir()
+        self._cleanup_tmp_dirs(code_path, docs_path)
     
 
     def _fetch_github_repository_content(self, url: str): 
@@ -107,7 +106,7 @@ class IngestionJobService:
 
         # store the files in the temporary directory to be ingested into Chroma DB 
 
-    def _retrieve_repository_content(self, curr_url):
+    def _retrieve_repository_content(self, curr_url: str):
         """
         Functionality to recurisvely download files from the specified repository 
 
@@ -126,7 +125,8 @@ class IngestionJobService:
             response.raise_for_status()
             content = response.json() 
         except Exception as e:
-            raise Exception(f'Failure while attempting to retrieve data from the URL {curr_url}')
+            logging.error(f'Failure while attempting to retrieve data from the URL {curr_url}')
+            raise e
         
 
         # iterate through nodes in response
@@ -137,7 +137,7 @@ class IngestionJobService:
                 self._download_file(node['download_url'], node['name'])
             else:
                 # recursively download files in specificied directory 
-                self._retrieve_repository_content(self, node['url'])
+                self._retrieve_repository_content(node['url'])
 
     
 
@@ -167,10 +167,10 @@ class IngestionJobService:
         try:
             # retrieve file from specific URL 
             response = requests.get(url, stream=True)
-            response.raise_for_status()
+            response.raise_for_status() 
 
             # write file to temporary directory 
-            dir = "/tmp/docs" if file_type == "DOCS" else "/tmp/code"
+            dir = "tmp/docs" if file_type == "DOCS" else "tmp/code"
             temp_file_name = f"{dir}/file_{str(uuid.uuid4())}" 
 
             with open(temp_file_name, 'wb') as f:
@@ -182,7 +182,28 @@ class IngestionJobService:
             raise Exception(f"Failure occurred while attempt to download file: {file_name}")
 
 
-                
+    def _cleanup_tmp_dirs(self, code_path: Path, docs_path: Path):
+        """
+        Remove files from temporary directory and remove directory altogether 
+
+        Args:
+            code_path: directory storing code files 
+            docs_path: directory storing docs files
+        """                 
+
+        for path in zip(code_path, docs_path):
+
+            # remove files            
+            for file_path in path.iterdir():
+                if file_path.is_file():
+                    file_path.unlink()
+
+            # remove dir 
+            path.rmdir()  
+        
+
+
+        
 
 
 
