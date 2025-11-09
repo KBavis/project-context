@@ -22,6 +22,10 @@ class Settings(BaseSettings):
 
     VALID_PROIVDERS: list = ["OpenAI", "HuggingFace"] 
 
+    TMP: Optional[str] = "tmp"
+    TMP_DOCS: Optional[str] = f"{TMP}/docs"
+    TMP_CODE: Optional[str] = f"{TMP}/code"
+
     CODE_FILE_EXTENSIONS: Set[str] = {
         'c', 
         'cpp',
