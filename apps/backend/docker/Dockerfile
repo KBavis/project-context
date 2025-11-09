@@ -18,6 +18,14 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 
+# install libGL and tesseract (OpenCV dep used by Dockling requires it)
+RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglib2.0-0 \
+    tesseract-ocr \
+    && rm -rf /var/lib/apt/lists/*
+
+
 # copy Python packages from builder stage
 COPY --from=builder /root/.local /root/.local 
 
