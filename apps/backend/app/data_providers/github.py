@@ -15,7 +15,8 @@ class GithubDataProvider(DataProvider):
         parsed_url = self.url.split("/")
         self.repository_user = parsed_url[3]
         self.repository_name = parsed_url[4]
-        self.repository_url = f"https://api.github.com/repos/{self.repository_user}/{self.repository_name}/contents?ref={branch}"
+        self.branch_name = branch
+        self.repository_url = f"https://api.github.com/repos/{self.repository_user}/{self.repository_name}/contents?ref={self.branch_name}"
 
 
     def ingest_data(self):
@@ -117,7 +118,7 @@ class GithubDataProvider(DataProvider):
 
             # write file to temporary directory 
             dir = settings.TMP_DOCS if file_type == "DOCS" else settings.TMP_CODE
-            temp_file_name = f"{dir}/file_{str(uuid.uuid4())}.{file_extension}" 
+            temp_file_name = f"{dir}/{self._get_file_name(url)}" 
 
             with open(temp_file_name, 'wb') as f:
                 for chunk in response.iter_content(8192):
@@ -126,3 +127,22 @@ class GithubDataProvider(DataProvider):
 
         except Exception as e:
             raise Exception(f"Failure occurred while attempt to download file: {file_name}")
+    
+
+
+    def _get_file_name(self, url: str):
+        """
+        Helper function to retrieve the relevatn file name to store in temporary directory
+
+        Args
+            url (str) - download URL for the specified file
+        """
+
+        file_paths = url.split("/")
+        if not file_paths:
+            raise Exception(f'Invalid GitHub download URL specified: {url}')
+
+        # find index of specified branch in download URL 
+        branch_idx = file_paths.index(self.branch_name)
+        
+        return "-".join(path for path in file_paths[branch_idx + 1:])
