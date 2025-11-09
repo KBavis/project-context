@@ -89,6 +89,7 @@ class IngestionJobService:
 
 
 
+
     def _create_tmp_dirs(self):
         """
         Create temporary directory for storing downloaded code and documentation files 
@@ -148,24 +149,21 @@ class IngestionJobService:
             docs_path: directory storing docs files
         """                 
 
-        for path in [code_path, docs_path]:
+        tmp_dir = Path(settings.TMP)
 
-            # remove files            
-            for file_path in path.iterdir():
-                if file_path.is_file():
-                    file_path.unlink()
+        # delete all files in /tmp & corresponding sub-directories 
+        for file_path in tmp_dir.rglob("*"):
+            if file_path.is_file():
+                file_path.unlink()
 
-            # remove child dir 
-            path.rmdir()  
         
-
-        # remove /tmp/docs/processed 
+        # remove dirs 
         path = Path(settings.TMP_DOCS + settings.PROCESSED_DIR)
-        path.rmdir()
+        path.rmdir() 
 
-        # remove /tmp parent dir 
-        path = Path(settings.TMP)
-        path.rmdir()
+        docs_path.rmdir()
+        code_path.rmdir() 
+        tmp_dir.rmdir()
         
 
 
