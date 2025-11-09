@@ -45,7 +45,7 @@ class IngestionJobService:
 
         code_path, docs_path = self._create_tmp_dirs()
 
-        # retrieve data differently based on provider & store within temp directory
+        # retrieve data based on provider & store within temp directory
         match data_source.provider:
             case 'GitHub':
                 logging.info(f'Attempting to retrieve data from GitHub provider for URL: {data_source.url}')
@@ -53,6 +53,7 @@ class IngestionJobService:
                 provider.ingest_data()
             case _:
                 logging.error(f"The specified Data Source provider is not configured for this application") 
+        
         # iterate through each file and chunk intelligently 
 
         # retrieve relevant projects corresponding to Data Source 
