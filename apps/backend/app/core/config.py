@@ -1,6 +1,8 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 from typing import Optional, Set
+import logging
+import sys
 
 class Settings(BaseSettings):
 
@@ -63,9 +65,36 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8"
     )
 
+settings = Settings()
+
+_LEVEL_BY_ENV: dict = {
+    "prod": logging.INFO,
+    "dev": logging.DEBUG
+}
+
+def setup_logging(): 
+    """
+    Configure root logger 
+    """
+
+    root = logging.getLogger() 
+    if root.handlers: # skip if handlers already setup 
+        return 
     
 
+    env = settings.ENV.lower() if hasattr(settings, "ENV") else "prod"
+    level = _LEVEL_BY_ENV.get(env, logging.info) 
 
-settings = Settings()
+
+    formatter = logging.Formatter(
+        fmt="[%(asctime)s - %(name)s - %(levelname)s] %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S%z",
+    )
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(formatter)
+
+    root.setLevel(level)
+    root.addHandler(handler)
 
     
