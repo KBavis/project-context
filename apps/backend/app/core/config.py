@@ -58,7 +58,6 @@ class Settings(BaseSettings):
     DOCS_FILE_EXTENSIONS: Set[str] = {
         'docx', 
         'pdf', 
-        'txt',
         'md'
     }
 
@@ -80,8 +79,8 @@ def setup_logging():
     """
 
     root = logging.getLogger() 
-    if root.handlers: # skip if handlers already setup 
-        return 
+    
+    root.handlers.clear() # clear existing handlers 
     
 
     env = settings.ENV.lower() if hasattr(settings, "ENV") else "prod"
@@ -100,7 +99,7 @@ def setup_logging():
     root.addHandler(handler)
 
     # quiet noisy loggers 
-    for noisy in ['urllib3.connectionpool', 'watchfiles.main', 'watchfiles', 'uvicorn.access']:
+    for noisy in ['urllib3.connectionpool', 'watchfiles.main', 'watchfiles']:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
     
