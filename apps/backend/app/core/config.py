@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
-from typing import Optional, Set
+from typing import Optional, Set, List
 import logging
 import sys
 
@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     VALID_PROIVDERS: list = ["OpenAI", "HuggingFace"] 
 
     TMP: Optional[str] = "tmp"
+    PROCESSED_DIR: Optional[str] = "/processed"
     TMP_DOCS: Optional[str] = f"{TMP}/docs"
     TMP_CODE: Optional[str] = f"{TMP}/code"
 
