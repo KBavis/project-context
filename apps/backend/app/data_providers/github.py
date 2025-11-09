@@ -1,9 +1,11 @@
-from .base import DataProvider
-import re 
-from app.core import settings
-import requests
 import logging
-import uuid
+import re 
+import requests
+
+from .base import DataProvider
+from app.core import settings
+
+logger = logging.getLogger(__name__)
 
 class GithubDataProvider(DataProvider):
 
@@ -72,7 +74,7 @@ class GithubDataProvider(DataProvider):
             response.raise_for_status()
             content = response.json() 
         except Exception as e:
-            logging.error(f'Failure while attempting to retrieve data from the URL {curr_url}')
+            logger.error(f'Failure while attempting to retrieve data from the URL {curr_url}')
             raise e
         
 
@@ -95,7 +97,7 @@ class GithubDataProvider(DataProvider):
 
         # ensure valid file name 
         if not file_name or "." not in file_name:
-            logging.warning(f'Skipping attempt to download file from URL={url} and file_name={file_name}')
+            logger.warning(f'Skipping attempt to download file from URL={url} and file_name={file_name}')
             return 
 
         # ensure valid file type          
@@ -107,7 +109,7 @@ class GithubDataProvider(DataProvider):
         elif file_extension in settings.DOCS_FILE_EXTENSIONS:
             file_type = "DOCS"
         else:
-            logging.warning(f"File extension {file_extension} not a valid Docs / Code file extension, skipping download")
+            logger.warning(f"File extension {file_extension} not a valid Docs / Code file extension, skipping download")
             return 
 
 
