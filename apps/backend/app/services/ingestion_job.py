@@ -12,7 +12,7 @@ class IngestionJobService:
         self.db = db 
     
 
-    def ingest_data(self, data_source_id):
+    def run_ingestion_job(self, data_source_id):
         
         # retrieve data source 
         stmt = select(DataSource).where(DataSource.id == data_source_id)

@@ -16,7 +16,7 @@ def create_ingestion_job(data_source_id: UUID, db: Session = Depends(get_db_sess
 
     try:
         svc = IngestionJobService(db)
-        svc.ingest_data(data_source_id)
+        svc.run_ingestion_job(data_source_id)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
