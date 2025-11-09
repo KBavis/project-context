@@ -7,8 +7,16 @@ import uuid
 
 class GithubDataProvider(DataProvider):
 
-    def __init__(self, url = ""):
+    def __init__(self, url:str = "", branch:str = "main"):
         super().__init__(url)
+        self._validate_url() # ensure URL is valid
+
+        # deconstruct URL to specifc fields
+        parsed_url = self.url.split("/")
+        self.repository_user = parsed_url[3]
+        self.repository_name = parsed_url[4]
+        self.repository_url = f"https://api.github.com/repos/{self.repository_user}/{self.repository_name}/contents?ref={branch}"
+
 
     def ingest_data(self):
         """
@@ -19,17 +27,9 @@ class GithubDataProvider(DataProvider):
         TODO: GitHub repositories may contain a /docs folder or some README files. These should 
         be stored within our docs collection 
         """
-        
-        # validate GitHub repository is specified 
-        self._validate_url() 
-
-        # extract user and repostiroy name from URL
-        url_parts = self.url.split("/")
-        user = url_parts[3]
-        repository = url_parts[4]
 
         # reach out to GitHub and recurisvely fetch and store documentation within our temp directory 
-        self._get_repository_data(f"https://api.github.com/repos/{user}/{repository}/contents?ref=main")
+        self._get_repository_data(self.repository_url)
     
 
     def _get_request_headers(self):
@@ -50,7 +50,7 @@ class GithubDataProvider(DataProvider):
             raise Exception(f'The specified data source URL, {self.url}, is not in the proper format: https://github.com/<user>/<repository>')
         
         
-    def _get_repository_data(self, curr_url: str):
+    def _get_repository_data(self, curr_url):
         """
         Functionality to recurisvely download files from the specified repository 
 
@@ -61,8 +61,7 @@ class GithubDataProvider(DataProvider):
         TODO: Consider making the "get_repo_data" function more generic for BitBucket re-use
 
         Args:
-            url (str) - current URL to retrieve content from 
-            headers (dict) - relevant headers to make request
+            curr_url (str) - current URL to retrieve content from 
         """
 
         # make request to retrieve content from specific directory 
