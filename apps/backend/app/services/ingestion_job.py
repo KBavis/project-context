@@ -1,11 +1,13 @@
+import logging
+
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.models import DataSource
 from pathlib import Path
-import logging
 from app.data_providers import GithubDataProvider
 from app.core import settings
 
+logger = logging.getLogger(__name__)
 
 class IngestionJobService:
     def __init__(self, db: Session):
@@ -48,11 +50,11 @@ class IngestionJobService:
         # retrieve data based on provider & store within temp directory
         match data_source.provider:
             case 'GitHub':
-                logging.info(f'Attempting to retrieve data from GitHub provider for URL: {data_source.url}')
+                logger.info(f'Attempting to retrieve data from GitHub provider for URL: {data_source.url}')
                 provider = GithubDataProvider(url=data_source.url)
                 provider.ingest_data()
             case _:
-                logging.error(f"The specified Data Source provider is not configured for this application") 
+                logger.error(f"The specified Data Source provider is not configured for this application") 
         
         # iterate through each file and chunk intelligently 
 

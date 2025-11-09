@@ -1,3 +1,5 @@
+import logging
+
 from sqlalchemy.orm import Session
 from app.pydantic import DataSourceRequest
 from app.models import DataSource, Project, ProjectData
@@ -5,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 from typing import List
 
+logger = logging.getLogger(__name__)
 
 class DataSourceService:
     def __init__(self, db: Session):

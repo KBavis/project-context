@@ -1,3 +1,5 @@
+import logging
+
 from sqlalchemy.orm import Session
 from app.pydantic import ProjectRequest
 from app.models import Project
@@ -6,6 +8,7 @@ from app.embeddings.manager import EmbeddingManager
 from chromadb.api import ClientAPI
 from sqlalchemy import select
 
+logger = logging.getLogger(__name__)
 
 class ProjectService:
     def __init__(self, db: Session, chroma_manager: ChromaClientManager, embedding_manager: EmbeddingManager):
