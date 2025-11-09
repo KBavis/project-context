@@ -43,7 +43,7 @@ class IngestionJobService:
         # use relevant chunking mechanism based on content type 
 
         # use vector store index to ingest data 
-        
+
         # TODO: Return IngestionJob created ID 
         return {
             "message": "Success"
@@ -107,6 +107,9 @@ class IngestionJobService:
     def _convert_docs_to_markdown(self):
         """
         Convert each temporary document downloaded to a markdown file 
+
+        TODO: Configure onnxruntime and gpu acceleration to speed up this conversion if possible based on 
+        local machine 
         """
 
         # convert configured docs file extensions to docling InputFormats
