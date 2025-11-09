@@ -1,11 +1,15 @@
 import logging
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+
 from app.models import DataSource
-from pathlib import Path
 from app.data_providers import GithubDataProvider
 from app.core import settings
+
+from docling.document_converter import DocumentConverter
+from docling.datamodel.base_models import InputFormat
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +29,8 @@ class IngestionJobService:
 
         # use data source information to fetch relevant data & store in temp directory 
         self._retrieve_data(data_source)
+
+        #TODO: Use docling to convert all files in /tmp/docs to .md 
 
 
         # retrieve chroma DB collection 
@@ -56,6 +62,9 @@ class IngestionJobService:
             case _:
                 logger.error(f"The specified Data Source provider is not configured for this application") 
         
+        # convert any docs to unified markdown format 
+        self._convert_docs_to_markdown()
+        
         # iterate through each file and chunk intelligently 
 
         # retrieve relevant projects corresponding to Data Source 
@@ -84,6 +93,43 @@ class IngestionJobService:
         return code_path, docs_path
     
 
+
+    def _convert_docs_to_markdown(self):
+        """
+        Convert each temporary document downloaded to a markdown file 
+        """
+
+        # convert configured docs file extensions to docling InputFormats
+        allowed_formats = [ InputFormat(allowed_format.lower()) for allowed_format in settings.DOCS_FILE_EXTENSIONS ]
+
+        # create converter for creating Docling Documents from our local files
+        docs_converter = DocumentConverter(
+            allowed_formats=allowed_formats 
+            #TODO: Consider looking through specific formatting for specific file types 
+        )
+
+        # retrieve list of files from tmp docs 
+        tmp_docs = Path(settings.TMP_DOCS)
+        input_files = list(tmp_docs.glob("**/*")) 
+        filtered_doc_files = [f for f in input_files if f.is_file()] # only retrieve files
+
+        # convert all docs files to Docling Docs
+        conv_results = docs_converter.convert_all(filtered_doc_files)
+
+        # create processed docs dir to save md files to
+        path = settings.TMP_DOCS + settings.PROCESSED_DIR
+        out_path = Path(path)
+        out_path.mkdir(exist_ok=True, parents=True)
+
+
+        # write docling files as md files in processed dir
+        for res in conv_results:
+            file_name = f"{res.input.file.stem}.md"
+            
+            with open(out_path / f"{file_name}", "w") as fp:
+                fp.write(res.document.export_to_markdown())
+        
+
     def _cleanup_tmp_dirs(self, code_path: Path, docs_path: Path):
         """
         Remove files from temporary directory and remove directory altogether 
@@ -103,6 +149,10 @@ class IngestionJobService:
             # remove child dir 
             path.rmdir()  
         
+
+        # remove /tmp/docs/processed 
+        path = Path(settings.TMP_DOCS + settings.PROCESSED_DIR)
+        path.rmdir()
 
         # remove /tmp parent dir 
         path = Path(settings.TMP)
