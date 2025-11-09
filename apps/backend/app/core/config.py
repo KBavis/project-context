@@ -99,7 +99,7 @@ def setup_logging():
     root.addHandler(handler)
 
     # quiet noisy loggers 
-    for noisy in ['urllib3.connectionpool', 'watchfiles.main', 'watchfiles']:
+    for noisy in ['urllib3.connectionpool', 'watchfiles.main', 'watchfiles', 'filelock', 'docling']:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
     
