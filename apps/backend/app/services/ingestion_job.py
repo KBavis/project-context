@@ -19,6 +19,11 @@ class IngestionJobService:
     
 
     def run_ingestion_job(self, data_source_id):
+        """
+        Kick off ingestion job for specified data source and store relevant ingested data into ChromaDB
+
+        TODO: Processing is taking very long, defintely need to convert to async and run this flow in background or request could timeout
+        """
         
         # retrieve data source 
         stmt = select(DataSource).where(DataSource.id == data_source_id)
@@ -38,7 +43,11 @@ class IngestionJobService:
         # use relevant chunking mechanism based on content type 
 
         # use vector store index to ingest data 
-        return None
+        
+        # TODO: Return IngestionJob created ID 
+        return {
+            "message": "Success"
+        }
     
 
 
