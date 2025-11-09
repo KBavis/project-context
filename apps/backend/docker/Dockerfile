@@ -18,7 +18,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 
-# install libGL and tesseract (OpenCV dep used by Dockling requires it)
+# install libGL and tesseract (OpenCV dep used by Docling requires it)
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
