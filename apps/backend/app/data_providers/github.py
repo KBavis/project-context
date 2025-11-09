@@ -118,7 +118,7 @@ class GithubDataProvider(DataProvider):
 
             # write file to temporary directory 
             dir = settings.TMP_DOCS if file_type == "DOCS" else settings.TMP_CODE
-            temp_file_name = f"{dir}/file_{str(uuid.uuid4())}" 
+            temp_file_name = f"{dir}/file_{str(uuid.uuid4())}.{file_extension}" 
 
             with open(temp_file_name, 'wb') as f:
                 for chunk in response.iter_content(8192):
