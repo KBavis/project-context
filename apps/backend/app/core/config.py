@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     TMP_DOCS: Optional[str] = f"{TMP}/docs"
     TMP_CODE: Optional[str] = f"{TMP}/code"
 
+    ENV: Optional[str] = "dev"
+
     CODE_FILE_EXTENSIONS: Set[str] = {
         'c', 
         'cpp',
@@ -83,7 +85,7 @@ def setup_logging():
     
 
     env = settings.ENV.lower() if hasattr(settings, "ENV") else "prod"
-    level = _LEVEL_BY_ENV.get(env, logging.info) 
+    level = _LEVEL_BY_ENV.get(env, logging.INFO) 
 
 
     formatter = logging.Formatter(
@@ -91,7 +93,7 @@ def setup_logging():
         datefmt="%Y-%m-%dT%H:%M:%S%z",
     )
 
-    handler = logging.StreamHandler(sys.stdout)
+    handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(formatter)
 
     root.setLevel(level)
