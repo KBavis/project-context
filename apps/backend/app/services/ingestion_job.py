@@ -1,12 +1,10 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from app.core import settings
 from app.models import DataSource
 from pathlib import Path
 import logging
-import re
-import requests
-import uuid
+from app.data_providers import GithubDataProvider
+from app.core import settings
 
 
 class IngestionJobService:
@@ -45,18 +43,14 @@ class IngestionJobService:
         in order to quickly determine what's already been retireving before
         """
 
-        # create temporary data directories
-        docs_path = Path("tmp/docs")
-        docs_path.mkdir(exist_ok=True, parents=True)
-        code_path = Path("tmp/code")
-        code_path.mkdir(exist_ok=True, parents=True)
-
+        code_path, docs_path = self._create_tmp_dirs()
 
         # retrieve data differently based on provider & store within temp directory
         match data_source.provider:
             case 'GitHub':
                 logging.info(f'Attempting to retrieve data from GitHub provider for URL: {data_source.url}')
-                self._fetch_github_repository_content(data_source.url)
+                provider = GithubDataProvider(url=data_source.url)
+                provider.ingest_data()
             case _:
                 logging.error(f"The specified Data Source provider is not configured for this application") 
         # iterate through each file and chunk intelligently 
@@ -68,118 +62,24 @@ class IngestionJobService:
 
         # use ChromaVectorStore to store 
 
-        # remove temporary directory with retrieved files
         self._cleanup_tmp_dirs(code_path, docs_path)
+
+
+
+
+
+    def _create_tmp_dirs(self):
+        """
+        Create temporary directory for storing downloaded code and documentation files 
+        """
+
+        docs_path = Path(settings.TMP_DOCS)
+        docs_path.mkdir(exist_ok=True, parents=True)
+        code_path = Path(settings.TMP_CODE)
+        code_path.mkdir(exist_ok=True, parents=True)
+
+        return code_path, docs_path
     
-
-    def _fetch_github_repository_content(self, url: str): 
-        """
-        Functionality to parse our GitHub Url and invoke relevant functionality
-        to DFS through repository and retrieve relevant files to store within our 
-        temporary directory to be stored by Chroma DB 
-
-        TODO: GitHub repositories may contain a /docs folder or some README files. These should 
-        be stored within our docs collection 
-
-        Args:
-            url (str) - relevant URL 
-        """
-        
-        # validate GitHub repository is specified 
-        pattern = r"^https:\/\/github.com\/([^\/]+)\/([^\/]+)$" 
-        if not re.match(pattern, url):
-            raise Exception(f'The specified data source URL, {url}, is not in the proper format: https://github.com/<user>/<repository>')
-        
-
-        # extract user and repostiroy name from URL
-        url_parts = url.split("/")
-        user = url_parts[3]
-        repository = url_parts[4]
-
-        # generate headers
-        headers =  {'Authorization': f'token {settings.GITHUB_SECRET_TOKEN}'} if settings.GITHUB_SECRET_TOKEN else {}
-
-        # reach out to GitHub and recurisvely fetch and store documentation within our temp directory 
-        self._retrieve_repository_content(f"https://api.github.com/repos/{user}/{repository}/contents?ref=main", headers)
-
-        # store the files in the temporary directory to be ingested into Chroma DB 
-
-    def _retrieve_repository_content(self, curr_url: str, headers: dict = {}):
-        """
-        Functionality to recurisvely download files from the specified repository 
-
-        TODO: Look into doing these reuqests async
-
-        TODO: Look into handling private GitHub repositories 
-
-        Args:
-            url (str) - current URL to retrieve content from 
-            headers (dict) - relevant headers to make request
-        """
-
-        # make request to retrieve content from specific directory 
-        content = None
-        try:
-            response = requests.get(curr_url, headers=headers)
-            response.raise_for_status()
-            content = response.json() 
-        except Exception as e:
-            logging.error(f'Failure while attempting to retrieve data from the URL {curr_url}')
-            raise e
-        
-
-        # iterate through nodes in response
-        for node in content: 
-            
-            # download file and put into temp directory
-            if node['type'] == "file":
-                self._download_file(node['download_url'], node['name'], headers)
-            else:
-                # recursively download files in specificied directory 
-                self._retrieve_repository_content(node['url'])
-
-    
-
-    def _download_file(self, url: str, file_name: str, headers: dict):
-        """
-        Helper function to download a file and store within relevant temporary directory
-        """
-
-        # ensure valid file name 
-        if not file_name or "." not in file_name:
-            logging.warning(f'Skipping attempt to download file from URL={url} and file_name={file_name}')
-            return 
-
-        # ensure valid file type          
-        file_extension = file_name.split(".")[-1]  
-
-        file_type = ""
-        if file_extension in settings.CODE_FILE_EXTENSIONS:
-            file_type = "CODE"
-        elif file_extension in settings.DOCS_FILE_EXTENSIONS:
-            file_type = "DOCS"
-        else:
-            logging.warning(f"File extension {file_extension} not a valid Docs / Code file extension, skipping download")
-            return 
-
-
-        try:
-            # retrieve file from specific URL 
-            response = requests.get(url, stream=True, headers=headers)
-            response.raise_for_status() 
-
-            # write file to temporary directory 
-            dir = "tmp/docs" if file_type == "DOCS" else "tmp/code"
-            temp_file_name = f"{dir}/file_{str(uuid.uuid4())}" 
-
-            with open(temp_file_name, 'wb') as f:
-                for chunk in response.iter_content(8192):
-                    f.write(chunk)
-
-
-        except Exception as e:
-            raise Exception(f"Failure occurred while attempt to download file: {file_name}")
-
 
     def _cleanup_tmp_dirs(self, code_path: Path, docs_path: Path):
         """
@@ -202,7 +102,7 @@ class IngestionJobService:
         
 
         # remove /tmp parent dir 
-        path = Path('tmp')
+        path = Path(settings.TMP)
         path.rmdir()
         
 
