@@ -50,7 +50,6 @@ class Settings(BaseSettings):
         'sql',
         'xml',
         'json',
-        'md',
         'yaml',
         'yml'
     }
@@ -59,7 +58,8 @@ class Settings(BaseSettings):
         'doc',
         'docx', 
         'pdf', 
-        'txt' 
+        'txt',
+        'md'
     }
 
     model_config = SettingsConfigDict(
