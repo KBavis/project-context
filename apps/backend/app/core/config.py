@@ -55,7 +55,6 @@ class Settings(BaseSettings):
     }
 
     DOCS_FILE_EXTENSIONS: Set[str] = {
-        'doc',
         'docx', 
         'pdf', 
         'txt',
