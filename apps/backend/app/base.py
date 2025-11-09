@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from .core import (settings, init_db, engine)
+from .core import (settings, init_db, engine, setup_logging)
 from contextlib import asynccontextmanager
 from .routers import app_router
 
@@ -19,7 +19,7 @@ def create_app() -> FastAPI:
     create FastAPI application instance and configure settings
     """
 
-    # TODO: Setup logging 
+    setup_logging()
 
     app = FastAPI(
         title=settings.PROJECT_NAME,

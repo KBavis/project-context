@@ -99,4 +99,8 @@ def setup_logging():
     root.setLevel(level)
     root.addHandler(handler)
 
+    # quiet noisy loggers 
+    for noisy in ['urllib3.connectionpool', 'watchfiles.main', 'watchfiles', 'uvicorn.access']:
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
     
