@@ -8,8 +8,12 @@ python-dotenv==1.1.0
 chromadb==1.2.1
 openai==2.7.1
 
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch>=2.0.0
+
 llama-index-core==0.14.7
 llama-index-vector-stores-chroma==0.5.3
 llama-index-embeddings-huggingface==0.6.1
+
 docling==2.61.1 
 transformers==4.57.1
