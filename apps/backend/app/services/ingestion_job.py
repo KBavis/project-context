@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -8,9 +9,14 @@ from app.models import DataSource
 from app.data_providers import GithubDataProvider
 from app.core import settings
 
-from docling.document_converter import DocumentConverter
+from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
 from docling.exceptions import ConversionError
+from docling.pipeline.threaded_standard_pdf_pipeline import ThreadedStandardPdfPipeline
+from docling.datamodel.pipeline_options import ThreadedPdfPipelineOptions
+from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +86,9 @@ class IngestionJobService:
                 provider.ingest_data()
             case _:
                 logger.error(f"The specified Data Source provider is not configured for this application") 
+
+        
+        # TODO: Consider moving all of this functionality to run_ingestion_job in order for _retrieve_data to make more sense 
         
         # convert any docs to unified markdown format 
         self._convert_docs_to_markdown()
@@ -120,15 +129,37 @@ class IngestionJobService:
 
         TODO: Configure onnxruntime and gpu acceleration to speed up this conversion if possible based on 
         local machine 
+
+        TODO: Split some of this function up
         """
 
         # convert configured docs file extensions to docling InputFormats
         allowed_formats = [ InputFormat(allowed_format.lower()) for allowed_format in settings.DOCS_FILE_EXTENSIONS ]
 
+        # setup pipeline pipeline options 
+        try:
+            #TODO: Consider toggling on OCR for extracting text from image-based content 
+            pipeline_options = ThreadedPdfPipelineOptions(
+                accelerator_options= AcceleratorOptions(
+                    device=AcceleratorDevice(settings.DOCLING_ACCELERATOR_DEVICE)
+                ),
+                table_batch_size=4,
+                layout_batch_size=64
+            ) 
+            pipeline_options.do_table_structure=True 
+        except ValueError as e:
+            logger.error(f"Failed to created ThreadStandardPdfPipeline", exc_info=True)
+            raise e
+
         # create converter for creating Docling Documents from our local files
         docs_converter = DocumentConverter(
-            allowed_formats=allowed_formats 
-            #TODO: Consider looking through specific formatting for specific file types 
+            allowed_formats=allowed_formats,
+            format_options={
+                InputFormat.PDF : PdfFormatOption(
+                    pipeline_cls=ThreadedStandardPdfPipeline,
+                    pipeline_options=pipeline_options
+                )
+            }
         )
 
         # retrieve list of files from tmp docs 
