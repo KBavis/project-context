@@ -10,6 +10,9 @@ services:
     depends_on:
       - db
       - chromadb
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
   
   # frontend:
   #   image: frontend-app
