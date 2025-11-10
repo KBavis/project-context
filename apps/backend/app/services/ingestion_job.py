@@ -10,6 +10,7 @@ from app.core import settings
 
 from docling.document_converter import DocumentConverter
 from docling.datamodel.base_models import InputFormat
+from docling.exceptions import ConversionError
 
 logger = logging.getLogger(__name__)
 
@@ -126,8 +127,18 @@ class IngestionJobService:
         input_files = list(tmp_docs.glob("**/*")) 
         filtered_doc_files = [f for f in input_files if f.is_file()] # only retrieve files
 
+        # skip conversion if no new document files retrieved
+        if not filtered_doc_files:
+            logger.debug(f"No new Documentation files downloaded; skipping markdown conversion")
+            return 
+
+
         # convert all docs files to Docling Docs
-        conv_results = docs_converter.convert_all(filtered_doc_files)
+        try:
+            conv_results = docs_converter.convert_all(filtered_doc_files)
+        except ConversionError as e:
+            logger.error(f"Failed to convert all documents ingested", exc_info=True)
+            raise e
 
         # create processed docs dir to save md files to
         path = settings.TMP_DOCS + settings.PROCESSED_DIR
