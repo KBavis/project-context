@@ -1,14 +1,17 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
-from typing import Optional, Set, List
+from typing import Optional, Set
 import logging
 import sys
 
 class Settings(BaseSettings):
 
     PROJECT_NAME: str = "Project Context"
+
     PYTHONDONTWRITEBYTECODE: int = 1
+
     REL_DB_URL: str = ""
+
     VECTOR_DB_HOST: str = "localhost"
     VECTOR_DB_PORT: int = 8000
 
@@ -29,7 +32,9 @@ class Settings(BaseSettings):
     TMP_DOCS: Optional[str] = f"{TMP}/docs"
     TMP_CODE: Optional[str] = f"{TMP}/code"
 
-    ENV: Optional[str] = "dev"
+    ENV: Optional[str] = "dev" 
+
+    DEVICE: Optional[str] = "cpu"
 
     CODE_FILE_EXTENSIONS: Set[str] = {
         'c', 
