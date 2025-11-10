@@ -34,7 +34,7 @@ class Settings(BaseSettings):
 
     ENV: Optional[str] = "dev" 
 
-    DEVICE: Optional[str] = "cpu"
+    DOCLING_ACCELERATOR_DEVICE: Optional[str] = "cpu"
 
     CODE_FILE_EXTENSIONS: Set[str] = {
         'c', 
