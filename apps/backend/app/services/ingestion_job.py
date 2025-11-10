@@ -24,7 +24,9 @@ class IngestionJobService:
         Kick off ingestion job for specified data source and store relevant ingested data into ChromaDB
 
         TODO: Processing is taking very long, defintely need to convert to async and run this flow in background or request could timeout
-        """
+        """ 
+
+        job_start_time = datetime.now()
         
         # retrieve data source 
         stmt = select(DataSource).where(DataSource.id == data_source_id)
@@ -44,6 +46,13 @@ class IngestionJobService:
         # use relevant chunking mechanism based on content type 
 
         # use vector store index to ingest data 
+
+        # persist IngestionJob to DB 
+
+        job_end_time = datetime.now() 
+        duration = job_end_time - job_start_time
+
+        logger.info(f"Ingestion Job for DataSource={data_source_id} completed successfully in {duration.seconds} seconds")
 
         # TODO: Return IngestionJob created ID 
         return {
