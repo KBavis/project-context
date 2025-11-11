@@ -7,13 +7,13 @@ from sqlalchemy import select
 
 from app.pydantic import DataSourceRequest
 from app.models import DataSource, Project, ProjectData
+from app.core import settings
 
 logger = logging.getLogger(__name__)
 
 class DataSourceService:
     def __init__(self, db: Session):
         self.db = db 
-        self.valid_providers = ['GitHub', 'BitBucket', 'Confluence']
         self.valid_source_types = ['Documentation', 'Code']
     
 
@@ -27,9 +27,6 @@ class DataSourceService:
         # create data source
         data_source = DataSource(
             provider=request.provider, 
-            source_type=request.source_type, 
-            token=request.token,
-            api_key=request.api_key,
             url=request.url
         )
 
@@ -87,9 +84,6 @@ class DataSourceService:
         Ensure the specified request is valid
         """
 
-        if request.provider not in self.valid_providers:
-            raise Exception(f'Invalid provider specified when attempting to create Data Source. Valid Providers: {self.valid_providers}')
-        
-        if request.source_type not in self.valid_source_types:
-            raise Exception(f'Invalid source type specified when attempting to create Data Source. Valid Source Types: {self.valid_source_types}')
+        if request.provider not in settings.VALID_PROIVDERS:
+            raise Exception(f'Invalid provider specified when attempting to create Data Source. Valid Providers: {settings.VALID_PROIVDERS}')
 

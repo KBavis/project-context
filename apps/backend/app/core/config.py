@@ -36,6 +36,8 @@ class Settings(BaseSettings):
 
     DOCLING_ACCELERATOR_DEVICE: Optional[str] = "cpu"
 
+    VALID_PROVIDERS: Set[str] = {'GitHub', 'BitBucket', 'Confluence'}
+
     CODE_FILE_EXTENSIONS: Set[str] = {
         'c', 
         'cpp',
