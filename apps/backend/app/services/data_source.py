@@ -1,11 +1,12 @@
 import logging
+from uuid import UUID
+from typing import List
 
 from sqlalchemy.orm import Session
+from sqlalchemy import select
+
 from app.pydantic import DataSourceRequest
 from app.models import DataSource, Project, ProjectData
-from uuid import UUID
-from sqlalchemy import select
-from typing import List
 
 logger = logging.getLogger(__name__)
 
