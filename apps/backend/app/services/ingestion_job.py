@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 from datetime import datetime
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -25,11 +26,22 @@ class IngestionJobService:
         self.db = db 
     
 
-    def run_ingestion_job(self, data_source_id):
+    def run_ingestion_job(self, data_source_id: UUID, project_id: UUID = None):
         """
         Kick off ingestion job for specified data source and store relevant ingested data into ChromaDB
 
+        Args:
+            data_source_id (UUID) 
+                - specifici data source to retrieve data from 
+            project_id (Optional(UUID))
+                - optional project ID to only retrieve data for specified project
+
         TODO: Processing is taking very long, defintely need to convert to async and run this flow in background or request could timeout
+
+        NOTE:
+            1. When ingesting data, we should only account for code relevant to a particular project 
+            2. As of now, our logic will grab all code files from a specific data source 
+            3. In the long run, we should only grab files with commits corresponding to speciifc Projects for this data soruce 
         """ 
 
         job_start_time = datetime.now()
@@ -44,16 +56,21 @@ class IngestionJobService:
         # use data source information to fetch relevant data & store in temp directory 
         self._retrieve_data(data_source)
 
-        #TODO: Use docling to convert all files in /tmp/docs to .md 
+        # convert any docs to unified markdown format 
+        code_path, docs_path = self._convert_docs_to_markdown()
 
+        # iterate through each file and chunk intelligently 
 
-        # retrieve chroma DB collection 
+        # retrieve relevant projects corresponding to Data Source 
 
-        # use relevant chunking mechanism based on content type 
+        # retrieve embedding 
 
-        # use vector store index to ingest data 
+        # use ChromaVectorStore to store 
 
         # persist IngestionJob to DB 
+
+
+        self._cleanup_tmp_dirs(code_path, docs_path)
 
         job_end_time = datetime.now() 
         duration = job_end_time - job_start_time
@@ -74,6 +91,9 @@ class IngestionJobService:
 
         NOTE: In future, we should make some sort of "diff" calculation each time we retreive data from data source 
         in order to quickly determine what's already been retireving before
+
+        TODO: Allow for providers such as GitHub & BitBucket to be parsed by commit messages containing the 
+        Jira Ticket number 
         """
 
         code_path, docs_path = self._create_tmp_dirs()
@@ -87,22 +107,7 @@ class IngestionJobService:
             case _:
                 logger.error(f"The specified Data Source provider is not configured for this application") 
 
-        
-        # TODO: Consider moving all of this functionality to run_ingestion_job in order for _retrieve_data to make more sense 
-        
-        # convert any docs to unified markdown format 
-        self._convert_docs_to_markdown()
-        
-        # iterate through each file and chunk intelligently 
-
-        # retrieve relevant projects corresponding to Data Source 
-
-
-        # retrieve embedding 
-
-        # use ChromaVectorStore to store 
-
-        self._cleanup_tmp_dirs(code_path, docs_path)
+        return code_path, docs_path
 
 
 
