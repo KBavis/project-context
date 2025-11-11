@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from uuid import UUID
+from typing import Tuple
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -37,11 +38,6 @@ class IngestionJobService:
                 - optional project ID to only retrieve data for specified project
 
         TODO: Processing is taking very long, defintely need to convert to async and run this flow in background or request could timeout
-
-        NOTE:
-            1. When ingesting data, we should only account for code relevant to a particular project 
-            2. As of now, our logic will grab all code files from a specific data source 
-            3. In the long run, we should only grab files with commits corresponding to speciifc Projects for this data soruce 
         """ 
 
         job_start_time = datetime.now()
@@ -54,18 +50,27 @@ class IngestionJobService:
             raise Exception('Invalid specified Data Source ID to ingest data from')
 
         # use data source information to fetch relevant data & store in temp directory 
-        self._retrieve_data(data_source)
+        # TODO: Add configuration possibility to only retrieve data specific to the Jira Tickets provided in Project
+        code_path, docs_path = self._retrieve_data(data_source, project_id)
 
-        # convert any docs to unified markdown format 
-        code_path, docs_path = self._convert_docs_to_markdown()
+        # determine which data source types were downloaded 
+        has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(code_path)
 
-        # iterate through each file and chunk intelligently 
+        # validate retrieval resulted in some data being processed
+        if not has_docs and not has_code:
+            logger.warning('No new files ingested, skipping ingestion')
+            return
 
-        # retrieve relevant projects corresponding to Data Source 
+        if has_docs:
 
-        # retrieve embedding 
+            # convert any docs to unified markdown format 
+            self._convert_docs_to_markdown()
 
-        # use ChromaVectorStore to store 
+            # iterate through docs and chunk
+
+            # store results within Chroma DB, using embedding specified DataSource 
+        
+
 
         # persist IngestionJob to DB 
 
@@ -84,10 +89,14 @@ class IngestionJobService:
     
 
 
-    def _retrieve_data(self, data_source: DataSource):
+    def _retrieve_data(self, data_source: DataSource, project_id: UUID) -> Tuple[Path, Path]:
         """
         Retrieve relevant data from specified Data Source and store within temporary /data directory 
-        in order to be ingested into Chroma DB 
+        in order to be ingested into Chroma DB
+        
+        Args:
+            data_source (DataSource) - data source to ingest data from 
+            project_id (UUID) - optional specific project_id to only retrieve data for
 
         NOTE: In future, we should make some sort of "diff" calculation each time we retreive data from data source 
         in order to quickly determine what's already been retireving before
@@ -128,14 +137,11 @@ class IngestionJobService:
     
 
 
-    def _convert_docs_to_markdown(self):
+    def _convert_docs_to_markdown(self) -> Tuple[Path, Path]:
         """
         Convert each temporary document downloaded to a markdown file 
 
-        TODO: Configure onnxruntime and gpu acceleration to speed up this conversion if possible based on 
-        local machine 
-
-        TODO: Split some of this function up
+        TODO: Configure onnxruntime 
         """
 
         # convert configured docs file extensions to docling InputFormats
@@ -197,7 +203,7 @@ class IngestionJobService:
             
             with open(out_path / f"{file_name}", "w") as fp:
                 fp.write(res.document.export_to_markdown())
-        
+    
 
     def _cleanup_tmp_dirs(self, code_path: Path, docs_path: Path):
         """
@@ -225,6 +231,17 @@ class IngestionJobService:
         tmp_dir.rmdir()
         
 
+    def is_dir_not_empty(self, path: Path):
+        """
+        Check if the specified path directory is empty 
+
+        TODO: Move this to a directory utils class or something along with the cleanup / create tmp directories
+        """
+
+        if not path.is_dir():
+            raise Exception('Invalid directory path specified')
+
+        return any(path.iterdir())
 
         
 
