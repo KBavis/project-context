@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 class DataSourceService:
     def __init__(self, db: Session):
         self.db = db 
-        self.valid_source_types = ['Documentation', 'Code']
     
 
     def create_data_source(self, request: DataSourceRequest) -> dict:
@@ -72,7 +71,6 @@ class DataSourceService:
         return [{
             "id": data_source.id, 
             "provider" : data_source.provider,
-            "source_type" : data_source.source_type
         } for data_source in data_sources]
 
 
