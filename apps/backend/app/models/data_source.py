@@ -14,16 +14,7 @@ class DataSource(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, index=True, server_default=text("gen_random_uuid()"))
     provider: Mapped[str] = mapped_column(nullable=False, comment="Specific provider this datasource belongs to (GitHub, BitBucket, Confluence, etc)")
-    source_type: Mapped[str] = mapped_column(nullable=False, comment="Type of data this datasource contains (Messages, Documentation, Code)") 
-
-    """
-    Optional fields for provider specific data sources
-
-    TODO: token & api_key can probably be removed, as we really have no need to persist these 
-    """
-    token: Mapped[str] = mapped_column(nullable=True, comment="Security token for private repositories")
-    api_key: Mapped[str] = mapped_column(nullable=True, comment="API Key for private data sources (i.e Confluence for Organization)")
-    url: Mapped[str] = mapped_column(nullable=True, comment="URL corresponding to public/private repostiory this data may correspond to")
+    url: Mapped[str] = mapped_column(nullable=False, comment="URL corresponding to public/private repostiory this data may correspond to")
 
 
     # one to many relationship with IngestionJob
