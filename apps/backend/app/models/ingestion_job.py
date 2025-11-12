@@ -14,7 +14,7 @@ class IngestionJob(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, index=True, server_default=text("gen_random_uuid()"))
     processing_status: Mapped[str] = mapped_column(nullable=False)
-    data_source_id: Mapped[int] = mapped_column(ForeignKey("data_source.id"))
+    data_source_id: Mapped[UUID] = mapped_column(ForeignKey("data_source.id"))
 
     data_source: Mapped["DataSource"] = relationship(
         back_populates="ingestion_jobs"
