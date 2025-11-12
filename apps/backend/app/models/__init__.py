@@ -3,6 +3,7 @@ from .data_source import DataSource
 from .ingestion_job import IngestionJob
 from .project import Project
 from .project_data import ProjectData
+from .model_configs import ModelConfigs
 
 
 __all__ = [
@@ -10,5 +11,6 @@ __all__ = [
     'DataSource',
     'IngestionJob',
     'Project', 
-    'ProjectData'
+    'ProjectData', 
+    'ModelConfigs'
 ]

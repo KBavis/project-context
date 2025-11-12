@@ -2,7 +2,7 @@ import logging
 
 from sqlalchemy.orm import Session
 from app.pydantic import ProjectRequest
-from app.models import Project
+from app.models import Project, ModelConfigs
 from app.core import ChromaClientManager
 from app.embeddings.manager import EmbeddingManager
 from chromadb.api import ClientAPI
@@ -20,23 +20,35 @@ class ProjectService:
         """
         Functionality to persist new Project based on specified request
 
-        TODO: Creeate new ChromaDB Collection when Project created 
         """
         project = Project(
             project_name=request.name,
             epics=request.epics,
         )
 
-        # persist & flush new record 
+        # persist & flush new Projectrecord 
         self.db.add(project)
         self.db.flush() 
+
+        # TODO: Add logic to validate the specific provider/model pair is valid and we support it
+        # persist flush specified model configurations TODO: Consider moving this to seperate ModelConfigs service
+        model_configs = ModelConfigs(
+            project=project,
+            docs_embedding_provider=request.docs_embedding_provider,
+            docs_embedding_model=request.docs_embedding_model,
+            code_embedding_provider=request.code_embedding_provider,
+            code_embedding_model=request.code_embedding_model
+        )
+        self.db.add(model_configs)
+        self.db.flush()
 
         # create new ChromaDB collections for new project
         self.create_new_collections(request.name)
 
         return {
             "id": project.id,
-            "name": project.project_name
+            "name": project.project_name,
+            "model_configs_id": project.model_configs_id
         }
     
 
