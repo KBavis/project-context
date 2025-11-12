@@ -26,7 +26,7 @@ class ModelConfigs(Base):
     code_embedding_provider: Mapped[str] = mapped_column(nullable=True)
     code_embedding_model: Mapped[str] = mapped_column(nullable=True)
     
-    project: Mapped[Project] = relationship(
+    project: Mapped["Project"] = relationship(
         back_populates="model_configs",
         uselist=False # ensure 1-1 relationship 
     )

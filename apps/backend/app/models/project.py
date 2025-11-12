@@ -21,7 +21,7 @@ class Project(Base):
 
     # one to one relationship with ModelConfigs 
     model_configs_id: Mapped[UUID] = mapped_column(ForeignKey("model_configs.id"))
-    model_configs: Mapped[ModelConfigs] = relationship(back_populates="project", cascade="all, delete-orphan")
+    model_configs: Mapped["ModelConfigs"] = relationship(back_populates="project", cascade="all, delete-orphan")
 
     # many to many relationship with DataSource
     project_data: Mapped[List["ProjectData"]] = relationship(back_populates="project")
