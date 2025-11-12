@@ -15,7 +15,7 @@ class ModelConfigs(Base):
     Entity to store selected model configurations used for a given project
     """
 
-    __table__ = "model_configs"
+    __tablename__ = "model_configs"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
     project_id: Mapped[UUID] = mapped_column(ForeignKey("project.id"))
