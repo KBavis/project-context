@@ -34,10 +34,8 @@ services:
   db: 
     image: postgres:15
     container_name: postgres_db 
-    environment:
-      - POSTGRES_USER=${REL_DATABASE_USER}
-      - POSTGRES_PASSWORD=${REL_DATABASE_PASSWORD}
-      - POSTGRES_DB=${REL_DATABASE_NAME}
+    env_file:
+      - ./apps/backend/.env
     ports:
       - "5432:5432"
     volumes:
