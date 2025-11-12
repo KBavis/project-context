@@ -20,7 +20,6 @@ class Project(Base):
     #TODO: Create association table for Team and Project
 
     # one to one relationship with ModelConfigs 
-    model_configs_id: Mapped[UUID] = mapped_column(ForeignKey("model_configs.id"))
     model_configs: Mapped["ModelConfigs"] = relationship(back_populates="project", cascade="all, delete-orphan")
 
     # many to many relationship with DataSource
