@@ -82,6 +82,6 @@ class DataSourceService:
         Ensure the specified request is valid
         """
 
-        if request.provider not in settings.VALID_PROIVDERS:
+        if request.provider not in settings.VALID_DATA_PROVIDERS:
             raise Exception(f'Invalid provider specified when attempting to create Data Source. Valid Providers: {settings.VALID_PROIVDERS}')
 
