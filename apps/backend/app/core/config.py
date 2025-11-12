@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     HUGGING_FACE_API_KEY: Optional[str] = None
     OPEN_AI_API_KEY: Optional[str] = None
 
-    VALID_PROIVDERS: list = ["OpenAI", "HuggingFace"] 
+    VALID_MODEL_PROIVDERS: list = ["OpenAI", "HuggingFace"] 
 
     TMP: Optional[str] = "tmp"
     PROCESSED_DIR: Optional[str] = "/processed"
@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     DOCLING_ACCELERATOR_DEVICE: Optional[str] = "cpu"
 
-    VALID_PROVIDERS: Set[str] = {'GitHub', 'BitBucket', 'Confluence'}
+    VALID_DATA_PROVIDERS: Set[str] = {'GitHub', 'BitBucket', 'Confluence'}
 
     CODE_FILE_EXTENSIONS: Set[str] = {
         'c', 
