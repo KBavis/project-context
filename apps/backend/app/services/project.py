@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from app.pydantic import ProjectRequest
 from app.models import Project, ModelConfigs
 from app.core import ChromaClientManager
-from app.embeddings.manager import EmbeddingManager
 from chromadb.api import ClientAPI
 from sqlalchemy import select
 
@@ -15,12 +14,10 @@ class ProjectService:
     def __init__(
         self,
         db: Session,
-        chroma_manager: ChromaClientManager,
-        embedding_manager: EmbeddingManager,
+        chroma_manager: ChromaClientManager
     ):
         self.db = db
         self.chroma_manager = chroma_manager
-        self.embedding_manager = embedding_manager
 
     def create_project(self, request: ProjectRequest) -> dict:
         """
@@ -107,9 +104,6 @@ class ProjectService:
 
         # create new CODE and DOCS collections for project
         """
-        TODO: Use configured embedding functions for Code & Docs instead of default embeddings when creating collections. In the long run, 
-        this should be transitioned to only create a CODE collection in the case that this relates to SWE project (indicated via Project request)
-
         To account for two collections per project, a sophisitcated way of using RAG will need to be implemented. Either some sort of routing functionality
         based on the posed question or a conveint way to query information from both collecitons if the the posed question corresponds to both.
         """

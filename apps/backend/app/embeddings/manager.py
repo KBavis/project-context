@@ -4,15 +4,15 @@ import logging
 
 class EmbeddingManager:
 
-    def __init__(self):
+    def __init__(self, code_provider, code_model, docs_provider, docs_model):
 
         # Coding Embedding Specific Values
-        self._code_provider = settings.CODE_EMBEDDING_PROVIDER
-        self._code_model = settings.CODE_EMBEDDING_MODEL
+        self._code_provider = code_provider
+        self._code_model = code_model
 
         # Docs Embedding Specific Values
-        self._docs_provider = settings.DOCS_EMBEDDING_PROVIDER
-        self._docs_model = settings.DOCS_EMBEDDING_MODEL
+        self._docs_provider = docs_provider
+        self._docs_model = docs_model
 
     def get_embedding_model(self, source_type: str):
         """
