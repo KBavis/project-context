@@ -10,9 +10,15 @@ from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
+
 class ProjectService:
-    def __init__(self, db: Session, chroma_manager: ChromaClientManager, embedding_manager: EmbeddingManager):
-        self.db = db 
+    def __init__(
+        self,
+        db: Session,
+        chroma_manager: ChromaClientManager,
+        embedding_manager: EmbeddingManager,
+    ):
+        self.db = db
         self.chroma_manager = chroma_manager
         self.embedding_manager = embedding_manager
 
@@ -24,19 +30,18 @@ class ProjectService:
         project = Project(
             project_name=request.name,
             epics=request.epics,
-            #TODO: Add logic to validate specified provider/model pairs 
-            model_configs = ModelConfigs(
+            # TODO: Add logic to validate specified provider/model pairs
+            model_configs=ModelConfigs(
                 docs_embedding_provider=request.docs_embedding_provider,
                 docs_embedding_model=request.docs_embedding_model,
                 code_embedding_provider=request.code_embedding_provider,
-                code_embedding_model=request.code_embedding_model
-            )
+                code_embedding_model=request.code_embedding_model,
+            ),
         )
 
-        # persist & flush new Projectrecord 
+        # persist & flush new Projectrecord
         self.db.add(project)
-        self.db.flush() 
-
+        self.db.flush()
 
         # create new ChromaDB collections for new project
         self.create_new_collections(request.name)
@@ -44,9 +49,8 @@ class ProjectService:
         return {
             "id": project.id,
             "name": project.project_name,
-            "model_configs_id": project.model_configs.id
+            "model_configs_id": project.model_configs.id,
         }
-    
 
     def get_project_by_id(self, project_id) -> dict:
         """
@@ -58,29 +62,25 @@ class ProjectService:
         stmt = select(Project).where(Project.id == project_id)
         project = self.db.execute(stmt).scalars().first()
 
-        return {
-            "id": project.id,
-            "name": project.project_name 
-        }  if project else {
-            "message": f"No project found corresponding to ID {project_id}"
-        }
-
+        return (
+            {"id": project.id, "name": project.project_name}
+            if project
+            else {"message": f"No project found corresponding to ID {project_id}"}
+        )
 
     def get_all_projects(self):
         """
-        Get all persisted projects 
+        Get all persisted projects
 
-        TODO: Only fetch projects that requesting user is authenticated to see 
+        TODO: Only fetch projects that requesting user is authenticated to see
         """
 
         stmt = select(Project)
         projects = self.db.execute(stmt).scalars().all()
 
-        return [{
-            "id": project.id, 
-            "name": project.project_name
-        } for project in projects]
-    
+        return [
+            {"id": project.id, "name": project.project_name} for project in projects
+        ]
 
     def get_project_name(self, project_name) -> str:
         """
@@ -88,21 +88,22 @@ class ProjectService:
         """
         return "".join(c.upper() for c in project_name if c.isalnum())
 
-
-
     def create_new_collections(self, project_name: str) -> None:
         """
-        Create a new ChromaDB collection corresponding to the new Project 
+        Create a new ChromaDB collection corresponding to the new Project
 
-        TODO: Consider moving this functionality out of Project Service into its own ChromaDbService or soemthing 
+        TODO: Consider moving this functionality out of Project Service into its own ChromaDbService or soemthing
         """
 
         PROJECT = self.get_project_name(project_name)
-        chroma_client = self.chroma_manager.get_sync_client() #TODO: Make this configurable for async vs sync
+        chroma_client = (
+            self.chroma_manager.get_sync_client()
+        )  # TODO: Make this configurable for async vs sync
 
         # verify docs collection do not exist
-        self._verify_project_collections_dne(chroma_client, PROJECT, original_name=project_name)
-        
+        self._verify_project_collections_dne(
+            chroma_client, PROJECT, original_name=project_name
+        )
 
         # create new CODE and DOCS collections for project
         """
@@ -114,14 +115,12 @@ class ProjectService:
         """
         chroma_client.create_collection(
             name=f"{PROJECT}_CODE",
-        ) 
-        chroma_client.create_collection(
-            name=f"{PROJECT}_DOCS"
         )
-    
+        chroma_client.create_collection(name=f"{PROJECT}_DOCS")
 
-
-    def _verify_project_collections_dne(self, chroma_client: ClientAPI, project_name: str, original_name: str) -> None:
+    def _verify_project_collections_dne(
+        self, chroma_client: ClientAPI, project_name: str, original_name: str
+    ) -> None:
         """
         Helper function for verifying relevant collections for specified project do not exist already
 
@@ -144,7 +143,6 @@ class ProjectService:
         except Exception as e:
             pass
 
-        # error out if either one exists (as this indicates a project with this name is in use)           
+        # error out if either one exists (as this indicates a project with this name is in use)
         if project_dne == False:
             raise Exception(f"Project with the name {original_name} already exists")
-    

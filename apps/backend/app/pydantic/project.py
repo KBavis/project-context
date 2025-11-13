@@ -14,5 +14,9 @@ class ProjectRequest(BaseModel):
     docs_embedding_provider: Optional[str] = settings.DOCS_EMBEDDING_PROVIDER
     docs_embedding_model: Optional[str] = settings.CODE_EMBEDDING_MODEL
 
-    teams: Optional[List[UUID]] = [] # Note: once Team model is setup, this should likely be enforced
-    epics: Optional[List[str]] = [] # List of Jira Epic's, that we can later used to determine if relevant "commits" should be include in collection
+    teams: Optional[List[UUID]] = (
+        []
+    )  # Note: once Team model is setup, this should likely be enforced
+    epics: Optional[List[str]] = (
+        []
+    )  # List of Jira Epic's, that we can later used to determine if relevant "commits" should be include in collection

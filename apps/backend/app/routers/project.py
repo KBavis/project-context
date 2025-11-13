@@ -10,6 +10,7 @@ from typing import List
 router = APIRouter(prefix="/projects")
 chroma_manager = ChromaClientManager()
 
+
 @router.post("/", summary="Create new project")
 def create_project(project: ProjectRequest, db: Session = Depends(get_db_session)):
     """
@@ -21,9 +22,9 @@ def create_project(project: ProjectRequest, db: Session = Depends(get_db_session
         return svc.create_project(project)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"{str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
         )
+
 
 @router.get("/", summary="Retrieve all projects")
 def get_projects(db: Session = Depends(get_db_session)) -> List[dict]:
@@ -38,6 +39,5 @@ def get_projects(db: Session = Depends(get_db_session)) -> List[dict]:
         return svc.get_all_projects()
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"{str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
         )

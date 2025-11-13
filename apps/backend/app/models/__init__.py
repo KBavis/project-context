@@ -1,4 +1,4 @@
-from .base import Base 
+from .base import Base
 from .data_source import DataSource
 from .ingestion_job import IngestionJob
 from .project import Project
@@ -7,10 +7,10 @@ from .model_configs import ModelConfigs
 
 
 __all__ = [
-    'Base',
-    'DataSource',
-    'IngestionJob',
-    'Project', 
-    'ProjectData', 
-    'ModelConfigs'
+    "Base",
+    "DataSource",
+    "IngestionJob",
+    "Project",
+    "ProjectData",
+    "ModelConfigs",
 ]

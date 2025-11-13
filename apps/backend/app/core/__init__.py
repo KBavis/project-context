@@ -8,5 +8,5 @@ __all__ = [
     "init_db",
     "engine",
     "ChromaClientManager",
-    "setup_logging"
+    "setup_logging",
 ]

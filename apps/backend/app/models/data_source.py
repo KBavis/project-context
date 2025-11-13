@@ -4,25 +4,33 @@ from typing import List, TYPE_CHECKING
 from sqlalchemy import text
 from uuid import UUID
 
-# avoid warning 
+# avoid warning
 if TYPE_CHECKING:
-    from .ingestion_job import IngestionJob 
+    from .ingestion_job import IngestionJob
     from .project_data import ProjectData
+
 
 class DataSource(Base):
     __tablename__ = "data_source"
 
-    id: Mapped[UUID] = mapped_column(primary_key=True, index=True, server_default=text("gen_random_uuid()"))
-    provider: Mapped[str] = mapped_column(nullable=False, comment="Specific provider this datasource belongs to (GitHub, BitBucket, Confluence, etc)")
-    url: Mapped[str] = mapped_column(nullable=False, comment="URL corresponding to public/private repostiory this data may correspond to")
-
+    id: Mapped[UUID] = mapped_column(
+        primary_key=True, index=True, server_default=text("gen_random_uuid()")
+    )
+    provider: Mapped[str] = mapped_column(
+        nullable=False,
+        comment="Specific provider this datasource belongs to (GitHub, BitBucket, Confluence, etc)",
+    )
+    url: Mapped[str] = mapped_column(
+        nullable=False,
+        comment="URL corresponding to public/private repostiory this data may correspond to",
+    )
 
     # one to many relationship with IngestionJob
     ingestion_jobs: Mapped[List["IngestionJob"]] = relationship(
-        back_populates="data_source",
-        cascade="all, delete-orphan"
+        back_populates="data_source", cascade="all, delete-orphan"
     )
 
-    # many to many relationship with Project 
-    project_data: Mapped[List["ProjectData"]] = relationship(back_populates="data_source")
-    
+    # many to many relationship with Project
+    project_data: Mapped[List["ProjectData"]] = relationship(
+        back_populates="data_source"
+    )

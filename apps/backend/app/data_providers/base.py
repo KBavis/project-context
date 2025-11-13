@@ -1,8 +1,9 @@
 from abc import abstractmethod, ABC
 
+
 class DataProvider(ABC):
 
-    def __init__(self, url: str=""):
+    def __init__(self, url: str = ""):
         self.url = url
         self.request_headers = self._get_request_headers()
 
@@ -11,9 +12,9 @@ class DataProvider(ABC):
         pass
 
     @abstractmethod
-    def _download_file(url: str, headers: dict = {}): 
-        pass   
-        
+    def _download_file(url: str, headers: dict = {}):
+        pass
+
     @abstractmethod
     def _validate_url(url: str):
         pass
@@ -21,4 +22,3 @@ class DataProvider(ABC):
     @abstractmethod
     def _get_request_headers(self):
         pass
-    

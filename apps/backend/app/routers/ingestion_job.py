@@ -8,7 +8,9 @@ from uuid import UUID
 router = APIRouter(prefix="/ingestion/jobs")
 
 
-@router.post("/{data_source_id}", summary="Kick off ingestion of data from a datasource")
+@router.post(
+    "/{data_source_id}", summary="Kick off ingestion of data from a datasource"
+)
 def create_ingestion_job(data_source_id: UUID, db: Session = Depends(get_db_session)):
     """
     Kick off ingestion job for a specific data source
@@ -19,13 +21,17 @@ def create_ingestion_job(data_source_id: UUID, db: Session = Depends(get_db_sess
         return svc.run_ingestion_job(data_source_id)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"{str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
         )
 
 
-@router.post("/{data_source_id}/{project_id}", summary="Kick off ingestion of data from a datasource for a specific Project")
-def create_ingestion_job(data_source_id: UUID, project_id: UUID, db: Session = Depends(get_db_session)):
+@router.post(
+    "/{data_source_id}/{project_id}",
+    summary="Kick off ingestion of data from a datasource for a specific Project",
+)
+def create_ingestion_job(
+    data_source_id: UUID, project_id: UUID, db: Session = Depends(get_db_session)
+):
     """
     Kick off ingestion job for a datasource for only data corresponding to specified Project
     """
@@ -35,8 +41,7 @@ def create_ingestion_job(data_source_id: UUID, project_id: UUID, db: Session = D
         return svc.run_ingestion_job(data_source_id, project_id)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"{str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
         )
 
 

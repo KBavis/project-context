@@ -1,15 +1,16 @@
 from fastapi import FastAPI
-from .core import (settings, init_db, engine, setup_logging)
+from .core import settings, init_db, engine, setup_logging
 from contextlib import asynccontextmanager
 from .routers import app_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Async context manager for initializing necessary models and then 
+    Async context manager for initializing necessary models and then
     disposing of DB engine once app's shutdown
     """
-    init_db() 
+    init_db()
     yield
     engine.dispose()
 
@@ -21,16 +22,13 @@ def create_app() -> FastAPI:
 
     setup_logging()
 
-    app = FastAPI(
-        title=settings.PROJECT_NAME,
-        lifespan=lifespan
-    )
+    app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
 
-    #TODO: Add Middleware For CORS 
+    # TODO: Add Middleware For CORS
 
-    #TODO: Add Exception Handlers For 
+    # TODO: Add Exception Handlers For
 
-    #TODO: Add JWT Request Filter 
+    # TODO: Add JWT Request Filter
 
     app.include_router(app_router)
 

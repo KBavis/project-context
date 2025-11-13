@@ -4,6 +4,7 @@ from typing import Optional, Set
 import logging
 import sys
 
+
 class Settings(BaseSettings):
 
     PROJECT_NAME: str = "Project Context"
@@ -25,74 +26,66 @@ class Settings(BaseSettings):
     HUGGING_FACE_API_KEY: Optional[str] = None
     OPEN_AI_API_KEY: Optional[str] = None
 
-    VALID_MODEL_PROIVDERS: list = ["OpenAI", "HuggingFace"] 
+    VALID_MODEL_PROIVDERS: list = ["OpenAI", "HuggingFace"]
 
     TMP: Optional[str] = "tmp"
     PROCESSED_DIR: Optional[str] = "/processed"
     TMP_DOCS: Optional[str] = f"{TMP}/docs"
     TMP_CODE: Optional[str] = f"{TMP}/code"
 
-    ENV: Optional[str] = "dev" 
+    ENV: Optional[str] = "dev"
 
     DOCLING_ACCELERATOR_DEVICE: Optional[str] = "cpu"
 
-    VALID_DATA_PROVIDERS: Set[str] = {'GitHub', 'BitBucket', 'Confluence'}
+    VALID_DATA_PROVIDERS: Set[str] = {"GitHub", "BitBucket", "Confluence"}
 
     CODE_FILE_EXTENSIONS: Set[str] = {
-        'c', 
-        'cpp',
-        'cs',
-        'java',
-        'js',
-        'jsx',
-        'ts',
-        'tsx',
-        'py',
-        'php',
-        'html',
-        'css',
-        'swift',
-        'rb',
-        'pl',
-        'sh',
-        'sql',
-        'xml',
-        'json',
-        'yaml',
-        'yml'
+        "c",
+        "cpp",
+        "cs",
+        "java",
+        "js",
+        "jsx",
+        "ts",
+        "tsx",
+        "py",
+        "php",
+        "html",
+        "css",
+        "swift",
+        "rb",
+        "pl",
+        "sh",
+        "sql",
+        "xml",
+        "json",
+        "yaml",
+        "yml",
     }
 
-    DOCS_FILE_EXTENSIONS: Set[str] = {
-        'docx', 
-        'pdf', 
-        'md'
-    }
+    DOCS_FILE_EXTENSIONS: Set[str] = {"docx", "pdf", "md"}
 
     model_config = SettingsConfigDict(
-        env_file=Path(__file__).resolve().parents[2] / '.env',
-        env_file_encoding="utf-8"
+        env_file=Path(__file__).resolve().parents[2] / ".env", env_file_encoding="utf-8"
     )
+
 
 settings = Settings()
 
-_LEVEL_BY_ENV: dict = {
-    "prod": logging.INFO,
-    "dev": logging.DEBUG
-}
+_LEVEL_BY_ENV: dict = {"prod": logging.INFO, "dev": logging.DEBUG}
 
-def setup_logging(): 
+
+def setup_logging():
     """
-    Configure root logger 
+    Configure root logger
     """
 
-    root = logging.getLogger() 
-    
-    root.handlers.clear() # clear existing handlers 
-    
+    root = logging.getLogger()
+
+    root.handlers.clear()  # clear existing handlers
 
     env = settings.ENV.lower() if hasattr(settings, "ENV") else "prod"
-    level = _LEVEL_BY_ENV.get(env, logging.INFO) 
-
+    level = _LEVEL_BY_ENV.get(env, logging.INFO)
 
     formatter = logging.Formatter(
         fmt="[%(asctime)s - %(name)s - %(levelname)s] %(message)s",
@@ -105,8 +98,12 @@ def setup_logging():
     root.setLevel(level)
     root.addHandler(handler)
 
-    # quiet noisy loggers 
-    for noisy in ['urllib3.connectionpool', 'watchfiles.main', 'watchfiles', 'filelock', 'docling']:
+    # quiet noisy loggers
+    for noisy in [
+        "urllib3.connectionpool",
+        "watchfiles.main",
+        "watchfiles",
+        "filelock",
+        "docling",
+    ]:
         logging.getLogger(noisy).setLevel(logging.WARNING)
-
-    
