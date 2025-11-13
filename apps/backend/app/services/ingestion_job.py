@@ -69,7 +69,7 @@ class IngestionJobService:
             self._convert_docs_to_markdown()
 
             # iterate through docs and chunk
-            self._chunk_docs(data_source)
+            self._chunk_docs(data_source, project_id)
 
             # store results within Chroma DB, using embedding specified DataSource
 
@@ -244,23 +244,32 @@ class IngestionJobService:
     
 
 
-    def _chunk_docs(self, data_source): 
+    def _chunk_docs(self, data_source: DataSource, project_id: UUID): 
         """
         Functionality to chunk docs via Dockling 
+
+        Args:
+            data_source (DataSource): data source we are ingesting docs for 
+            project_id (UUID): Optional project to ingest docs for 
         """
 
         # retrieve projects corresponding to data soruce 
+        projects = [record.project for record in data_source.project_data] if not project_id else [project_id]
 
         # iterate through each project
+        for project in projects:
 
-        # create embedding manager 
+            # get EmbeddingManger 
+            embedding_manager = EmbeddingManager(project.model_configs)
 
-        # use dockling to chunk using embedings configred for Project
+            chunker = HybridChunker(
+                tokenizer=embedding_manager.get_docs_tokenizer(),
+            )
 
-        # store files in chroma 
+            # TODO: Convert processed .md docs to Dockling docs and use Chunker to Chunk 
 
-        return None
-    
+            # TODO: Store chunked docs in ChromaDB
+
 
     def _store_chunked_files_in_chroma(self, source_type):
         """
