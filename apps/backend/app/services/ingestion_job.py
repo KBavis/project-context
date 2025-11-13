@@ -10,6 +10,7 @@ from sqlalchemy import select
 from app.models import DataSource
 from app.data_providers import GithubDataProvider
 from app.core import settings
+from app.embeddings import EmbeddingManager
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
@@ -17,7 +18,7 @@ from docling.exceptions import ConversionError
 from docling.pipeline.threaded_standard_pdf_pipeline import ThreadedStandardPdfPipeline
 from docling.datamodel.pipeline_options import ThreadedPdfPipelineOptions
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
-
+from docling.chunking import HybridChunker
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ class IngestionJobService:
             self._convert_docs_to_markdown()
 
             # iterate through docs and chunk
+            self._chunk_docs(data_source)
 
             # store results within Chroma DB, using embedding specified DataSource
 
@@ -239,3 +241,33 @@ class IngestionJobService:
             raise Exception("Invalid directory path specified")
 
         return any(path.iterdir())
+    
+
+
+    def _chunk_docs(self, data_source): 
+        """
+        Functionality to chunk docs via Dockling 
+        """
+
+        # retrieve projects corresponding to data soruce 
+
+        # iterate through each project
+
+        # create embedding manager 
+
+        # use dockling to chunk using embedings configred for Project
+
+        # store files in chroma 
+
+        return None
+    
+
+    def _store_chunked_files_in_chroma(self, source_type):
+        """
+        Store chunked files in ChromaDB
+
+        Args:
+            source_type (str): either docs or code
+        """
+        return None
+
