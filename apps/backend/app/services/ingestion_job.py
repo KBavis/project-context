@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from uuid import UUID
-from typing import Tuple
+from typing import Tuple, Iterator
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -19,6 +19,7 @@ from docling.pipeline.threaded_standard_pdf_pipeline import ThreadedStandardPdfP
 from docling.datamodel.pipeline_options import ThreadedPdfPipelineOptions
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 from docling.chunking import HybridChunker
+from docling.datamodel.document import ConversionResult
 
 logger = logging.getLogger(__name__)
 
@@ -64,12 +65,12 @@ class IngestionJobService:
             return
 
         if has_docs:
-
-            # convert any docs to unified markdown format
-            self._convert_docs_to_markdown()
+            
+            # convert docs to docling files 
+            converted_files = self._convert_docs_files_to_docling()
 
             # iterate through docs and chunk
-            self._chunk_docs(data_source, project_id)
+            self._chunk_docs(data_source, project_id, converted_files)
 
             # store results within Chroma DB, using embedding specified DataSource
 
@@ -134,7 +135,7 @@ class IngestionJobService:
 
         return code_path, docs_path
 
-    def _convert_docs_to_markdown(self) -> Tuple[Path, Path]:
+    def _convert_docs_files_to_docling(self) -> Iterator[ConversionResult]:
         """
         Convert each temporary document downloaded to a markdown file
 
@@ -194,17 +195,26 @@ class IngestionJobService:
             logger.error(f"Failed to convert all documents ingested", exc_info=True)
             raise e
 
+
+        return conv_results
+
+    
+    def _create_temporary_markdown_files(conversion_results: Iterator[ConversionResult]):
+        """
+        Helper function to store covnerted docs files as markdown files 
+        """
         # create processed docs dir to save md files to
         path = settings.TMP_DOCS + settings.PROCESSED_DIR
         out_path = Path(path)
         out_path.mkdir(exist_ok=True, parents=True)
 
         # write docling files as md files in processed dir
-        for res in conv_results:
+        for res in conversion_results:
             file_name = f"{res.input.file.stem}.md"
 
             with open(out_path / f"{file_name}", "w") as fp:
                 fp.write(res.document.export_to_markdown())
+
 
     def _cleanup_tmp_dirs(self, code_path: Path, docs_path: Path):
         """
@@ -244,13 +254,14 @@ class IngestionJobService:
     
 
 
-    def _chunk_docs(self, data_source: DataSource, project_id: UUID): 
+    def _chunk_docs(self, data_source: DataSource, project_id: UUID, docling_files: Iterator[ConversionResult]): 
         """
         Functionality to chunk docs via Dockling 
 
         Args:
             data_source (DataSource): data source we are ingesting docs for 
             project_id (UUID): Optional project to ingest docs for 
+            docling_files (Iterator[ConversionResult]): converted docling files 
         """
 
         # retrieve projects corresponding to data soruce 
@@ -266,7 +277,7 @@ class IngestionJobService:
                 tokenizer=embedding_manager.get_docs_tokenizer(),
             )
 
-            # TODO: Convert processed .md docs to Dockling docs and use Chunker to Chunk 
+            
 
             # TODO: Store chunked docs in ChromaDB
 
