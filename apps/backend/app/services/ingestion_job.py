@@ -191,6 +191,7 @@ class IngestionJobService:
         # convert all docs files to Docling Docs
         try:
             conv_results = docs_converter.convert_all(filtered_doc_files)
+            logger.info(f"Successfully converted ingested Documentation files to Docling files")
         except ConversionError as e:
             logger.error(f"Failed to convert all documents ingested", exc_info=True)
             raise e
@@ -234,7 +235,8 @@ class IngestionJobService:
 
         # remove dirs
         path = Path(settings.TMP_DOCS + settings.PROCESSED_DIR)
-        path.rmdir()
+        if path.exists():
+            path.rmdir()
 
         docs_path.rmdir()
         code_path.rmdir()
@@ -254,14 +256,14 @@ class IngestionJobService:
     
 
 
-    def _chunk_docs(self, data_source: DataSource, project_id: UUID, docling_files: Iterator[ConversionResult]): 
+    def _chunk_docs(self, data_source: DataSource, project_id: UUID, conversion_results: Iterator[ConversionResult]): 
         """
         Functionality to chunk docs via Dockling 
 
         Args:
             data_source (DataSource): data source we are ingesting docs for 
             project_id (UUID): Optional project to ingest docs for 
-            docling_files (Iterator[ConversionResult]): converted docling files 
+            conversion_results (Iterator[ConversionResult]): converted docling files results
         """
 
         # retrieve projects corresponding to data soruce 
@@ -273,11 +275,23 @@ class IngestionJobService:
             # get EmbeddingManger 
             embedding_manager = EmbeddingManager(project.model_configs)
 
+            # chunk each docling document
             chunker = HybridChunker(
                 tokenizer=embedding_manager.get_docs_tokenizer(),
             )
 
+            # chunked_files = []
+            for doc in conversion_results:
+
+                chunked_doc = chunker.chunk(dl_doc=doc.document)
+                # chunked_files.extend(list(chunked_doc))
+                print(f"Chunked Doc: {chunked_doc}")
+                # print(f"Chunked Documents Contextualized: {chunker.contextualize(chunked_doc)}")
+
+                # TODO: Look into use contextualize 
             
+            # print(f"Chunked files plain text: {chunked_files}")
+
 
             # TODO: Store chunked docs in ChromaDB
 
