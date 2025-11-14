@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     DOCS_EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
 
     CODE_EMBEDDING_PROVIDER: Optional[str] = "HuggingFace"
-    CODE_EMBEDDING_MODEL: Optional[str] = "jinaai/ina-embeddings-v2-base-code"
+    CODE_EMBEDDING_MODEL: Optional[str] = "Salesforce/codet5-base"
 
     GITHUB_SECRET_TOKEN: Optional[str] = None
     HUGGING_FACE_API_KEY: Optional[str] = None
