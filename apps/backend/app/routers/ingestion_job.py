@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.services import IngestionJobService
 from sqlalchemy.orm import Session
-from app.core import get_db_session
+from app.core import get_db_session, ChromaClientManager
 from uuid import UUID
 
 
 router = APIRouter(prefix="/ingestion/jobs")
+chroma_manager = ChromaClientManager()
 
 
 @router.post(
@@ -17,7 +18,7 @@ def create_ingestion_job(data_source_id: UUID, db: Session = Depends(get_db_sess
     """
 
     try:
-        svc = IngestionJobService(db)
+        svc = IngestionJobService(db, chroma_client_manager=chroma_manager)
         return svc.run_ingestion_job(data_source_id)
     except Exception as e:
         raise HTTPException(
@@ -37,7 +38,7 @@ def create_ingestion_job(
     """
 
     try:
-        svc = IngestionJobService(db)
+        svc = IngestionJobService(db, chroma_client_manager=chroma_manager)
         return svc.run_ingestion_job(data_source_id, project_id)
     except Exception as e:
         raise HTTPException(

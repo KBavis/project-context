@@ -25,8 +25,9 @@ logger = logging.getLogger(__name__)
 
 
 class IngestionJobService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, chroma_client_manager: ChromaClientManager):
         self.db = db
+        self.chroma_mnger = chroma_client_manager
 
     def run_ingestion_job(self, data_source_id: UUID, project_id: UUID = None):
         """
