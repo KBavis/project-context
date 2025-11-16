@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from uuid import UUID
-from typing import Tuple, Iterator
+from typing import Tuple, Iterator, Dict
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -11,6 +11,8 @@ from app.models import DataSource
 from app.data_providers import GithubDataProvider
 from app.core import settings
 from app.embeddings import EmbeddingManager
+from app.core import ChromaClientManager
+from app.services.util import get_normalized_project_name
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
@@ -20,6 +22,9 @@ from docling.datamodel.pipeline_options import ThreadedPdfPipelineOptions
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 from docling.chunking import HybridChunker
 from docling.datamodel.document import ConversionResult
+
+from llama_index.vector_stores.chroma import ChromaVectorStore
+from llama_index.core import StorageContext, VectorStoreIndex
 
 logger = logging.getLogger(__name__)
 
@@ -65,15 +70,26 @@ class IngestionJobService:
             logger.warning("No new files ingested, skipping ingestion")
             return
 
+        # documentation files were ingested
         if has_docs:
-            
+            logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant docs files; chunking & saving to ChromaDB")
+
             # convert docs to docling files 
             converted_files = self._convert_docs_files_to_docling()
+            logger.debug(f'Converted files to Docling files')
 
-            # iterate through docs and chunk
-            self._chunk_docs(data_source, project_id, converted_files)
+            # chunk ingested documentation based on configured project embedding model
+            project_chunks = self._chunk_docs(data_source, project_id, converted_files)
+            logger.debug('Successfully chunked ingested documentation for each project')
 
             # store results within Chroma DB, using embedding specified DataSource
+            # self._save_to_chroma(project_chunks, "DOCS")
+
+        # code files were ingested 
+        if has_code:
+            # TODO: Handle chunking and saving of Code files to Chroma DB 
+            logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
+
 
         # persist IngestionJob to DB
 
@@ -88,6 +104,7 @@ class IngestionJobService:
 
         # TODO: Return IngestionJob created ID
         return {"message": "Success"}
+    
 
     def _retrieve_data(
         self, data_source: DataSource, project_id: UUID
@@ -200,6 +217,36 @@ class IngestionJobService:
 
         return conv_results
 
+
+    def _save_to_chroma(self, project_chunks: dict, source_type: str): 
+        """
+        Save context-rich ingested documentation and code to our relevant Chroma collections based on Projects 
+        this ingested job is being ran for 
+
+        Args:
+            project_chunks (dict): relevant chunked docs/code 
+            source_type (str): the content type of the files being saved 
+        """
+
+        chroma_client = self.chroma_mnger.get_sync_client()
+
+        for project in project_chunks:
+
+            # retrieve Chroma DB collection 
+            collection = chroma_client.get_collection(
+                f"{get_normalized_project_name(project)}_{source_type}"
+            )
+
+            # get vector store 
+            vector_store = ChromaVectorStore(chroma_collection=collection)
+            storage_context = StorageContext.from_defaults(vector_store=vector_store)
+
+            index = VectorStoreIndex.from_documents()
+
+            #TODO: Finish me 
+
+
+
     
     def _create_temporary_markdown_files(conversion_results: Iterator[ConversionResult]):
         """
@@ -257,7 +304,7 @@ class IngestionJobService:
     
 
 
-    def _chunk_docs(self, data_source: DataSource, project_id: UUID, conversion_results: Iterator[ConversionResult]): 
+    def _chunk_docs(self, data_source: DataSource, project_id: UUID, conversion_results: Iterator[ConversionResult]) -> Dict: 
         """
         Functionality to chunk docs via Dockling 
 
@@ -270,7 +317,8 @@ class IngestionJobService:
         # retrieve projects corresponding to data soruce 
         projects = [record.project for record in data_source.project_data] if not project_id else [project_id]
 
-        # iterate through each project
+        # generate mapping of project to relevant ingested documentation chunks 
+        chunked_docs = {project.project_name: [] for project in projects}
         for project in projects:
 
             # get EmbeddingManger 
@@ -281,20 +329,23 @@ class IngestionJobService:
                 tokenizer=embedding_manager.get_docs_tokenizer(),
             )
 
-            # chunked_files = []
             for doc in conversion_results:
 
-                chunked_doc = chunker.chunk(dl_doc=doc.document)
-                # chunked_files.extend(list(chunked_doc))
-                print(f"Chunked Doc: {chunked_doc}")
-                # print(f"Chunked Documents Contextualized: {chunker.contextualize(chunked_doc)}")
+                logger.debug(f'Conversion result confidence for Document={doc.document.name} = {doc.confidence}')
 
-                # TODO: Look into use contextualize 
-            
-            # print(f"Chunked files plain text: {chunked_files}")
+                doc_chunks = chunker.chunk(dl_doc=doc.document)
+
+                # iterate through chunks 
+                for chunk in doc_chunks:
+                    context_enriched_text = chunker.contextualize(chunk=chunk)
+                    logger.debug(f"Context Enriched Text: {context_enriched_text[:200]}")
+
+                    chunked_docs[project.project_name].append(context_enriched_text)
 
 
-            # TODO: Store chunked docs in ChromaDB
+
+        return chunked_docs
+
 
 
     def _store_chunked_files_in_chroma(self, source_type):
