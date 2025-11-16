@@ -1,11 +1,14 @@
 import logging
 
+from chromadb.api import ClientAPI
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+
 from app.pydantic import ProjectRequest
 from app.models import Project, ModelConfigs
 from app.core import ChromaClientManager
-from chromadb.api import ClientAPI
-from sqlalchemy import select
+from app.services.util import get_normalized_project_name
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +82,6 @@ class ProjectService:
             {"id": project.id, "name": project.project_name} for project in projects
         ]
 
-    def get_project_name(self, project_name) -> str:
-        """
-        Retrieve normalize project name for creating chroma DB collection
-        """
-        return "".join(c.upper() for c in project_name if c.isalnum())
 
     def create_new_collections(self, project_name: str) -> None:
         """
@@ -92,7 +90,7 @@ class ProjectService:
         TODO: Consider moving this functionality out of Project Service into its own ChromaDbService or soemthing
         """
 
-        PROJECT = self.get_project_name(project_name)
+        PROJECT = get_normalized_project_name(project_name)
         chroma_client = (
             self.chroma_manager.get_sync_client()
         )  # TODO: Make this configurable for async vs sync
