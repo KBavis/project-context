@@ -161,6 +161,19 @@ class IngestionJobService:
             for data in chunked_data:
                 logger.debug(f"Project={project}, DocChunk={data['doc_chunk'][:20]}, ContextChunk={data['contextualized_chunk'][:20]}")
 
+                doc_chunk = data['doc_chunk']
+                context_chunk = data['contextualized_chunk']
+
+                # project_nodes[project].append(
+                #     TextNode(
+                #         text=context_chunk,
+                #         metadata={
+                #             "source": doc_chunk,
+                #             TODO: Add things like file name, coordinate position, children, parent, etc
+                #         }
+                #     )
+                # )
+
                 # TODO: Generate MetaData for TextNode and create TextNode with current chunked data 
         
         return project_nodes
