@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from uuid import UUID
-from typing import Tuple, Iterator, Dict
+from typing import Tuple, Iterator, Dict, List
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -25,6 +25,7 @@ from docling.datamodel.document import ConversionResult
 
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import StorageContext, VectorStoreIndex
+from llama_index.core.schema import TextNode
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +83,11 @@ class IngestionJobService:
             project_chunks = self._chunk_docs(data_source, project_id, converted_files)
             logger.debug('Successfully chunked ingested documentation for each project')
 
+            # convert docling project chunks to LlamaIndex TextNodes
+            nodes = self._convert_to_text_nodes(project_chunks)
+
             # store results within Chroma DB, using embedding specified DataSource
-            # self._save_to_chroma(project_chunks, "DOCS")
+            # self._save_to_chroma(nodes, "DOCS")
 
         # code files were ingested 
         if has_code:
@@ -140,6 +144,27 @@ class IngestionJobService:
                 )
 
         return code_path, docs_path
+    
+
+    def _convert_to_text_nodes(self, chunks: Dict) -> Dict[str, List[TextNode]]:
+        """
+        Convert Docling chunks to TextNodes in order to store within ChromaDB 
+
+        Args:
+            chunks (Dict): mapping of a Project to a list of Docling chunks for relevant ingested Documents 
+        """
+        project_nodes = {}
+
+        for project, chunked_data in chunks.items():
+
+            project_nodes[project] = []
+            for data in chunked_data:
+                logger.debug(f"Project={project}, DocChunk={data['doc_chunk'][:20]}, ContextChunk={data['contextualized_chunk'][:20]}")
+
+                # TODO: Generate MetaData for TextNode and create TextNode with current chunked data 
+        
+        return project_nodes
+
 
     def _create_tmp_dirs(self):
         """
@@ -321,26 +346,30 @@ class IngestionJobService:
         chunked_docs = {project.project_name: [] for project in projects}
         for project in projects:
 
-            # get EmbeddingManger 
+            # get chunker based on configured embedding model for the current project
             embedding_manager = EmbeddingManager(project.model_configs)
-
-            # chunk each docling document
             chunker = HybridChunker(
-                tokenizer=embedding_manager.get_docs_tokenizer(),
+                tokenizer=embedding_manager.get_docs_tokenizer(), #TODO: Use Maximum Length of 512 for tokens
             )
 
-            for doc in conversion_results:
+            # iterate through converted Docling documents 
+            for res in conversion_results:
+                logger.debug(f'Conversion result confidence for Document={res.document.name} = {res.confidence}')
 
-                logger.debug(f'Conversion result confidence for Document={doc.document.name} = {doc.confidence}')
+                # chunk current Docling document into DocChunk's
+                curr_doc_chunks = list(chunker.chunk(dl_doc=res.document))
 
-                doc_chunks = chunker.chunk(dl_doc=doc.document)
+                # iterate through chunks in current document 
+                for chunk in curr_doc_chunks:
+                    chunked_docs[project.project_name].append(
+                        {
+                            "doc_chunk": chunk,
+                            "contextualized_chunk": chunker.contextualize(chunk=chunk)
+                        }
+                    )
 
-                # iterate through chunks 
-                for chunk in doc_chunks:
-                    context_enriched_text = chunker.contextualize(chunk=chunk)
-                    logger.debug(f"Context Enriched Text: {context_enriched_text[:200]}")
-
-                    chunked_docs[project.project_name].append(context_enriched_text)
+                
+                
 
 
 
