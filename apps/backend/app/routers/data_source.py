@@ -25,6 +25,7 @@ def create_datasource(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
         )
 
+# TODO: Add logic to associate existing DataSource to new Project
 
 @router.get("/{project_id}", summary="Get connected data sources")
 def get_project_data_sources(project_id: UUID, db: Session = Depends(get_db_session)):
