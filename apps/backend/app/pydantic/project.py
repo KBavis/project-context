@@ -10,9 +10,9 @@ class ProjectRequest(BaseModel):
 
     # allow for model configuration during project creation
     code_embedding_provider: Optional[str] = settings.CODE_EMBEDDING_PROVIDER
-    code_embedding_model: Optional[str] = settings.DOCS_EMBEDDING_MODEL
+    code_embedding_model: Optional[str] = settings.CODE_EMBEDDING_MODEL
     docs_embedding_provider: Optional[str] = settings.DOCS_EMBEDDING_PROVIDER
-    docs_embedding_model: Optional[str] = settings.CODE_EMBEDDING_MODEL
+    docs_embedding_model: Optional[str] = settings.DOCS_EMBEDDING_MODEL
 
     teams: Optional[List[UUID]] = (
         []
