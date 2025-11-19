@@ -89,7 +89,7 @@ class IngestionJobService:
             logger.debug(f"Successfully convert DocChunks to LlamaIndex TextNode's")
 
             # store results within Chroma DB, using embedding specified DataSource
-            # self._save_to_chroma(nodes, "DOCS")
+            self._save_to_chroma(nodes, "DOCS", data_source)
 
         # code files were ingested 
         if has_code:
@@ -193,16 +193,16 @@ class IngestionJobService:
             headings = chunks_meta_data.headings
             document_hash = chunks_meta_data.origin.binary_hash
 
-            content_types = list(set([
+            content_types = ",".join(list(set([
                 str(item.label)
                 for item in chunks_meta_data.doc_items 
-            ]))
+            ])))
 
             return {
                 "chunk_idx": f"{get_normalized_project_name(project)}_{i}",
                 "source": origin_file,
                 "mimetype": mimetype,
-                "headings": headings,
+                "headings": " > ".join(headings) if headings else "No Headings",
                 "document_hash": document_hash,
                 "content_types": content_types
             }
@@ -284,7 +284,7 @@ class IngestionJobService:
         return conv_results
 
 
-    def _save_to_chroma(self, project_chunks: dict, source_type: str): 
+    def _save_to_chroma(self, project_chunks: dict, source_type: str, data_source: DataSource): 
         """
         Save context-rich ingested documentation and code to our relevant Chroma collections based on Projects 
         this ingested job is being ran for 
@@ -293,21 +293,35 @@ class IngestionJobService:
             project_chunks (dict): relevant chunked docs/code 
             source_type (str): the content type of the files being saved 
         """
+        
+        # create mapping of project name to Project model 
+        project_mapping = {record.project.project_name: record.project for record in data_source.project_data} 
 
         chroma_client = self.chroma_mnger.get_sync_client()
 
-        for project in project_chunks:
+        for project, nodes in project_chunks.items():
+
+            # get Project model 
+            curr_project = project_mapping[project]
+
+            # get embedding manager for project
+            embedding_manager = EmbeddingManager(curr_project.model_configs)
 
             # retrieve Chroma DB collection 
             collection = chroma_client.get_collection(
                 f"{get_normalized_project_name(project)}_{source_type}"
             )
 
-            # get vector store 
+            # get chroma vector store corresponding to our projects DOCS collection
             vector_store = ChromaVectorStore(chroma_collection=collection)
             storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
-            index = VectorStoreIndex.from_documents()
+            # store nodes within Chroma 
+            index = VectorStoreIndex(
+                nodes=nodes, # NOTE: Instead of using LlamaIndex's Document object, we will use our manually generated nodes
+                storage_context=storage_context,
+                embed_model=embedding_manager.get_embedding_model(source_type) # use configured embedding model for current Project
+            )
 
             #TODO: Finish me 
 
@@ -381,16 +395,17 @@ class IngestionJobService:
         """
 
         # retrieve projects corresponding to data soruce 
-        projects = [record.project for record in data_source.project_data] if not project_id else [project_id]
+        projects = [record.project for record in data_source.project_data] if not project_id else [project_id] # TODO: Fix me for single project
 
         # generate mapping of project to relevant ingested documentation chunks 
         chunked_docs = {project.project_name: [] for project in projects}
         for project in projects:
-
+            
             # get chunker based on configured embedding model for the current project
             embedding_manager = EmbeddingManager(project.model_configs)
             chunker = HybridChunker(
-                tokenizer=embedding_manager.get_docs_tokenizer(), #TODO: Use Maximum Length of 512 for tokens
+                tokenizer=embedding_manager.get_docs_tokenizer(), 
+                #TODO: Consider setting maximum length of tokens = 512 
             )
 
             # iterate through converted Docling documents 
