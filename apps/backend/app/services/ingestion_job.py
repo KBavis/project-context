@@ -22,6 +22,7 @@ from docling.datamodel.pipeline_options import ThreadedPdfPipelineOptions
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 from docling.chunking import HybridChunker
 from docling.datamodel.document import ConversionResult
+from docling_core.transforms.chunker.hybrid_chunker import DocChunk
 
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import StorageContext, VectorStoreIndex
@@ -85,6 +86,7 @@ class IngestionJobService:
 
             # convert docling project chunks to LlamaIndex TextNodes
             nodes = self._convert_to_text_nodes(project_chunks)
+            logger.debug(f"Successfully convert DocChunks to LlamaIndex TextNode's")
 
             # store results within Chroma DB, using embedding specified DataSource
             # self._save_to_chroma(nodes, "DOCS")
@@ -155,29 +157,55 @@ class IngestionJobService:
         """
         project_nodes = {}
 
+        logger.debug(f"Converting Chunks to LlamaIndex TextNodes in order to store in ChromaDB")
         for project, chunked_data in chunks.items():
 
             project_nodes[project] = []
-            for data in chunked_data:
-                logger.debug(f"Project={project}, DocChunk={data['doc_chunk'][:20]}, ContextChunk={data['contextualized_chunk'][:20]}")
+            for i, data in enumerate(chunked_data):
 
+                # extract DocChunk & ContextChunk from mapping
                 doc_chunk = data['doc_chunk']
                 context_chunk = data['contextualized_chunk']
 
-                # project_nodes[project].append(
-                #     TextNode(
-                #         text=context_chunk,
-                #         metadata={
-                #             "source": doc_chunk,
-                #             TODO: Add things like file name, coordinate position, children, parent, etc
-                #         }
-                #     )
-                # )
-
-                # TODO: Generate MetaData for TextNode and create TextNode with current chunked data 
+                project_nodes[project].append(
+                    TextNode(
+                        text=context_chunk,
+                        metadata=self._get_chunk_meta_data(doc_chunk, i, project)
+                    )
+                )
         
         return project_nodes
 
+
+    def _get_chunk_meta_data(self, chunk: DocChunk, i: int, project: str) -> Dict:
+            """
+            Helper function to extract relevant metadata for a particular Document Chunk 
+
+            Args:
+                chunk (DocChunk): document chunk to extract meta data for 
+                i (int): current position 
+                project (str): relevant project this chunk belongs to
+            """
+            chunks_meta_data = chunk.meta 
+
+            origin_file = chunks_meta_data.origin.filename
+            mimetype = chunks_meta_data.origin.mimetype
+            headings = chunks_meta_data.headings
+            document_hash = chunks_meta_data.origin.binary_hash
+
+            content_types = list(set([
+                str(item.label)
+                for item in chunks_meta_data.doc_items 
+            ]))
+
+            return {
+                "chunk_idx": f"{get_normalized_project_name(project)}_{i}",
+                "source": origin_file,
+                "mimetype": mimetype,
+                "headings": headings,
+                "document_hash": document_hash,
+                "content_types": content_types
+            }
 
     def _create_tmp_dirs(self):
         """
@@ -342,7 +370,7 @@ class IngestionJobService:
     
 
 
-    def _chunk_docs(self, data_source: DataSource, project_id: UUID, conversion_results: Iterator[ConversionResult]) -> Dict: 
+    def _chunk_docs(self, data_source: DataSource, project_id: UUID, conversion_results: Iterator[ConversionResult]) -> Dict[str, List]: 
         """
         Functionality to chunk docs via Dockling 
 
