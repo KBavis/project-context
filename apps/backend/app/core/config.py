@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     VECTOR_DB_HOST: str = "localhost"
     VECTOR_DB_PORT: int = 8000
 
+    LL_MODEL_PROVIDER: str = "Ollama"
+    LL_MODEL: str = "gpt-oss"
+
     DOCS_EMBEDDING_PROVIDER: str = "HuggingFace"
     DOCS_EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
 
@@ -105,5 +108,6 @@ def setup_logging():
         "watchfiles",
         "filelock",
         "docling",
+        "httpcore.http11"
     ]:
         logging.getLogger(noisy).setLevel(logging.WARNING)
