@@ -9,6 +9,7 @@ from sqlalchemy import text, ForeignKey
 if TYPE_CHECKING:
     from .project_data import ProjectData
     from .model_configs import ModelConfigs
+    from .conversation import Conversation
 
 
 class Project(Base):
@@ -29,3 +30,10 @@ class Project(Base):
 
     # many to many relationship with DataSource
     project_data: Mapped[List["ProjectData"]] = relationship(back_populates="project")
+
+
+    # one to many relationship with Conversation 
+    conversations: Mapped[List["Project"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+
