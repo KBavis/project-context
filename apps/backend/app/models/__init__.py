@@ -4,6 +4,7 @@ from .ingestion_job import IngestionJob
 from .project import Project
 from .project_data import ProjectData
 from .model_configs import ModelConfigs
+from .conversation import Conversation
 
 
 __all__ = [
@@ -13,4 +14,5 @@ __all__ = [
     "Project",
     "ProjectData",
     "ModelConfigs",
+    "Conversation"
 ]
