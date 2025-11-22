@@ -323,7 +323,6 @@ class IngestionJobService:
                 embed_model=embedding_manager.get_embedding_model(source_type) # use configured embedding model for current Project
             )
 
-            #TODO: Finish me 
 
 
 
