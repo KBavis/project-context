@@ -5,6 +5,7 @@ from .project import Project
 from .project_data import ProjectData
 from .model_configs import ModelConfigs
 from .conversation import Conversation
+from .message import Message
 
 
 __all__ = [
@@ -14,5 +15,6 @@ __all__ = [
     "Project",
     "ProjectData",
     "ModelConfigs",
-    "Conversation"
+    "Conversation",
+    "Message"
 ]

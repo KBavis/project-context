@@ -1,6 +1,6 @@
 from .base import Base 
 from uuid import UUID
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import text, ForeignKey
@@ -8,6 +8,7 @@ from sqlalchemy import text, ForeignKey
 
 if TYPE_CHECKING:
     from .project import Project
+    from .message import Message
 
 
 class Conversation(Base):
@@ -25,8 +26,16 @@ class Conversation(Base):
     # TODO: Add user relationship (as a Conversation will only pertain to single user)
 
 
+
     # many to one relationship with Project 
     project_id: Mapped[UUID] = mapped_column(
         ForeignKey("project.id")
     )
     project: Mapped["Project"] = relationship(back_populates="conversations")
+
+
+    # one to many relationship with Message
+    messages: Mapped[List["Message"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan"
+    )
