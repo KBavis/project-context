@@ -108,6 +108,9 @@ def setup_logging():
         "watchfiles",
         "filelock",
         "docling",
-        "httpcore.http11"
+        "httpcore.http11",
+        "httpx",
+        "httpcore.connection",
+        "chromadb.config"
     ]:
         logging.getLogger(noisy).setLevel(logging.WARNING)
