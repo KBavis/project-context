@@ -20,7 +20,7 @@ class Sender(Enum):
 class Message(Base):
     __tablename__ = "message"
 
-    id: Mapped[UUID] = mapped_column(primary_key=True, index=True, server_default=text("get_random_uuid()"))
+    id: Mapped[UUID] = mapped_column(primary_key=True, index=True, server_default=text("gen_random_uuid()"))
 
     sender: Mapped[Sender] = mapped_column(
         SQLEnum(Sender), 
