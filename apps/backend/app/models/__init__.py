@@ -6,6 +6,7 @@ from .project_data import ProjectData
 from .model_configs import ModelConfigs
 from .conversation import Conversation
 from .message import Message
+from .file import File
 
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "ModelConfigs",
     "Conversation",
     "Message",
-    "ProcessingStatus"
+    "ProcessingStatus",
+    "File"
 ]

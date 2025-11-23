@@ -8,6 +8,7 @@ from uuid import UUID
 if TYPE_CHECKING:
     from .ingestion_job import IngestionJob
     from .project_data import ProjectData
+    from .file import File
 
 
 class DataSource(Base):
@@ -33,4 +34,9 @@ class DataSource(Base):
     # many to many relationship with Project
     project_data: Mapped[List["ProjectData"]] = relationship(
         back_populates="data_source"
+    )
+
+    # one to many relationship with File 
+    files: Mapped[List["File"]] = relationship(
+        back_populates="data_source", cascade="all, delete-orphan"
     )

@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from .project_data import ProjectData
     from .model_configs import ModelConfigs
     from .conversation import Conversation
+    from .file_collection import FileCollection
 
 
 class Project(Base):
@@ -35,5 +36,11 @@ class Project(Base):
     # one to many relationship with Conversation 
     conversations: Mapped[List["Conversation"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
+    )
+
+    # one to many relationship with FileCollection
+    file_collections: Mapped[List["FileCollection"]] = relationship(
+        back_populates="project", 
+        cascade="all, delete-orphan"
     )
 
