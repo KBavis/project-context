@@ -22,17 +22,13 @@ class FileCollection(Base):
 
     __tablename__ = "file_collection"
 
-    id: Mapped[UUID] = mapped_column(
-        primary_key=True,
-        index=True,
-        server_default=text("gen_random_uuid()")
-    )
-
     file_id = mapped_column(
-        ForeignKey("data_source.id")
+        ForeignKey("data_source.id"),
+        primary_key=True
     )
     project_id = mapped_column(
-        ForeignKey("project.id")
+        ForeignKey("project.id"),
+        primary_key=True
     )
 
     file: Mapped["File"] = relationship(back_populates="file_collections")
