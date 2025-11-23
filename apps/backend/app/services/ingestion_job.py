@@ -169,6 +169,7 @@ class IngestionJobService:
 
                 project_nodes[project].append(
                     TextNode(
+                        _id=f"{doc_chunk.meta.origin.filename}_{i}",
                         text=context_chunk,
                         metadata=self._get_chunk_meta_data(doc_chunk, i, project)
                     )
