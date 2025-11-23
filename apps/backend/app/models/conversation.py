@@ -16,7 +16,7 @@ class Conversation(Base):
 
 
     id: Mapped[UUID] = mapped_column(
-        primary_key=True, index=True, server_default=text("get_random_uuid()")
+        primary_key=True, index=True, server_default=text("gen_random_uuid()")
     )
     summary: Mapped[str] = mapped_column(
         nullable=True, 
