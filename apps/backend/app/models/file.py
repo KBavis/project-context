@@ -38,14 +38,14 @@ class File(Base):
 
     
     # many to one relationship with DataSource
-    data_source_id = Mapped[UUID] = mapped_column(
+    data_source_id: Mapped[UUID] = mapped_column(
         ForeignKey("data_source.id")
     )
-    data_source = Mapped["DataSource"] = relationship(
+    data_source: Mapped["DataSource"] = relationship(
         back_populates="files"
     )
 
     # one to many relationship with FileCollection
-    file_collections = Mapped[List["FileCollection"]] = relationship(
+    file_collections: Mapped[List["FileCollection"]] = relationship(
         back_populates="file", cascade="all, delete-orphan"
     )
