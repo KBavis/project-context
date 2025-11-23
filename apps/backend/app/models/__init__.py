@@ -7,6 +7,7 @@ from .model_configs import ModelConfigs
 from .conversation import Conversation
 from .message import Message
 from .file import File
+from .file_collection import FileCollection
 
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "Conversation",
     "Message",
     "ProcessingStatus",
-    "File"
+    "File",
+    "FileCollection"
 ]

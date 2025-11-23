@@ -23,7 +23,7 @@ class FileCollection(Base):
     __tablename__ = "file_collection"
 
     file_id = mapped_column(
-        ForeignKey("data_source.id"),
+        ForeignKey("file.id"),
         primary_key=True
     )
     project_id = mapped_column(
@@ -31,8 +31,14 @@ class FileCollection(Base):
         primary_key=True
     )
 
-    file: Mapped["File"] = relationship(back_populates="file_collections")
-    project: Mapped["Project"] = relationship(back_populates="file_collections")
+    file: Mapped["File"] = relationship(
+        "File",
+        back_populates="file_collections"
+    )
+    project: Mapped["Project"] = relationship(
+        "Project",
+        back_populates="file_collections"
+    )
 
 
 

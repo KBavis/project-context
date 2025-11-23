@@ -26,20 +26,28 @@ class Project(Base):
 
     # one to one relationship with ModelConfigs
     model_configs: Mapped["ModelConfigs"] = relationship(
-        back_populates="project", cascade="all, delete-orphan"
+        "ModelConfigs",
+        back_populates="project", 
+        cascade="all, delete-orphan"
     )
 
     # many to many relationship with DataSource
-    project_data: Mapped[List["ProjectData"]] = relationship(back_populates="project")
+    project_data: Mapped[List["ProjectData"]] = relationship(
+        "ProjectData",
+        back_populates="project"
+    )
 
 
     # one to many relationship with Conversation 
     conversations: Mapped[List["Conversation"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan"
+        "Conversation",
+        back_populates="project", 
+        cascade="all, delete-orphan"
     )
 
     # one to many relationship with FileCollection
     file_collections: Mapped[List["FileCollection"]] = relationship(
+        "FileCollection",
         back_populates="project", 
         cascade="all, delete-orphan"
     )
