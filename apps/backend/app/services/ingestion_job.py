@@ -7,7 +7,7 @@ from typing import Tuple, Iterator, Dict, List
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
-from app.models import DataSource
+from app.models import DataSource, IngestionJob, ProcessingStatus
 from app.data_providers import GithubDataProvider
 from app.core import settings
 from app.embeddings import EmbeddingManager
@@ -98,6 +98,9 @@ class IngestionJobService:
 
 
         # persist IngestionJob to DB
+        ingestion_job = IngestionJob(processing_status=ProcessingStatus.SUCCESS, data_source_id=data_source_id)
+        self.db.add(ingestion_job)
+        self.db.flush()
 
         self._cleanup_tmp_dirs(code_path, docs_path)
 
