@@ -432,13 +432,3 @@ class IngestionJobService:
         return chunked_docs
 
 
-
-    def _store_chunked_files_in_chroma(self, source_type):
-        """
-        Store chunked files in ChromaDB
-
-        Args:
-            source_type (str): either docs or code
-        """
-        return None
-
