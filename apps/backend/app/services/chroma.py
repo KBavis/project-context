@@ -13,9 +13,11 @@ logger = logging.getLogger(__name__)
 
 class ChromaService:
 
-    def __init__(self):
+    def __init__(self, db):
         manager = ChromaClientManager()
-        self.project_svc = ProjectService()
+
+        self.db = db
+        self.project_svc = ProjectService(db, manager)
         self.client = manager.get_sync_client()
 
 
