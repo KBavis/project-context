@@ -109,18 +109,28 @@ class ChromaService:
         
         match source_type:
             case "DOCS":
-                return self._get_files_from_collection(project_name, "DOCS")
+                res = self._get_files_from_collection(project_name, "DOCS")
+                return res if res else {"message": f"No Documents found in collection {project_name}_DOCS"}
             case "CODE":
-                return self._get_files_from_collection(project_name, "CODE")
+                res = self._get_files_from_collection(project_name, "CODE")
+                return res if res else {"message": f"No Documents found in collection {project_name}_CODE"}
             case "N/A":
                 collections = ["CODE", "DOCS"]
-                return [
-                    file
-                    for c in collections
-                    for file in self._get_files_from_collection(project_name, c)
-                ]
+                all_files = {} 
+
+                for c in collections:
+                    files = self._get_files_from_collection(project_name, c)
+                    if files:
+                        all_files[c] = files
+                    
+                if not all_files:
+                    return {f"message": "No Documents found in CODE or DOCS collection for Project={project_name}"}
+
             case _:
                 raise Exception("Unknown source_type specified")
+        
+
+        return all_files
             
     
 
@@ -150,11 +160,30 @@ class ChromaService:
             source_type (str): relevant source type to get documents for 
         """
 
-        collection = self.client.get_collection(f"{project_name}_{source_type}")
-        docs = collection.get()
-        logger.info(f"Successfully retrieved {len(docs)} documents from collection {project_name}_{source_type}")
+        try:
+            collection = self.client.get_collection(f"{project_name}_{source_type}")
+        except Exception as e:
+            logger.debug(f"Collection {project_name}_{source_type} does not exist: {e}")
+            return None
 
-        return docs
+        if collection.count() == 0:
+            logger.debug(f"No Documents currently ingested for Project={project_name}")
+            return {"message": "No documents found"}
+
+        docs = collection.get()
+        document_ids = docs['ids']  
+        documents = docs['documents']  
+        metadatas = docs['metadatas']  
+        embeddings = docs.get('embeddings')  
+
+        logger.info(f"Successfully retrieved {len(document_ids)} documents from collection {project_name}_{source_type}")
+
+        return {
+            "doc_ids": document_ids,
+            "documents": documents,
+            "meta_datas": metadatas,
+            "embeddings": embeddings
+        } 
 
 
     def _delete_collection(self, project_name: str, source_type: str):
