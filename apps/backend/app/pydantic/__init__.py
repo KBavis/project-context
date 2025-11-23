@@ -1,6 +1,6 @@
 from .chat import ChatRequest
 from .data_source import DataSourceRequest
 from .project import ProjectRequest
-from .file_meta_data import FileMetadata
+from .file import File
 
-__all__ = ["ChatRequest", "DataSourceRequest", "ProjectRequest", "FileMetadata"]
+__all__ = ["ChatRequest", "DataSourceRequest", "ProjectRequest", "File"]
