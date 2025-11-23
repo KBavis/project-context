@@ -33,7 +33,7 @@ class Project(Base):
 
 
     # one to many relationship with Conversation 
-    conversations: Mapped[List["Project"]] = relationship(
+    conversations: Mapped[List["Conversation"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
 
