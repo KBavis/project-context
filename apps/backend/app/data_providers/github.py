@@ -87,12 +87,12 @@ class GithubDataProvider(DataProvider):
 
             # download file and put into temp directory
             if node["type"] == "file":
-                self._download_file(node["download_url"], node["name"])
+                self._download_file(node["download_url"], node["name"], node["path"])
             else:
                 # recursively download files in specificied directory
                 self._get_repository_data(node["url"])
 
-    def _download_file(self, url: str, file_name: str):
+    def _download_file(self, url: str, file_name: str, file_path: str):
         """
         Helper function to download a file and store within relevant temporary directory
         """
@@ -123,9 +123,18 @@ class GithubDataProvider(DataProvider):
             response = requests.get(url, stream=True, headers=self.request_headers)
             response.raise_for_status()
 
+            # process file 
+            # TODO: Account for handling "unchanged files", but file not ingested for particular project 
+            # TODO: Intelligently account for handling "moved" / "copied" files. Should we reingest? Should we delete text nodes? 
+            processing_status = super().process_file(response=response, file_name=file_name, file_path=file_path)
+
+            # skip unchanged files 
+            if processing_status == "UNCHANGED":
+                return 
+
             # write file to temporary directory
             dir = settings.TMP_DOCS if file_type == "DOCS" else settings.TMP_CODE
-            temp_file_name = f"{dir}/{self._get_file_name(url)}"
+            temp_file_name = f"{dir}/{self._get_file_name(url)}" 
 
             with open(temp_file_name, "wb") as f:
                 for chunk in response.iter_content(8192):
