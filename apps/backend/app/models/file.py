@@ -36,6 +36,16 @@ class File(Base):
         comment="The content type of the file"
     )
 
+    name: Mapped[str] = mapped_column(
+        nullable=False,
+        comment="The name of the file"
+    )
+
+    path: Mapped[str] = mapped_column(
+        nullable=True,
+        comment="The path of the file (if it exists)"
+    )
+
     
     # many to one relationship with DataSource
     data_source_id: Mapped[UUID] = mapped_column(
