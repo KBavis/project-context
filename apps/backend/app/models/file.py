@@ -16,8 +16,8 @@ class File(Base):
 
     __tablename__ = "file"
 
-    id: Mapped[str] = mapped_column(
-        primary_key=True, index=True
+    id: Mapped[UUID] = mapped_column(
+        primary_key=True, index=True, server_default=text("gen_random_uuid()")
     )
 
     hash: Mapped[str] = mapped_column(
