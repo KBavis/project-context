@@ -141,7 +141,7 @@ class IngestionJobService:
                 logger.info(
                     f"Attempting to retrieve data from GitHub provider for URL: {data_source.url}"
                 )
-                provider = GithubDataProvider(url=data_source.url)
+                provider = GithubDataProvider(self.db, url=data_source.url)
                 provider.ingest_data()
             case _:
                 logger.error(
