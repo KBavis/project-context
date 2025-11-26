@@ -3,6 +3,7 @@ import logging
 
 from app.services import FileService
 from app.models import DataSource
+from app.pydantic import File
 
 from enum import Enum 
 
@@ -29,7 +30,7 @@ class FileHandler():
         self._file_service = FileService(db)
     
 
-    def process_file(self, file_name: str, response: Response, data_source: DataSource, file_path: str = "") -> FileProcesingStatus:
+    def process_file(self, file: File, data_source: DataSource) -> FileProcesingStatus:
         """
         Main function for processing a particular file that we are looking to download from a particular DataSource,
         by determining what status a particular file has & then performing the relevant actions based on that status 
@@ -48,11 +49,8 @@ class FileHandler():
             file_path (str): the complete file path of this particular file 
         """
 
-        # Step 1. Generate hash based on strictly the file content (not considering path or any additional meta data)
-        hashed_content = self._hash_file_content(response) # TODO: Should we use the size of the file as well? 
-
         # Step 2. Determine if this File has been previously ingested based on file_path, hashed file content, and relevant data source 
-        status = self.get_file_status(hashed_content, file_path, data_source.id)
+        status = self.get_file_status(file.hash, file.path, data_source.id)
         match status:
             case FileProcesingStatus.MOVED:
                 """
@@ -197,7 +195,7 @@ class FileHandler():
         """
 
 
-    def _hash_file_content(self, response: Response):
+    def hash_file_content(self, response: Response):
         """
         Helper function to hash a file based on strictly its content (i.e no meta data, file name, etc)
         

@@ -4,6 +4,7 @@ import requests
 
 from .base import DataProvider
 from app.core import settings
+from app.pydantic import File
 
 logger = logging.getLogger(__name__)
 
@@ -124,9 +125,16 @@ class GithubDataProvider(DataProvider):
             response.raise_for_status()
 
             # process file 
-            # TODO: Account for handling "unchanged files", but file not ingested for particular project 
-            # TODO: Intelligently account for handling "moved" / "copied" files. Should we reingest? Should we delete text nodes? 
-            # TODO: Call FileHandler for handling appropaite actions regarding this file and skip writing to temp directory if ingestion not needed 
+            hashed_content = self.file_handler.hash_file_content(response)
+            file = File(
+                path=file_path, 
+                file_name=file_name, 
+                file_type=file_extension, 
+                size=size, 
+                hash=hashed_content
+            )
+            file_status = self.file_handler.process_file(file, self.data_source) # TODO: Based on file status, skip or continue processing
+
 
             # write file to temporary directory
             dir = settings.TMP_DOCS if file_type == "DOCS" else settings.TMP_CODE
