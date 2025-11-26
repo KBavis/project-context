@@ -31,9 +31,9 @@ class File(Base):
         comment="The number of bytes within this file"
     )
 
-    content_type: Mapped[str] = mapped_column(
+    file_extension: Mapped[str] = mapped_column(
         nullable=False,
-        comment="The content type of the file"
+        comment="The file extension of this particular file"
     )
 
     name: Mapped[str] = mapped_column(
