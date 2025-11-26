@@ -73,6 +73,7 @@ class IngestionJobService:
             return
 
         # documentation files were ingested
+        # TODO: Consider moving logic surronding chunking & converting & storing to Chroma in their own seperate services 
         if has_docs:
             logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant docs files; chunking & saving to ChromaDB")
 
