@@ -171,9 +171,10 @@ class IngestionJobService:
                 doc_chunk = data['doc_chunk']
                 context_chunk = data['contextualized_chunk']
 
+                # TODO: Change TextNode ID to contain File Content Hash (NOTE: This is because once content changed, these TextNodes should get removed & re-created)
                 project_nodes[project].append(
                     TextNode(
-                        _id=f"{doc_chunk.meta.origin.filename}_{i}",
+                        _id=f"{doc_chunk.meta.origin.filename}_{i}", 
                         text=context_chunk,
                         metadata=self._get_chunk_meta_data(doc_chunk, i, project)
                     )
@@ -203,6 +204,7 @@ class IngestionJobService:
                 for item in chunks_meta_data.doc_items 
             ])))
 
+            # TODO: Add File Name / Path to Meta Data 
             return {
                 "chunk_idx": f"{get_normalized_project_name(project)}_{i}",
                 "source": origin_file,
