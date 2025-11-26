@@ -87,12 +87,12 @@ class GithubDataProvider(DataProvider):
 
             # download file and put into temp directory
             if node["type"] == "file":
-                self._download_file(node["download_url"], node["name"], node["path"])
+                self._download_file(node["download_url"], node["name"], node["path"], node["size"])
             else:
                 # recursively download files in specificied directory
                 self._get_repository_data(node["url"])
 
-    def _download_file(self, url: str, file_name: str, file_path: str):
+    def _download_file(self, url: str, file_name: str, file_path: str, size: int):
         """
         Helper function to download a file and store within relevant temporary directory
         """
