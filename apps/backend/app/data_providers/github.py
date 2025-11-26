@@ -126,11 +126,7 @@ class GithubDataProvider(DataProvider):
             # process file 
             # TODO: Account for handling "unchanged files", but file not ingested for particular project 
             # TODO: Intelligently account for handling "moved" / "copied" files. Should we reingest? Should we delete text nodes? 
-            processing_status = super().process_file(response=response, file_name=file_name, file_path=file_path)
-
-            # skip unchanged files 
-            if processing_status == "UNCHANGED":
-                return 
+            # TODO: Call FileHandler for handling appropaite actions regarding this file and skip writing to temp directory if ingestion not needed 
 
             # write file to temporary directory
             dir = settings.TMP_DOCS if file_type == "DOCS" else settings.TMP_CODE
@@ -144,6 +140,8 @@ class GithubDataProvider(DataProvider):
             raise Exception(
                 f"Failure occurred while attempt to download file: {file_name}"
             )
+    
+
 
     def _get_file_name(self, url: str):
         """
