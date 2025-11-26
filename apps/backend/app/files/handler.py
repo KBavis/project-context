@@ -57,7 +57,7 @@ class FileHandler():
             case FileProcesingStatus.MOVED:
                 """
                 TODO: 
-                    1. Delete text nodes assocaited with this Fle from all relevant Project Collections (or determine if we can just update meta data of TextNode)
+                    1. Update existing TextNodes associated with this File (retrieve TextNodes by metadatas hash)
                     2. Update File record in DB with new file path 
                     3. Verify that all projects corresponding to this file have correctly ingested it (FileCollections)
                     4. Indicate to calling function we should continue processing 

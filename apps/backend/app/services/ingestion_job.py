@@ -204,7 +204,7 @@ class IngestionJobService:
                 for item in chunks_meta_data.doc_items 
             ])))
 
-            # TODO: Add File Name / Path to Meta Data 
+            # TODO: Add file name, file path, file hash too
             return {
                 "chunk_idx": f"{get_normalized_project_name(project)}_{i}",
                 "source": origin_file,
