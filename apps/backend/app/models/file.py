@@ -43,7 +43,7 @@ class File(Base):
 
     path: Mapped[str] = mapped_column(
         nullable=True,
-        comment="The path of the file (if it exists)"
+        comment="The entire path to the file"
     )
 
     

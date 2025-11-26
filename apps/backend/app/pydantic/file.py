@@ -8,3 +8,4 @@ class File(BaseModel):
     content_type: str
     data_source_id: UUID 
     size: int # number of bytes in file
+    hash: str # hash based on file content 
