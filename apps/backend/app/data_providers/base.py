@@ -3,21 +3,7 @@ from sqlalchemy.orm import Session
 from app.files import FileHandler
 from app.models import DataSource
 
-import logging
-
 from abc import abstractmethod, ABC
-from enum import Enum
-
-class FileProcessStatus(Enum):
-
-    UNCHANGED = "unchanged"
-    UPDATED = "updated"
-    CREATED = "created"
-    MOVED = "moved"
-    COPIED = "copied"
-
-
-logger = logging.getLogger(__name__)
 
 class DataProvider(ABC):
 
