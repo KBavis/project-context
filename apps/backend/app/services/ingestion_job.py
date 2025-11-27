@@ -13,6 +13,7 @@ from app.core import settings
 from app.embeddings import EmbeddingManager
 from app.core import ChromaClientManager
 from app.services.util import get_normalized_project_name
+from app.services import FileService
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
@@ -32,9 +33,10 @@ logger = logging.getLogger(__name__)
 
 
 class IngestionJobService:
-    def __init__(self, db: Session, chroma_client_manager: ChromaClientManager):
+    def __init__(self, db: Session, file_service: FileService, chroma_client_manager: ChromaClientManager):
         self.db = db
         self.chroma_mnger = chroma_client_manager
+        self.file_service = file_service
 
     def run_ingestion_job(self, data_source_id: UUID, project_id: UUID = None):
         """
@@ -142,7 +144,7 @@ class IngestionJobService:
                 logger.info(
                     f"Attempting to retrieve data from GitHub provider for URL: {data_source.url}"
                 )
-                provider = GithubDataProvider(self.db, url=data_source.url)
+                provider = GithubDataProvider(file_service=self.file_service, url=data_source.url)
                 provider.ingest_data()
             case _:
                 logger.error(

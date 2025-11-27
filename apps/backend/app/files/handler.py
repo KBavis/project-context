@@ -26,9 +26,9 @@ class FileHandler():
     Utility class to help process files that we have donwloaded from a particular app.data_providers.DataProvider 
     """
 
-    def __init__(self, db):
-        self._file_service = FileService(db)
-    
+    def __init__(self, file_service):
+        self._file_service = file_service
+           
 
     def process_file(self, file: File, data_source: DataSource) -> FileProcesingStatus:
         """

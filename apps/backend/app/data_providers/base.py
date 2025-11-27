@@ -2,16 +2,17 @@ from sqlalchemy.orm import Session
 
 from app.files import FileHandler
 from app.models import DataSource
+from app.services import FileService
 
 from abc import abstractmethod, ABC
 
 class DataProvider(ABC):
 
-    def __init__(self, db: Session, data_source: DataSource, url: str = ""):
+    def __init__(self, db: Session, file_service: FileService, data_source: DataSource, url: str = ""):
         self.data_source = data_source
         self.url = url
         self.request_headers = self._get_request_headers()
-        self.file_handler = FileHandler(db)
+        self.file_handler = FileHandler(file_service)
 
     @abstractmethod
     def ingest_data():
