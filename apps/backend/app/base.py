@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from .core import settings, init_db, engine, setup_logging
 from contextlib import asynccontextmanager
-from .routers import app_router
+from .api.routers import app_router
 
 
 @asynccontextmanager
