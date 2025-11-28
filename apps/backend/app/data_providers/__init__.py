@@ -1,4 +1,4 @@
-from .base import DataProvider, FileProcessingStatus
+from .base import DataProvider
 from .github import GithubDataProvider
 
-__all__ = ["DataProvider", "GithubDataProvider", "FileProcessingStatus"]
+__all__ = ["DataProvider", "GithubDataProvider"]

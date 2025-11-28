@@ -1,6 +1,6 @@
-from .handler import FileHandler, FileProcessingStatus
+from .handler import FileHandler, FileProcesingStatus
 
 __all__ = [
     'FileHandler',
-    'FileProcessingStatus'
+    'FileProcesingStatus'
 ]

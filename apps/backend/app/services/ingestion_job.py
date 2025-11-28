@@ -28,19 +28,14 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.schema import TextNode
 
-from typing import TYPE_CHECKING
-
 logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from app.services import FileService
 
 
 class IngestionJobService:
     def __init__(
             self, 
             db: Session, 
-            file_service: FileService, 
+            file_service, 
             chroma_client_manager: ChromaClientManager
     ):
         self.db = db

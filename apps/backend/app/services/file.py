@@ -4,13 +4,11 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 import logging
 
-from app.models import File
+from app.models import File, DataSource
 from app.pydantic import File as FilePydantic
 
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from app.models import DataSource
 
 
 logger = logging.getLogger(__name__)

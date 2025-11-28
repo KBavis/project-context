@@ -1,7 +1,6 @@
 from requests import Response
 import logging
 
-from app.services import FileService
 from app.models import DataSource
 from app.pydantic import File
 

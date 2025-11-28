@@ -18,7 +18,7 @@ class ChromaService:
             self, 
             db: Session, 
             chroma_manager: ChromaClientManager, 
-            project_svc: ProjectService
+            project_svc
     ):
         self.db = db
         self.project_svc = project_svc
