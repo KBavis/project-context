@@ -1,23 +1,23 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from app.core import get_db_session
+
 from app.services import ProjectService
 from app.pydantic import ProjectRequest
-from app.core import ChromaClientManager
+from ..svc_deps import get_project_svc
+
 from typing import List
 
 router = APIRouter(prefix="/projects")
-chroma_manager = ChromaClientManager()
-
 
 @router.post("/", summary="Create new project")
-def create_project(project: ProjectRequest, db: Session = Depends(get_db_session)):
+def create_project(
+    project: ProjectRequest, 
+    svc: ProjectService = Depends(get_project_svc)
+):
     """
     Create a new Project for RAG Pipeline to account for
     """
 
     try:
-        svc = ProjectService(db, chroma_manager)
         return svc.create_project(project)
     except Exception as e:
         raise HTTPException(
@@ -26,7 +26,9 @@ def create_project(project: ProjectRequest, db: Session = Depends(get_db_session
 
 
 @router.get("/", summary="Retrieve all projects")
-def get_projects(db: Session = Depends(get_db_session)) -> List[dict]:
+def get_projects(
+    svc: ProjectService = Depends(get_project_svc)
+) -> List[dict]:
     """
     Fetch all persisted Projects
 
@@ -34,7 +36,6 @@ def get_projects(db: Session = Depends(get_db_session)) -> List[dict]:
     """
 
     try:
-        svc = ProjectService(db, chroma_manager)
         return svc.get_all_projects()
     except Exception as e:
         raise HTTPException(

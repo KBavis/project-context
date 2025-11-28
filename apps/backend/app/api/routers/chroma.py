@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, status, Depends
 
 from app.services import ChromaService
-from app.core import get_db_session
+from ..svc_deps import get_chroma_svc
 
-from sqlalchemy.orm import Session
+
 
 from uuid import UUID
 
@@ -16,14 +16,13 @@ router = APIRouter(prefix="/test/chroma")
 
 @router.get("/collection/total", summary="Get the total number of collections")
 def get_collection_total (
-    db: Session = Depends(get_db_session)
+    svc: ChromaService = Depends(get_chroma_svc)
 ):
     """
     Get the total number of collections stored in ChromaDB
     """
 
     try:
-        svc = ChromaService(db)
         return svc.get_total_number_of_collections()
     except Exception as e:
         raise HTTPException(
@@ -33,7 +32,10 @@ def get_collection_total (
 
 
 @router.get("/{project_id}")
-def get_documents(project_id: UUID, db: Session = Depends(get_db_session)):
+def get_documents(
+    project_id: UUID, 
+    svc: ChromaService = Depends(get_chroma_svc)
+):
     """
     Retrieve the documents associated with a particular project in Chroma 
 
@@ -41,7 +43,6 @@ def get_documents(project_id: UUID, db: Session = Depends(get_db_session)):
     """
 
     try:
-        svc = ChromaService(db)
         return svc.get_all_files(project_id)
     except Exception as e:
         raise HTTPException(
@@ -51,7 +52,10 @@ def get_documents(project_id: UUID, db: Session = Depends(get_db_session)):
 
 
 @router.delete("/collection/{project_id}")
-def delete_collection(project_id: UUID, db: Session = Depends(get_db_session)):
+def delete_collection(
+    project_id: UUID,
+    svc: ChromaService = Depends(get_chroma_svc)
+):
     """
     Retrieve the documents associated with a particular project in Chroma 
 
@@ -59,7 +63,6 @@ def delete_collection(project_id: UUID, db: Session = Depends(get_db_session)):
     """
 
     try:
-        svc = ChromaService(db)
         return svc.delete_collection(project_id)
     except Exception as e:
         raise HTTPException(
@@ -69,7 +72,10 @@ def delete_collection(project_id: UUID, db: Session = Depends(get_db_session)):
 
 
 @router.delete("/collection/{project_id}/documents")
-def delete_documents_from_collections(project_id: UUID, db: Session = Depends(get_db_session)):
+def delete_documents_from_collections(
+    project_id: UUID, 
+    svc: ChromaService = Depends(get_chroma_svc)
+):
     """
     Delete specific documents from existing collection
 
@@ -77,7 +83,6 @@ def delete_documents_from_collections(project_id: UUID, db: Session = Depends(ge
     """
 
     try:
-        svc = ChromaService(db)
         return svc.delete_collection_documents(project_id, []) # TODO: Enforce passing of specific document ids to delete 
     except Exception as e:
         raise HTTPException(
