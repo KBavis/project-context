@@ -4,7 +4,6 @@ from datetime import datetime
 from uuid import UUID
 from typing import Tuple, Iterator, Dict, List
 
-from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from app.models import DataSource, IngestionJob, ProcessingStatus
@@ -34,10 +33,16 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from app.services import FileService
     from app.core import ChromaClientManager
+    from sqlalchemy.orm import Session
 
 
 class IngestionJobService:
-    def __init__(self, db: Session, file_service: FileService, chroma_client_manager: ChromaClientManager):
+    def __init__(
+            self, 
+            db: Session, 
+            file_service: FileService, 
+            chroma_client_manager: ChromaClientManager
+    ):
         self.db = db
         self.chroma_mnger = chroma_client_manager
         self.file_service = file_service

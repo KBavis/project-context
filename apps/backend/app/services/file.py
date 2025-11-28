@@ -1,4 +1,3 @@
-from sqlalchemy.orm import Session
 from sqlalchemy import select, or_, and_
 
 from uuid import UUID
@@ -11,6 +10,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.models import DataSource
+    from sqlalchemy.orm import Session
 
 
 logger = logging.getLogger(__name__)

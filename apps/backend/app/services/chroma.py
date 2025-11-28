@@ -1,19 +1,27 @@
 import logging
 from uuid import UUID
 
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, TYPE_CHECKING
 
-from app.core import ChromaClientManager
-from app.services import ProjectService
 from app.services.util import get_normalized_project_name
 
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from app.services import ProjectService
+    from app.core import ChromaClientManager
+    from sqlalchemy.orm import Session
+
 
 class ChromaService:
 
-    def __init__(self, db, chroma_manager, project_svc):
+    def __init__(
+            self, 
+            db: Session, 
+            chroma_manager: ChromaClientManager, 
+            project_svc: ProjectService
+    ):
         self.db = db
         self.project_svc = project_svc
         self.client = chroma_manager.get_sync_client()

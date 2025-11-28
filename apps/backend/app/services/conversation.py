@@ -2,9 +2,12 @@
 from app.pydantic import ChatRequest
 from app.models import Conversation
 
-from sqlalchemy.orm import Session
-
 from uuid import UUID
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 class ConversationService:
 
