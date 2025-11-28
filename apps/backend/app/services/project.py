@@ -3,6 +3,7 @@ import logging
 from chromadb.api import ClientAPI
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.pydantic import ProjectRequest
 from app.models import Project, ModelConfigs
@@ -12,9 +13,6 @@ from app.services.util import get_normalized_project_name
 from typing import TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
 
 class ProjectService:
     def __init__(

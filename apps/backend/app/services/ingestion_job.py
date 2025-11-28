@@ -5,12 +5,14 @@ from uuid import UUID
 from typing import Tuple, Iterator, Dict, List
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.models import DataSource, IngestionJob, ProcessingStatus
 from app.data_providers import GithubDataProvider
 from app.core import settings
 from app.embeddings import EmbeddingManager
 from app.services.util import get_normalized_project_name
+from app.core import ChromaClientManager
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
@@ -32,8 +34,6 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from app.services import FileService
-    from app.core import ChromaClientManager
-    from sqlalchemy.orm import Session
 
 
 class IngestionJobService:

@@ -1,8 +1,10 @@
 import logging
 from uuid import UUID
-from typing import List, TYPE_CHECKING
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from typing import List
 
 from app.pydantic import DataSourceRequest
 from app.models import DataSource, Project, ProjectData
@@ -10,8 +12,6 @@ from app.core import settings
 
 logger = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
 
 class DataSourceService:
     def __init__(self, db: Session):
