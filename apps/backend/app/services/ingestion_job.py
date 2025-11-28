@@ -11,9 +11,7 @@ from app.models import DataSource, IngestionJob, ProcessingStatus
 from app.data_providers import GithubDataProvider
 from app.core import settings
 from app.embeddings import EmbeddingManager
-from app.core import ChromaClientManager
 from app.services.util import get_normalized_project_name
-from app.services import FileService
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
@@ -29,7 +27,13 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.schema import TextNode
 
+from typing import TYPE_CHECKING
+
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from app.services import FileService
+    from app.core import ChromaClientManager
 
 
 class IngestionJobService:

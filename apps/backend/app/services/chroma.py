@@ -13,12 +13,10 @@ logger = logging.getLogger(__name__)
 
 class ChromaService:
 
-    def __init__(self, db):
-        manager = ChromaClientManager()
-
+    def __init__(self, db, chroma_manager, project_svc):
         self.db = db
-        self.project_svc = ProjectService(db, manager)
-        self.client = manager.get_sync_client()
+        self.project_svc = project_svc
+        self.client = chroma_manager.get_sync_client()
 
 
     def get_total_number_of_collections(self) -> Dict:
