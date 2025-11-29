@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 from datetime import datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 from typing import Tuple, Iterator, Dict, List
 
 from sqlalchemy import select
@@ -69,12 +69,10 @@ class IngestionJobService:
 
         # use data source information to fetch relevant data & store in temp directory
         # TODO: Add configuration possibility to only retrieve data specific to the Jira Tickets provided in Project
-        code_path, docs_path = self._retrieve_data(data_source, project_id)
+        code_path, docs_path = self._retrieve_data(data_source, project_id, job_pk)
 
         # determine which data source types were downloaded
-        has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(
-            code_path
-        )
+        has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(code_path)
 
         # validate retrieval resulted in some data being processed
         if not has_docs and not has_code:
