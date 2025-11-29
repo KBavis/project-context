@@ -10,21 +10,21 @@ class DataProvider(ABC):
 
     def __init__(self, file_service, data_source: DataSource, job_pk: UUID, url: str = ""):
         self.data_source = data_source
+        self.job_pk = job_pk
         self.url = url
-        self.ingestion_job_pk = job_pk
         self.request_headers = self._get_request_headers()
         self.file_handler = FileHandler(file_service)
 
     @abstractmethod
-    def ingest_data():
+    def ingest_data(self):
         pass
 
     @abstractmethod
-    def _download_file(url: str, headers: dict = {}):
+    def _download_file(self, url: str, headers: dict = {}):
         pass
 
     @abstractmethod
-    def _validate_url(url: str):
+    def _validate_url(self, url: str):
         pass
 
     @abstractmethod

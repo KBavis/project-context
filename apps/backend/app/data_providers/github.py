@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class GithubDataProvider(DataProvider):
 
     def __init__(self, file_service, data_source, job_pk, url: str = "", branch: str = "main"):
-        super().__init__(file_service, data_source, url)
+        super().__init__(file_service, data_source, job_pk, url)
         self._validate_url()
 
         # deconstruct URL 
@@ -23,7 +23,6 @@ class GithubDataProvider(DataProvider):
         self.repository_user = parsed_url[3]
         self.repository_name = parsed_url[4]
         self.branch_name = branch
-        self.job_pk = job_pk
         self.repository_url = f"https://api.github.com/repos/{self.repository_user}/{self.repository_name}/contents?ref={self.branch_name}"
 
     def ingest_data(self):
