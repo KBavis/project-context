@@ -61,9 +61,9 @@ class FileService:
             update(File)
             .where(
                 File.data_source_id == data_source_id,
-                File.id._in_(file_ids)
+                File.id.in_(file_ids)
             )
-            .values(ingestion_job_id = ingestion_job_id)
+            .values(last_ingestion_job_id = ingestion_job_id)
         )
 
         self.db.execute(stmt)
@@ -162,7 +162,7 @@ class FileService:
         
     
 
-    def add_new_file(self, file: FilePydantic, data_source: DataSource):
+    def add_new_file(self, file: FilePydantic, data_source: DataSource, job_pk: UUID):
         """
         Functionality to insert a new File & corresponding FileCollection record
         """
@@ -174,6 +174,7 @@ class FileService:
             name=file.file_name,
             path=file.path,
             data_source_id=data_source.id,
+            last_ingestion_job_id=job_pk
         )
 
 
