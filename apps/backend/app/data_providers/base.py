@@ -7,7 +7,7 @@ from abc import abstractmethod, ABC
 
 class DataProvider(ABC):
 
-    def __init__(self, db: Session, file_service, data_source: DataSource, url: str = ""):
+    def __init__(self, file_service, data_source: DataSource, url: str = ""):
         self.data_source = data_source
         self.url = url
         self.request_headers = self._get_request_headers()

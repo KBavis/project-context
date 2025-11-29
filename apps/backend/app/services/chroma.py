@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.services.util import get_normalized_project_name
 from app.core import ChromaClientManager
+from app.pydantic import DeleteCollectionDocsRequest
 
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,12 @@ class ChromaService:
                 raise Exception("Unknown source_type specified")
     
 
-    def delete_collection_documents(self, project_id: UUID, document_ids: List, source_type: Optional[str] = "N/A"):
+    def delete_collection_documents(
+            self, 
+            delete_collections: DeleteCollectionDocsRequest,
+            project_id: UUID, 
+            source_type: Optional[str] = "N/A"
+        ):
         """
         Delete documents from a particular collection 
 
@@ -82,13 +88,13 @@ class ChromaService:
 
         match source_type:
             case "DOCS":
-                self._delete_documents(project_name, "DOCS")
+                self._delete_documents(project_name, "DOCS", delete_collections.doc_ids)
             case "CODE":
-                return self._delete_documents(project_name, "CODE")
+                return self._delete_documents(project_name, "CODE", delete_collections.doc_ids)
             case "N/A":
                 collections = ["CODE", "DOCS"]
                 for c in collections:
-                    self._delete_documents(project_name, c)
+                    self._delete_documents(project_name, c, delete_collections.doc_ids)
             case _:
                 raise Exception("Unknown source_type specified")
 

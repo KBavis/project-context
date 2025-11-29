@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException, status, Depends
 
 from app.services import ChromaService
+from app.pydantic import DeleteCollectionDocsRequest
+
 from ..svc_deps import get_chroma_svc
 
 
@@ -73,7 +75,9 @@ def delete_collection(
 
 @router.delete("/collection/{project_id}/documents")
 def delete_documents_from_collections(
+
     project_id: UUID, 
+    delete_collection_docs: DeleteCollectionDocsRequest,
     svc: ChromaService = Depends(get_chroma_svc)
 ):
     """
@@ -83,7 +87,7 @@ def delete_documents_from_collections(
     """
 
     try:
-        return svc.delete_collection_documents(project_id, []) # TODO: Enforce passing of specific document ids to delete 
+        return svc.delete_collection_documents(delete_collections=delete_collection_docs, project_id=project_id) 
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

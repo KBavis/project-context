@@ -1,21 +1,24 @@
 import logging
 import re
 import requests
+from io import BytesIO
 
 from .base import DataProvider
 from app.core import settings
 from app.pydantic import File
+from app.files import FileProcesingStatus
+
 
 logger = logging.getLogger(__name__)
 
 
 class GithubDataProvider(DataProvider):
 
-    def __init__(self, url: str = "", branch: str = "main"):
-        super().__init__(url)
-        self._validate_url()  # ensure URL is valid
+    def __init__(self, file_service, data_source, url: str = "", branch: str = "main"):
+        super().__init__(file_service, data_source, url)
+        self._validate_url()
 
-        # deconstruct URL to specifc fields
+        # deconstruct URL 
         parsed_url = self.url.split("/")
         self.repository_user = parsed_url[3]
         self.repository_name = parsed_url[4]
@@ -124,8 +127,11 @@ class GithubDataProvider(DataProvider):
             response = requests.get(url, stream=True, headers=self.request_headers)
             response.raise_for_status()
 
-            # process file 
-            hashed_content = self.file_handler.hash_file_content(response)
+            # hash file content & store in buffer 
+            buffer = BytesIO()
+            hashed_content = self.file_handler.hash_file_content(response, buffer)
+
+            # determine file status 
             file = File(
                 path=file_path, 
                 file_name=file_name, 
@@ -135,18 +141,27 @@ class GithubDataProvider(DataProvider):
             )
             file_status = self.file_handler.process_file(file, self.data_source) # TODO: Based on file status, skip or continue processing
 
+            # TODO: Account for additional statuses that main indicate we can skip
+            if file_status == FileProcesingStatus.UNCHANGED:
+                logger.debug(f"File already ingested and remains unchanged; skipping re-ingestion")
+                return 
 
-            # write file to temporary directory
+            # write file to temporary directory if needed
             dir = settings.TMP_DOCS if file_type == "DOCS" else settings.TMP_CODE
             temp_file_name = f"{dir}/{self._get_file_name(url)}" 
-
+            
+            """
+            TODO: This can get expensive in terms of memory when we read the entire file into Buffer
+            Consider alternative approach for iterating through chunks of response without storing in memory 
+            while still being able to Hash
+            """
             with open(temp_file_name, "wb") as f:
-                for chunk in response.iter_content(8192):
-                    f.write(chunk)
+                f.write(buffer.getbuffer())
 
         except Exception as e:
+            logger.debug(f"Failure downloading file={file_name} with exception={str(e)}")
             raise Exception(
-                f"Failure occurred while attempt to download file: {file_name}"
+                f"Failure occurred while attempt to download file: {file_name}", e
             )
     
 

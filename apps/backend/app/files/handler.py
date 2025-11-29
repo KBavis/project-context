@@ -9,6 +9,8 @@ from enum import Enum
 from hashlib import sha256
 from uuid import UUID
 
+from io import BytesIO
+
 logger = logging.getLogger(__name__)
 
 class FileProcesingStatus(Enum):
@@ -95,6 +97,9 @@ class FileHandler():
 
 
         # Step 4. Mark this File's "last_processed_by" with relevant ingestion_job that is currently being ran 
+
+        logger.debug(f"File status for file={file.path}: {status}")
+        return status
         
 
 
@@ -127,7 +132,7 @@ class FileHandler():
 
         # if no file exists based on hash or path, this is a new file
         logger.debug(f"No existing file found by hash={hashed_content} or path={file_path}, insertion required")
-        return FileProcesingStatus.CREATED
+        return FileProcesingStatus.NEW
     
 
     def process_file_by_hash(self, hashed_content):
@@ -194,11 +199,15 @@ class FileHandler():
         """
 
 
-    def hash_file_content(self, response: Response):
+    def hash_file_content(self, response: Response, buffer: BytesIO):
         """
         Helper function to hash a file based on strictly its content (i.e no meta data, file name, etc)
+
+        TODO: Storing file bytes in buffer can be expensive if we start dealing with larger files,
+        think of a nicer way of handling this 
         
         response (Response) - response containing relevant file bytes 
+        buffer (BytesIO) - buffer to write file to 
         """
 
         sha256_hash = sha256()
@@ -206,5 +215,6 @@ class FileHandler():
         for chunk in response.iter_content(chunk_size=8192):
             if chunk:
                 sha256_hash.update(chunk)
+                buffer.write(chunk)
         
         return sha256_hash.hexdigest()
