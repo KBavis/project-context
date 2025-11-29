@@ -44,7 +44,9 @@ class FileHandler():
         """
 
         # Step 1. Determine if this File has been previously ingested based on file_path, hashed file content, and relevant data source 
-        status, file = self.get_file_status(file.hash, file.path, data_source.id)
+        status, persisted_file = self.get_file_status(file.hash, file.path, data_source.id)
+
+        # Step 2. Perform necessary procesisng based on File Status
         match status:
             case FileProcesingStatus.MOVED:
                 """
@@ -63,28 +65,24 @@ class FileHandler():
                     4. Indicate to calling function we should continue processing 
                 """
             case FileProcesingStatus.NEW | FileProcesingStatus.COPIED:
-
-                """
-                TODO: 
-                    1. Insert new File record into our Database (NOTE: 'file' will be None)
-                    2. Set 'file' equal to the created File we persist to DB 
-                    
-                """
+                
+                # insert new file into DB in the case its new or copied
+                persisted_file = self._file_service.add_new_file(file=file, data_source=data_source)
 
         
         # Step 3. Determine if this File is currently not ingested for a particular Project, even if Project Status indicates we can skip further processing
         if status == FileProcesingStatus.UNCHANGED or status == FileProcesingStatus.MOVED:
             data_source_project_ids = [source.project_id for source in data_source.project_data]
-            if self._file_service.get_project_ids_not_linked_to_file([file], data_source_project_ids):
+            if self._file_service.get_project_ids_not_linked_to_file(persisted_file, data_source_project_ids):
                 status = FileProcesingStatus.MISSING_PROJECT_LINKS
         
 
         # Step 4. Mark this File's "last_ingestion_job_id" with relevant ingestion_job that is currently being ran 
-        self._file_service.update_last_seen_job_pk(job_pk, data_source.id, [file])
+        self._file_service.update_last_seen_job_pk(job_pk, data_source.id, [persisted_file])
 
 
         # Step 5. Invoke cleanup functionality to remove all "stale" files 
-        self.cleanup(data_source_id=data_source.id, job_pk)
+        self.cleanup(data_source_id=data_source.id, job_pk=job_pk)
 
         # Step 6. Return status back to calling function
         return status
