@@ -1,13 +1,13 @@
-from sqlalchemy import select, or_, and_
+from sqlalchemy import select, or_, and_, update, delete
 from sqlalchemy.orm import Session
 
 from uuid import UUID
 import logging
 
-from app.models import File, DataSource
+from app.models import File, DataSource, FileCollection
 from app.pydantic import File as FilePydantic
 
-from typing import TYPE_CHECKING
+from typing import List
 
 
 
@@ -17,6 +17,76 @@ class FileService:
 
     def __init__(self, db: Session):
         self.db = db
+
+
+    def get_project_ids_not_linked_to_file(self, file: File, project_ids: List[UUID]):
+        """
+        Determine if a particular file has been ingested for all relevant Projects 
+
+        Args:
+            file (File): relevant file
+            project_ids (List[UUID]): list of project IDs associated with project_ids 
+        """
+
+        # get all project IDs this file is currently associated with 
+        associated_project_ids = [collection.project_id for collection in file.file_collections]
+
+        # get list of project_ids assocaited with data source, but not file 
+        not_linked_project_ids = [
+            project_id 
+            for project_id in project_ids
+            if project_id not in associated_project_ids
+        ]
+
+        if not_linked_project_ids:
+            logger.debug(f"File with PK={file.id} not linked to Projects={not_linked_project_ids}; ingestion is required")
+            return not_linked_project_ids
+        else:
+            logger.debug(f"File with PK={file.id} associated with all DataSource={file.data_source_id} associated Projects; ingestion not required")
+            return []
+
+    
+    def update_last_seen_job_pk(self, ingestion_job_id: UUID, data_source_id: UUID, files: List["File"]):
+        """
+        Update all processed files during IngestionJob "last_seen_by" column to reference current IngestionJob PK 
+
+        Args:
+            ingestion_job_id (UUID): PK of the current ingestion job 
+            files (List["File"]): list of files we processed 
+        """
+        
+        file_ids = [file.id for file in files]
+        
+        stmt = (
+            update(File)
+            .where(
+                File.data_source_id == data_source_id,
+                File.id._in_(file_ids)
+            )
+            .values(ingestion_job_id = ingestion_job_id)
+        )
+
+        self.db.execute(stmt)
+        self.db.flush()
+
+    
+    def delete_stale_files(self, data_source_id: UUID, ingestion_job_id: UUID):
+        """
+        Remove Files from DB that we did not see/process during current IngestionJob 
+
+        Args:
+            data_source_id (UUID): PK of the data source this file corresponds to
+            ingestion_job_id (UUID): PK of the current ingestion job
+        """
+
+        stmt = (
+            delete(File)
+            .where(File.data_source_id == data_source_id, File.last_ingestion_job_id != ingestion_job_id)
+        )
+
+        self.db.execute(stmt)
+
+        logger.debug(f"Successfully removed files associated with DataSource={data_source_id}, but were not processed by IngestionJob={ingestion_job_id}")
     
     
     def get_file_by_hash(self, hash: str) -> File:
@@ -109,6 +179,8 @@ class FileService:
 
         self.db.add(new_file)
         self.db.flush()
+
+        return new_file
     
 
     def add_file_to_collections(self, file: FilePydantic, data_source: DataSource):

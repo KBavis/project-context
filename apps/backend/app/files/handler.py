@@ -20,6 +20,7 @@ class FileProcesingStatus(Enum):
     MOVED = "moved"
     COPIED = "copied"
     NOT_FOUND = "not_found"
+    MISSING_PROJECT_LINKS = "missing_project_links"
 
 
 class FileHandler():
@@ -31,27 +32,19 @@ class FileHandler():
         self._file_service = file_service
            
 
-    def process_file(self, file: File, data_source: DataSource) -> FileProcesingStatus:
+    def process_file(self, file: File, data_source: DataSource, job_pk: UUID) -> FileProcesingStatus:
         """
         Main function for processing a particular file that we are looking to download from a particular DataSource,
         by determining what status a particular file has & then performing the relevant actions based on that status 
-
-        TODO: When we are processing a particular file, we should account for the fact that we may have some files stored in 
-        the Database that are currently "stale". This can best be done by flagging files we either a) see (i.e unchanged, changed, moved, copied), 
-        or b) add (i.e no existing file in DB). We can flag these files by having a "last_processed_by" attribute assocaited with a particular File
-        in our database. This column can be an FK to the UUID assocaited with the current IngestionJob. That way, once we are done "ingesting" from a 
-        DataSource, we can easily check if we just processed this File during last Ingestion Job. If we didn't, then we should remove it as its stale (i.e no
-        longer available from DataSource because it was moved/deleted/etc)
         
         Args:
-            file_name (str): the name of this particular file being ingested 
-            response (Response): response wrapper around file bytes 
+            file (File): in-memory model of the File we are attemptign to process
             data_source_id (UUID): the ID of the DataSource this file belongs to 
-            file_path (str): the complete file path of this particular file 
+            job_pk (UUID): the ingestion job PK
         """
 
-        # Step 2. Determine if this File has been previously ingested based on file_path, hashed file content, and relevant data source 
-        status = self.get_file_status(file.hash, file.path, data_source.id)
+        # Step 1. Determine if this File has been previously ingested based on file_path, hashed file content, and relevant data source 
+        status, file = self.get_file_status(file.hash, file.path, data_source.id)
         match status:
             case FileProcesingStatus.MOVED:
                 """
@@ -61,12 +54,6 @@ class FileHandler():
                     3. Verify that all projects corresponding to this file have correctly ingested it (FileCollections)
                     4. Indicate to calling function we should continue processing 
                 """
-            case FileProcesingStatus.COPIED:
-                """
-                TODO: 
-                    1. Insert new File record into our Database 
-                    2. Indicate to calling function we should continue processing 
-                """
             case FileProcesingStatus.CHANGED:
                 """
                 TODO:
@@ -75,33 +62,32 @@ class FileHandler():
                     3. Verify that all projects corresponding to this file have correctly ingested it (FileCollections)
                     4. Indicate to calling function we should continue processing 
                 """
-            case FileProcesingStatus.UNCHANGED:
-                """
-                TODO:
-                    1. Verify that all projects corresponding to this file have correctly ingested it (FileCollections)
-                    2. Indicate to calling function that we can skip prcoessing 
-                """
-            case FileProcesingStatus.NEW:
+            case FileProcesingStatus.NEW | FileProcesingStatus.COPIED:
+
                 """
                 TODO: 
-                    1. Insert new File record into our Database 
-                    2. Indicate to calling function we should continue processing 
+                    1. Insert new File record into our Database (NOTE: 'file' will be None)
+                    2. Set 'file' equal to the created File we persist to DB 
                     
-                    NOTE: New & Copied have same logic, so could be combined into one
                 """
 
-
+        
+        # Step 3. Determine if this File is currently not ingested for a particular Project, even if Project Status indicates we can skip further processing
+        if status == FileProcesingStatus.UNCHANGED or status == FileProcesingStatus.MOVED:
+            data_source_project_ids = [source.project_id for source in data_source.project_data]
+            if self._file_service.get_project_ids_not_linked_to_file([file], data_source_project_ids):
+                status = FileProcesingStatus.MISSING_PROJECT_LINKS
         
 
-        # Step 3. Determine if this File is currently not ingested for a particular Project Collection 
+        # Step 4. Mark this File's "last_ingestion_job_id" with relevant ingestion_job that is currently being ran 
+        self._file_service.update_last_seen_job_pk(job_pk, data_source.id, [file])
 
 
-        # Step 4. Mark this File's "last_processed_by" with relevant ingestion_job that is currently being ran 
+        # Step 5. Invoke cleanup functionality to remove all "stale" files 
+        self.cleanup(data_source_id=data_source.id, job_pk)
 
-        logger.debug(f"File status for file={file.path}: {status}")
+        # Step 6. Return status back to calling function
         return status
-        
-
 
 
     def get_file_status(self, hashed_content: str, file_path: str, data_source_id: UUID) -> FileProcesingStatus:
@@ -121,18 +107,18 @@ class FileHandler():
         """
 
         # check if file exists based on path 
-        status = self.process_file_by_path(hashed_content, file_path, data_source_id)
+        status, file = self.process_file_by_path(hashed_content, file_path, data_source_id)
         if status != FileProcesingStatus.NOT_FOUND:
-            return status
+            return status, file
 
         # check if file exists based on hash
-        status = self.process_file_by_hash(hashed_content)
+        status, file = self.process_file_by_hash(hashed_content)
         if status != FileProcesingStatus.NOT_FOUND:
-            return status
+            return status, file
 
         # if no file exists based on hash or path, this is a new file
         logger.debug(f"No existing file found by hash={hashed_content} or path={file_path}, insertion required")
-        return FileProcesingStatus.NEW
+        return FileProcesingStatus.NEW, None
     
 
     def process_file_by_hash(self, hashed_content):
@@ -151,15 +137,14 @@ class FileHandler():
             if old_file_path:
                 # if old file exists, this was a copy 
                 logger.debug(f"Existing file found corresponding to hashed content, file copied from old location")
-                #TODO: Use FileService to create new File 
-                return FileProcesingStatus.COPIED
+                return FileProcesingStatus.COPIED, file_by_hash
             else:
                 # old file DNE, this was moved
                 logger.debug(f"Existing file found corresponding to hashed content, file moved from old location")
-                return FileProcesingStatus.MOVED
+                return FileProcesingStatus.MOVED, file_by_hash
         
         # indicate to invoking function that we did not find a file based on the provided hash 
-        return FileProcesingStatus.NOT_FOUND
+        return FileProcesingStatus.NOT_FOUND, None
 
 
     def process_file_by_path(self, hashed_content, file_path, data_source_id):
@@ -180,23 +165,26 @@ class FileHandler():
             if file_by_path['hash'] == hashed_content: 
                 # if file exists by path and has same hash --> UNCHANGED
                 logger.debug(f"Existing file found with no changed at path={file_path} for dataSource={data_source_id}")
-                return FileProcesingStatus.UNCHANGED
+                return FileProcesingStatus.UNCHANGED, file_by_path
             else:
                 # file exists by path, but has different hashed --> CHANGED
                 logger.debug(f"Existing file found, but changes have been made, at path={file_path} for dataSource={data_source_id}")
-                return FileProcesingStatus.CHANGED
+                return FileProcesingStatus.CHANGED, file_by_path
 
         # indicate to invoking function that we did not find a file based on the provider path & data source  
-        return FileProcesingStatus.NOT_FOUND
+        return FileProcesingStatus.NOT_FOUND, None
             
 
-    def cleanup(self, data_source_id: UUID):
+    def cleanup(self, data_source_id: UUID, job_pk: UUID):
         """
         Functionaltiy to go through and remove any stale files assocaited with a particular DataSource 
 
         Args:
             data_source_id (UUID): the ID corresponding to the data source these files belong to 
+            job_pk (UUID): the ID corresponding to current IngestionJob
         """
+
+        self._file_service.delete_stale_files(data_source_id, job_pk)
 
 
     def hash_file_content(self, response: Response, buffer: BytesIO):
