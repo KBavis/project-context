@@ -42,6 +42,7 @@ class IngestionJobService:
         self.chroma_mnger = chroma_client_manager
         self.file_service = file_service
 
+
     def run_ingestion_job(self, data_source_id: UUID, project_id: UUID = None):
         """
         Kick off ingestion job for specified data source and store relevant ingested data into ChromaDB
@@ -53,6 +54,8 @@ class IngestionJobService:
                 - optional project ID to only retrieve data for specified project
 
         TODO: Processing is taking very long, defintely need to convert to async and run this flow in background or request could timeout
+
+        TODO: Wrap entire flow with Exception handling, and update IngestionJob to indicate failure if exception occurs 
         """
 
         job_start_time = datetime.now()
@@ -64,8 +67,10 @@ class IngestionJobService:
         if not data_source:
             raise Exception("Invalid specified Data Source ID to ingest data from")
         
-        # generate current IngestionJob id 
+        # generate current IngestionJob id & persist inital record
         job_pk = uuid4() 
+        self.create_ingestion_job(job_pk=job_pk, data_source_id=data_source_id)
+
 
         # use data source information to fetch relevant data & store in temp directory
         # TODO: Add configuration possibility to only retrieve data specific to the Jira Tickets provided in Project
@@ -105,10 +110,8 @@ class IngestionJobService:
             logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
 
 
-        # persist IngestionJob to DB
-        ingestion_job = IngestionJob(processing_status=ProcessingStatus.SUCCESS, data_source_id=data_source_id)
-        self.db.add(ingestion_job)
-        self.db.flush()
+        # update IngestionJob status to be SUCCESS
+        self.update_ingestion_job(job_pk=job_pk, status=ProcessingStatus.SUCCESS)
 
         self._cleanup_tmp_dirs(code_path, docs_path)
 
@@ -121,6 +124,34 @@ class IngestionJobService:
 
         # TODO: Return IngestionJob created ID
         return {"message": "Success"}
+    
+
+    def update_ingestion_job(self, job_pk: UUID, status: ProcessingStatus):
+        """
+        Update existing IngestionJob with relevant status 
+
+        TODO: Add finished_processing time & duration 
+        """
+        ingestion_job = self.db.get(IngestionJob, job_pk)
+        if not ingestion_job:
+            raise Exception(f"Failed to find IngestionJob by PK={job_pk}")
+
+        ingestion_job.processing_status = status
+        self.db.add(ingestion_job)
+        self.db.flush()
+
+    
+    def create_ingestion_job(self, job_pk: UUID, data_source_id: UUID):
+        """
+        Persist a new IngestionJob that we are kicking off for a particular DataSource
+
+        Args:
+            job_pk (UUID): PK for current ingestion job 
+            data_source_id (UUID): data source this ingestion job is being ran for 
+        """
+        ingestion_job = IngestionJob(id=job_pk, processing_status=ProcessingStatus.IN_PROGRESS, data_source_id=data_source_id)
+        self.db.add(ingestion_job)
+        self.db.flush()
     
 
     def _retrieve_data(
