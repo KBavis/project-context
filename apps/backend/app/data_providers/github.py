@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class GithubDataProvider(DataProvider):
 
-    def __init__(self, file_service, data_source, url: str = "", branch: str = "main"):
+    def __init__(self, file_service, data_source, job_pk, url: str = "", branch: str = "main"):
         super().__init__(file_service, data_source, url)
         self._validate_url()
 
@@ -23,6 +23,7 @@ class GithubDataProvider(DataProvider):
         self.repository_user = parsed_url[3]
         self.repository_name = parsed_url[4]
         self.branch_name = branch
+        self.job_pk = job_pk
         self.repository_url = f"https://api.github.com/repos/{self.repository_user}/{self.repository_name}/contents?ref={self.branch_name}"
 
     def ingest_data(self):
@@ -139,7 +140,7 @@ class GithubDataProvider(DataProvider):
                 size=size, 
                 hash=hashed_content
             )
-            file_status = self.file_handler.process_file(file, self.data_source) # TODO: Based on file status, skip or continue processing
+            file_status = self.file_handler.process_file(file, self.data_source, self.job_pk)
 
             # TODO: Account for additional statuses that main indicate we can skip
             if file_status == FileProcesingStatus.UNCHANGED:

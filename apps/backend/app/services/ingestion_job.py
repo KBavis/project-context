@@ -63,6 +63,9 @@ class IngestionJobService:
 
         if not data_source:
             raise Exception("Invalid specified Data Source ID to ingest data from")
+        
+        # generate current IngestionJob id 
+        job_pk = uuid4() 
 
         # use data source information to fetch relevant data & store in temp directory
         # TODO: Add configuration possibility to only retrieve data specific to the Jira Tickets provided in Project
@@ -123,7 +126,7 @@ class IngestionJobService:
     
 
     def _retrieve_data(
-        self, data_source: DataSource, project_id: UUID
+        self, data_source: DataSource, project_id: UUID, job_pk: UUID,
     ) -> Tuple[Path, Path]:
         """
         Retrieve relevant data from specified Data Source and store within temporary /data directory
@@ -148,7 +151,7 @@ class IngestionJobService:
                 logger.info(
                     f"Attempting to retrieve data from GitHub provider for URL: {data_source.url}"
                 )
-                provider = GithubDataProvider(file_service=self.file_service, data_source=data_source, url=data_source.url)
+                provider = GithubDataProvider(file_service=self.file_service, data_source=data_source, url=data_source.url, job_pk=job_pk)
                 provider.ingest_data()
             case _:
                 logger.error(
