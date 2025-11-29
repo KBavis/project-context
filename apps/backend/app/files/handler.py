@@ -67,7 +67,7 @@ class FileHandler():
             case FileProcesingStatus.NEW | FileProcesingStatus.COPIED:
                 
                 # insert new file into DB in the case its new or copied
-                persisted_file = self._file_service.add_new_file(file=file, data_source=data_source)
+                persisted_file = self._file_service.add_new_file(file=file, data_source=data_source, job_pk=job_pk)
 
         
         # Step 3. Determine if this File is currently not ingested for a particular Project, even if Project Status indicates we can skip further processing
@@ -77,8 +77,9 @@ class FileHandler():
                 status = FileProcesingStatus.MISSING_PROJECT_LINKS
         
 
-        # Step 4. Mark this File's "last_ingestion_job_id" with relevant ingestion_job that is currently being ran 
-        self._file_service.update_last_seen_job_pk(job_pk, data_source.id, [persisted_file])
+        # Step 4. Mark this File's "last_ingestion_job_id" with relevant ingestion_job that is currently being ran (if not just added)
+        if status not in [FileProcesingStatus.NEW, FileProcesingStatus.COPIED]:
+            self._file_service.update_last_seen_job_pk(job_pk, data_source.id, [persisted_file])
 
 
         # Step 5. Invoke cleanup functionality to remove all "stale" files 
