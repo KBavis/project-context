@@ -180,12 +180,29 @@ class FileService:
         self.db.add(new_file)
         self.db.flush()
 
+        self.add_file_to_collections(new_file, data_source)
+
         return new_file
     
 
-    def add_file_to_collections(self, file: FilePydantic, data_source: DataSource):
+    def add_file_to_collections(self, file: File, data_source: DataSource):
         """
-        TODO: Complete  me 
-
         Add a newly created file to project collections
+
+        Args:   
+            file (File): newly created file 
+            data_source (DataSource): data source this file corresponds to 
         """
+
+        data_source_project_ids = [source.project_id for source in data_source.project_data]
+
+        collections = [
+            FileCollection(
+                file_id=file.id, 
+                project_id=project_id
+            )
+            for project_id in data_source_project_ids
+        ]
+
+        self.db.add_all(collections)
+        self.db.flush()
