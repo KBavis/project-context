@@ -134,7 +134,7 @@ class ChromaService:
                         all_files[c] = files
                     
                 if not all_files:
-                    return {f"message": "No Documents found in CODE or DOCS collection for Project={project_name}"}
+                    return {"message": f"No Documents found in CODE or DOCS collection for Project={project_name}"}
 
             case _:
                 raise Exception("Unknown source_type specified")
