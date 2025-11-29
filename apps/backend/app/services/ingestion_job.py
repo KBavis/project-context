@@ -56,6 +56,8 @@ class IngestionJobService:
         TODO: Processing is taking very long, defintely need to convert to async and run this flow in background or request could timeout
 
         TODO: Wrap entire flow with Exception handling, and update IngestionJob to indicate failure if exception occurs 
+
+        TODO: Consider adding DB Transaction in order to ensure we rollback when fatal failures happen (may get this for me)
         """
 
         job_start_time = datetime.now()
