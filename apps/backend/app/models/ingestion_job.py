@@ -24,5 +24,6 @@ class IngestionJob(Base):
     )
     processing_status: Mapped[ProcessingStatus] = mapped_column(SQLEnum(ProcessingStatus), nullable=False)
     data_source_id: Mapped[UUID] = mapped_column(ForeignKey("data_source.id"))
+    # TODO: Add start_time, end_time, and total_time
 
     data_source: Mapped["DataSource"] = relationship(back_populates="ingestion_jobs")
