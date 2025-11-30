@@ -73,65 +73,93 @@ class IngestionJobService:
         self.create_ingestion_job(job_pk=job_pk, data_source_id=data_source_id, start_time=job_start_time)
 
 
-        # use data source information to fetch relevant data & store in temp directory
-        # TODO: Add configuration possibility to only retrieve data specific to the Jira Tickets provided in Project
-        code_path, docs_path = self._retrieve_data(data_source, project_id, job_pk)
+        # begin processing for current IngestionJob
+        try:
 
-        # determine which data source types were downloaded
-        has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(code_path)
+            # use data source information to fetch relevant data & store in temp directory
+            # TODO: Add configuration possibility to only retrieve data specific to the Jira Tickets provided in Project
+            code_path, docs_path = self._retrieve_data(data_source, project_id, job_pk)
 
-        # validate retrieval resulted in some data being processed
-        if not has_docs and not has_code:
-            logger.warning("No new files ingested, skipping ingestion")
-            return
+            # determine which data source types were downloaded
+            has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(code_path)
 
-        # documentation files were ingested
-        # TODO: Consider moving logic surronding chunking & converting & storing to Chroma in their own seperate services 
-        if has_docs:
-            logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant docs files; chunking & saving to ChromaDB")
+            # validate retrieval resulted in some data being processed
+            if not has_docs and not has_code:
+                logger.warning("No new files ingested, skipping ingestion")
 
-            # convert docs to docling files 
-            converted_files = self._convert_docs_files_to_docling()
-            logger.debug(f'Converted files to Docling files')
+            # documentation files were ingested
+            # TODO: Consider moving logic surronding chunking & converting & storing to Chroma in their own seperate services 
+            if has_docs:
+                logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant docs files; chunking & saving to ChromaDB")
 
-            # chunk ingested documentation based on configured project embedding model
-            project_chunks = self._chunk_docs(data_source, project_id, converted_files)
-            logger.debug('Successfully chunked ingested documentation for each project')
+                # convert docs to docling files 
+                converted_files = self._convert_docs_files_to_docling()
+                logger.debug(f'Converted files to Docling files')
 
-            # convert docling project chunks to LlamaIndex TextNodes
-            nodes = self._convert_to_text_nodes(project_chunks)
-            logger.debug(f"Successfully convert DocChunks to LlamaIndex TextNode's")
+                # chunk ingested documentation based on configured project embedding model
+                project_chunks = self._chunk_docs(data_source, project_id, converted_files)
+                logger.debug('Successfully chunked ingested documentation for each project')
 
-            # store results within Chroma DB, using embedding specified DataSource
-            self._save_to_chroma(nodes, "DOCS", data_source)
+                # convert docling project chunks to LlamaIndex TextNodes
+                nodes = self._convert_to_text_nodes(project_chunks)
+                logger.debug(f"Successfully convert DocChunks to LlamaIndex TextNode's")
 
-        # code files were ingested 
-        if has_code:
-            # TODO: Handle chunking and saving of Code files to Chroma DB 
-            logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
+                # store results within Chroma DB, using embedding specified DataSource
+                self._save_to_chroma(nodes, "DOCS", data_source)
 
-
-        self._cleanup_tmp_dirs(code_path, docs_path)
-
-        job_end_time = datetime.now()
-        duration = job_end_time - job_start_time
-
-        # update IngestionJob status to be SUCCESS
-        self.update_ingestion_job(
-            job_pk=job_pk, 
-            status=ProcessingStatus.SUCCESS,
-            end_time=job_end_time,
-            duration=duration
-        )
+            # code files were ingested 
+            if has_code:
+                # TODO: Handle chunking and saving of Code files to Chroma DB 
+                logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
 
 
+            self._cleanup_tmp_dirs(code_path, docs_path)
 
-        logger.info(
-            f"Ingestion Job for DataSource={data_source_id} completed successfully in {duration.seconds} seconds"
-        )
+            job_end_time = datetime.now()
+            duration = job_end_time - job_start_time
 
-        # TODO: Return IngestionJob created ID
-        return {"message": "Success"}
+            # update IngestionJob status to be SUCCESS
+            self.update_ingestion_job(
+                job_pk=job_pk, 
+                status=ProcessingStatus.SUCCESS,
+                end_time=job_end_time,
+                duration=duration.seconds
+            )
+
+            logger.info(
+                f"Ingestion Job for DataSource={data_source_id} completed successfully in {duration.seconds} seconds"
+            )
+
+            return {
+                "ingestion_job_id": job_pk, 
+                "status": ProcessingStatus.SUCCESS,
+                "start_time": job_start_time,
+                "end_time": job_end_time,
+                "duration": duration
+            }
+        
+
+        except Exception as e:
+            logger.error(f"Failure occurred while performing IngestionJob={job_pk}: {str(e)}")
+
+            # update IngestionJob record in db
+            job_fail_time = datetime.now()
+            duration=(job_fail_time - job_start_time).seconds
+
+            self.update_ingestion_job(
+                job_pk=job_pk,
+                status=ProcessingStatus.FAILED,
+                end_time=job_fail_time,
+                duration=duration
+            )
+
+            return {
+                "ingestion_job_id": job_pk, 
+                "status": ProcessingStatus.FAILED,
+                "start_time": job_start_time,
+                "end_time": job_fail_time,
+                "duration": duration
+            }
     
 
     def update_ingestion_job(
@@ -158,7 +186,7 @@ class IngestionJobService:
         ingestion_job.processing_status = status
         ingestion_job.end_time = end_time
         ingestion_job.total_duration = duration 
-        
+
         self.db.add(ingestion_job)
         self.db.flush()
 
