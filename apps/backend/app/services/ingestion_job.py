@@ -53,11 +53,10 @@ class IngestionJobService:
             project_id (Optional(UUID))
                 - optional project ID to only retrieve data for specified project
 
-        TODO: Processing is taking very long, defintely need to convert to async and run this flow in background or request could timeout
-
-        TODO: Wrap entire flow with Exception handling, and update IngestionJob to indicate failure if exception occurs 
-
-        TODO: Consider adding DB Transaction in order to ensure we rollback when fatal failures happen (may get this for me)
+        TODO:
+            1. Consider adding multi-threading concurrency to this approach to speed up larger IngestionJobs 
+            2. Look into total amount of time processing takes when ONLY using CPU (any optimizations we can make?)
+            3. Add async capabilities for this function in order to not have request waiting for response for excess time 
         """
 
         job_start_time = datetime.now()
