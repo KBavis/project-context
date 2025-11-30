@@ -71,7 +71,7 @@ class IngestionJobService:
         
         # generate current IngestionJob id & persist inital record
         job_pk = uuid4() 
-        self.create_ingestion_job(job_pk=job_pk, data_source_id=data_source_id)
+        self.create_ingestion_job(job_pk=job_pk, data_source_id=data_source_id, start_time=job_start_time)
 
 
         # use data source information to fetch relevant data & store in temp directory
@@ -112,13 +112,20 @@ class IngestionJobService:
             logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
 
 
-        # update IngestionJob status to be SUCCESS
-        self.update_ingestion_job(job_pk=job_pk, status=ProcessingStatus.SUCCESS)
-
         self._cleanup_tmp_dirs(code_path, docs_path)
 
         job_end_time = datetime.now()
         duration = job_end_time - job_start_time
+
+        # update IngestionJob status to be SUCCESS
+        self.update_ingestion_job(
+            job_pk=job_pk, 
+            status=ProcessingStatus.SUCCESS,
+            end_time=job_end_time,
+            duration=duration
+        )
+
+
 
         logger.info(
             f"Ingestion Job for DataSource={data_source_id} completed successfully in {duration.seconds} seconds"
@@ -128,30 +135,51 @@ class IngestionJobService:
         return {"message": "Success"}
     
 
-    def update_ingestion_job(self, job_pk: UUID, status: ProcessingStatus):
+    def update_ingestion_job(
+            self, 
+            job_pk: UUID, 
+            status: ProcessingStatus,
+            end_time: datetime, 
+            duration: int
+        ):
         """
-        Update existing IngestionJob with relevant status 
+        Update existing IngestionJob with relevant status, end_time, and duration
 
-        TODO: Add finished_processing time & duration 
+        Args:
+            job_pk (UUID): PK of IngestionJob
+            status (ProcessingStatus): the status of the IngestionJob
+            end_time (datetime): time of completion for IngestionJob 
+            duration (int): total amount of time it took to complete ingestion job
         """
+
         ingestion_job = self.db.get(IngestionJob, job_pk)
         if not ingestion_job:
             raise Exception(f"Failed to find IngestionJob by PK={job_pk}")
 
         ingestion_job.processing_status = status
+        ingestion_job.end_time = end_time
+        ingestion_job.total_duration = duration 
+        
         self.db.add(ingestion_job)
         self.db.flush()
 
     
-    def create_ingestion_job(self, job_pk: UUID, data_source_id: UUID):
+    def create_ingestion_job(self, job_pk: UUID, data_source_id: UUID, start_time: datetime):
         """
         Persist a new IngestionJob that we are kicking off for a particular DataSource
 
         Args:
             job_pk (UUID): PK for current ingestion job 
             data_source_id (UUID): data source this ingestion job is being ran for 
+            start_time (datetime): start time of the IngestionJob
         """
-        ingestion_job = IngestionJob(id=job_pk, processing_status=ProcessingStatus.IN_PROGRESS, data_source_id=data_source_id)
+        ingestion_job = IngestionJob(
+            id=job_pk, 
+            processing_status=ProcessingStatus.IN_PROGRESS, 
+            data_source_id=data_source_id,
+            start_time=start_time
+        )
+
         self.db.add(ingestion_job)
         self.db.flush()
     

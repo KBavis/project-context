@@ -4,7 +4,7 @@ from sqlalchemy import ForeignKey, text, Enum as SQLEnum
 from uuid import UUID
 from typing import TYPE_CHECKING
 from enum import Enum
-
+from datetime import datetime
 
 # avoid warning
 if TYPE_CHECKING:
@@ -24,6 +24,10 @@ class IngestionJob(Base):
     )
     processing_status: Mapped[ProcessingStatus] = mapped_column(SQLEnum(ProcessingStatus), nullable=False)
     data_source_id: Mapped[UUID] = mapped_column(ForeignKey("data_source.id"))
-    # TODO: Add start_time, end_time, and total_time
+
+
+    start_time: Mapped[datetime] = mapped_column(nullable=False, comment="Start time of IngestionJob processing")
+    end_time: Mapped[datetime] = mapped_column(nullable=False, comment="End time of IngestionJob processing")
+    total_duration: Mapped[datetime] = mapped_column(nullable=False, comment="Total duration of IngestionJob in seconds")
 
     data_source: Mapped["DataSource"] = relationship(back_populates="ingestion_jobs")
