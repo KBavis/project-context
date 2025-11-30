@@ -161,7 +161,7 @@ class FileHandler():
         file_by_path = self._file_service.get_file_by_path_and_data_source(file_path, data_source_id)
         if file_by_path:
             
-            if file_by_path['hash'] == hashed_content: 
+            if file_by_path.hash == hashed_content: 
                 # if file exists by path and has same hash --> UNCHANGED
                 logger.debug(f"Existing file found with no changed at path={file_path} for dataSource={data_source_id}")
                 return FileProcesingStatus.UNCHANGED, file_by_path
