@@ -28,6 +28,6 @@ class IngestionJob(Base):
 
     start_time: Mapped[datetime] = mapped_column(nullable=False, comment="Start time of IngestionJob processing")
     end_time: Mapped[datetime] = mapped_column(nullable=True, comment="End time of IngestionJob processing")
-    total_duration: Mapped[datetime] = mapped_column(nullable=True, comment="Total duration of IngestionJob in seconds")
+    total_duration: Mapped[int] = mapped_column(nullable=True, comment="Total duration of IngestionJob in seconds")
 
     data_source: Mapped["DataSource"] = relationship(back_populates="ingestion_jobs")
