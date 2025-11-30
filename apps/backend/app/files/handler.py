@@ -159,7 +159,7 @@ class FileHandler():
             
             if file_by_path.hash == hashed_content: 
                 # if file exists by path and has same hash --> UNCHANGED
-                logger.debug(f"Existing file found with no changed at path={file_path} for dataSource={data_source_id}")
+                logger.debug(f"Existing file found with no changes at path={file_path} for dataSource={data_source_id}")
                 return FileProcesingStatus.UNCHANGED, file_by_path
             else:
                 # file exists by path, but has different hashed --> CHANGED
