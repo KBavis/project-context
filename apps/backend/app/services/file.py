@@ -42,7 +42,6 @@ class FileService:
             logger.debug(f"File with PK={file.id} not linked to Projects={not_linked_project_ids}; ingestion is required")
             return not_linked_project_ids
         else:
-            logger.debug(f"File with PK={file.id} associated with all DataSource={file.data_source_id} associated Projects; ingestion not required")
             return []
 
     

@@ -146,7 +146,6 @@ class GithubDataProvider(DataProvider):
 
             # TODO: Account for additional statuses that main indicate we can skip
             if file_status in {FileProcesingStatus.UNCHANGED, FileProcesingStatus.MOVED}:
-                logger.debug(f"FileProcessingStatus={file_status}, skipping re-ingestion due to processing being complete")
                 return 
 
             # write file to temporary directory if needed
