@@ -142,8 +142,8 @@ class GithubDataProvider(DataProvider):
             file_status = self.file_handler.process_file(file, self.data_source, self.job_pk)
 
             # TODO: Account for additional statuses that main indicate we can skip
-            if file_status == FileProcesingStatus.UNCHANGED:
-                logger.debug(f"File already ingested and remains unchanged; skipping re-ingestion")
+            if file_status in {FileProcesingStatus.UNCHANGED, FileProcesingStatus.MOVED}:
+                logger.debug(f"FileProcessingStatus={file_status}, skipping re-ingestion due to processing being complete")
                 return 
 
             # write file to temporary directory if needed
