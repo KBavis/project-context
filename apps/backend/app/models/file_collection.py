@@ -23,7 +23,7 @@ class FileCollection(Base):
     __tablename__ = "file_collection"
 
     file_id = mapped_column(
-        ForeignKey("file.id"),
+        ForeignKey("file.id", ondelete="CASCADE"),
         primary_key=True
     )
     project_id = mapped_column(
