@@ -77,7 +77,7 @@ class FileHandler():
                 status = FileProcesingStatus.MISSING_PROJECT_LINKS
         
 
-        # Step 4. Mark this File's "last_ingestion_job_id" with relevant ingestion_job that is currently being ran (if not just added)
+        # Step 4. Mark this File's "last_ingestion_job_id" with relevant ingestion_job that is currently being ran (if needed)
         if status not in [FileProcesingStatus.NEW, FileProcesingStatus.COPIED]:
             self._file_service.update_last_seen_job_pk(job_pk, data_source.id, [persisted_file])
 
