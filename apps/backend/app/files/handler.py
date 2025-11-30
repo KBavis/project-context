@@ -81,11 +81,7 @@ class FileHandler():
         if status not in [FileProcesingStatus.NEW, FileProcesingStatus.COPIED]:
             self._file_service.update_last_seen_job_pk(job_pk, data_source.id, [persisted_file])
 
-
-        # Step 5. Invoke cleanup functionality to remove all "stale" files 
-        self.cleanup(data_source_id=data_source.id, job_pk=job_pk)
-
-        # Step 6. Return status back to calling function
+        # Step 5. Return status back to calling function
         return status
 
 

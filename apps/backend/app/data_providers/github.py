@@ -38,6 +38,9 @@ class GithubDataProvider(DataProvider):
         # reach out to GitHub and recurisvely fetch and store documentation within our temp directory
         self._get_repository_data(self.repository_url)
 
+        # cleanup any files assocaited with DataSource not processed via current job
+        self.file_handler.cleanup(self.data_source.id, self.job_pk)
+
     def _get_request_headers(self):
         """
         Get headers for current Data Provider
