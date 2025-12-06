@@ -1,5 +1,6 @@
 from sqlalchemy import select, or_, and_, update, delete
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from uuid import UUID
 import logging
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class FileService:
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session | AsyncSession):
         self.db = db
 
 

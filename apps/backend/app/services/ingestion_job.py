@@ -6,6 +6,7 @@ from typing import Tuple, Iterator, Dict, List
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSource, IngestionJob, ProcessingStatus
 from app.data_providers import GithubDataProvider
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 class IngestionJobService:
     def __init__(
             self, 
-            db: Session, 
+            db: Session | AsyncSession, 
             file_service, 
             chroma_client_manager: ChromaClientManager
     ):
