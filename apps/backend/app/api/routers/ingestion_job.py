@@ -3,7 +3,10 @@ from datetime import datetime
 
 from app.services import IngestionJobService
 from app.models import ProcessingStatus
-from ..svc_deps import get_ingestion_job_svc
+from ..svc_deps import (
+    get_ingestion_job_svc, 
+    get_async_ingestion_job_svc
+)
 
 from uuid import UUID
 
@@ -17,7 +20,7 @@ router = APIRouter(prefix="/ingestion/jobs")
 async def create_ingestion_job(
     data_source_id: UUID, 
     background_tasks: BackgroundTasks,
-    svc: IngestionJobService = Depends(get_ingestion_job_svc)
+    svc: IngestionJobService = Depends(get_async_ingestion_job_svc)
 ):
 
     """
@@ -54,7 +57,7 @@ async def create_ingestion_job(
 async def create_ingestion_job(
     data_source_id: UUID, 
     project_id: UUID, 
-    svc: IngestionJobService = Depends(get_ingestion_job_svc)
+    svc: IngestionJobService = Depends(get_async_ingestion_job_svc)
 ):
     """
     Kick off ingestion job for a datasource for only data corresponding to specified Project
