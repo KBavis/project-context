@@ -1,5 +1,11 @@
 from fastapi import FastAPI
-from .core import settings, init_db, engine, setup_logging
+from .core import (
+    settings, 
+    init_db, 
+    sync_engine, 
+    setup_logging, 
+    async_engine
+)
 from contextlib import asynccontextmanager
 from .api.routers import app_router
 
@@ -12,7 +18,8 @@ async def lifespan(app: FastAPI):
     """
     init_db()
     yield
-    engine.dispose()
+    sync_engine.dispose()
+    async_engine.dispose()
 
 
 def create_app() -> FastAPI:

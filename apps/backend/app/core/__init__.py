@@ -1,5 +1,11 @@
 from .config import settings, setup_logging
-from .relational_db import get_sync_db_session, get_async_db_session, init_db, engine
+from .relational_db import (
+    get_sync_db_session, 
+    get_async_db_session, 
+    init_db, 
+    sync_engine, 
+    async_engine
+)
 from .vector_db import ChromaClientManager
 
 __all__ = [
@@ -7,7 +13,8 @@ __all__ = [
     "get_sync_db_session",
     "get_async_db_session",
     "init_db",
-    "engine",
+    "sync_engine",
+    "async_engine",
     "ChromaClientManager",
     "setup_logging",
 ]
