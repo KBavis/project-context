@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from datetime import datetime
 
-from app.services import IngestionJobService, FileService
+from app.services import IngestionJobService
+from app.models import ProcessingStatus
 from ..svc_deps import get_ingestion_job_svc
 
 from uuid import UUID
@@ -12,8 +14,9 @@ router = APIRouter(prefix="/ingestion/jobs")
 @router.post(
     "/{data_source_id}", summary="Kick off ingestion of data from a datasource"
 )
-def create_ingestion_job(
+async def create_ingestion_job(
     data_source_id: UUID, 
+    background_tasks: BackgroundTasks,
     svc: IngestionJobService = Depends(get_ingestion_job_svc)
 ):
 
@@ -21,19 +24,34 @@ def create_ingestion_job(
     Kick off ingestion job for a specific data source
     """
 
+    job_start_time = datetime.now()
+
+    # create inital ingestion job 
     try:
-        return svc.run_ingestion_job(data_source_id)
-    except Exception as e:
+        data_source, job_pk = await svc.init_ingestion_job(data_source_id, job_start_time)
+    except Exception as e: 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
         )
+    
+    # TODO: Ensure DataSource isn't locked (if not, lock this data source to ensure no other IngestionJobs are ran while procesisng)
+
+    # run ingestion job in background 
+    background_tasks.add_task(svc.run_ingestion_job, job_pk, job_start_time, data_source)
+
+    return {
+        "ingestion_job_id": job_pk,
+        "status": ProcessingStatus.IN_PROGRESS,
+        "start_time": job_start_time
+    }
+
 
 
 @router.post(
     "/{data_source_id}/{project_id}",
     summary="Kick off ingestion of data from a datasource for a specific Project",
 )
-def create_ingestion_job(
+async def create_ingestion_job(
     data_source_id: UUID, 
     project_id: UUID, 
     svc: IngestionJobService = Depends(get_ingestion_job_svc)

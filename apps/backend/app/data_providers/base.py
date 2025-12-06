@@ -16,11 +16,11 @@ class DataProvider(ABC):
         self.file_handler = FileHandler(file_service)
 
     @abstractmethod
-    def ingest_data(self):
+    async def ingest_data(self):
         pass
 
     @abstractmethod
-    def _download_file(self, url: str, headers: dict = {}):
+    async def _download_file(self, url: str, headers: dict = {}):
         pass
 
     @abstractmethod

@@ -25,7 +25,7 @@ class GithubDataProvider(DataProvider):
         self.branch_name = branch
         self.repository_url = f"https://api.github.com/repos/{self.repository_user}/{self.repository_name}/contents?ref={self.branch_name}"
 
-    def ingest_data(self):
+    async def ingest_data(self):
         """
         Functionality to parse our GitHub Url and invoke relevant functionality
         to DFS through repository and retrieve relevant files to store within our
@@ -36,7 +36,7 @@ class GithubDataProvider(DataProvider):
         """
 
         # reach out to GitHub and recurisvely fetch and store documentation within our temp directory
-        self._get_repository_data(self.repository_url)
+        await self._get_repository_data(self.repository_url)
 
         # cleanup any files assocaited with DataSource not processed via current job
         self.file_handler.cleanup(self.data_source.id, self.job_pk)
@@ -63,11 +63,11 @@ class GithubDataProvider(DataProvider):
                 f"The specified data source URL, {self.url}, is not in the proper format: https://github.com/<user>/<repository>"
             )
 
-    def _get_repository_data(self, curr_url):
+    async def _get_repository_data(self, curr_url):
         """
         Functionality to recurisvely download files from the specified repository
 
-        TODO: Look into doing these reuqests async
+        TODO: MAKE THESE REQUESTS ASYNC
 
         TODO: Look into handling private GitHub repositories
 
@@ -94,14 +94,16 @@ class GithubDataProvider(DataProvider):
 
             # download file and put into temp directory
             if node["type"] == "file":
-                self._download_file(node["download_url"], node["name"], node["path"], node["size"])
+                await self._download_file(node["download_url"], node["name"], node["path"], node["size"])
             else:
                 # recursively download files in specificied directory
-                self._get_repository_data(node["url"])
+                await self._get_repository_data(node["url"])
 
-    def _download_file(self, url: str, file_name: str, file_path: str, size: int):
+    async def _download_file(self, url: str, file_name: str, file_path: str, size: int):
         """
         Helper function to download a file and store within relevant temporary directory
+
+        TODO: Make this request async to not block thread
         """
 
         # ensure valid file name

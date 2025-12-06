@@ -42,8 +42,39 @@ class IngestionJobService:
         self.chroma_mnger = chroma_client_manager
         self.file_service = file_service
 
+    
+    async def init_ingestion_job(self, data_source_id: UUID, job_start_time: datetime): 
+        """
+        Validate Datasource & create inital ingestion job with IN_PROGRESS status 
 
-    def run_ingestion_job(self, data_source_id: UUID, project_id: UUID = None):
+        Args:
+            data_source_id (UUID): the data source this ingestion job corresponds to 
+        """
+        
+        # retrieve data source
+        stmt = select(DataSource).where(DataSource.id == data_source_id)
+        data_source = self.db.execute(stmt).scalar_one_or_none()
+
+        if not data_source:
+            logger.error(f"Failed to find DataSource corresponding to ID={data_source_id}")
+            raise Exception("Invalid specified Data Source ID to ingest data from")
+        
+        # generate current IngestionJob id & persist inital record
+        job_pk = uuid4() 
+        await self.create_ingestion_job(job_pk=job_pk, data_source_id=data_source_id, start_time=job_start_time)
+
+        logger.info(f"Successfully created inital IngestionJob with ID={job_pk}")
+        return data_source, job_pk
+
+
+
+    async def run_ingestion_job(
+            self, 
+            job_pk: UUID, 
+            job_start_time: datetime, 
+            data_source: DataSource, 
+            project_id: UUID = None
+        ):
         """
         Kick off ingestion job for specified data source and store relevant ingested data into ChromaDB
 
@@ -59,26 +90,13 @@ class IngestionJobService:
             3. Add async capabilities for this function in order to not have request waiting for response for excess time 
         """
 
-        job_start_time = datetime.now()
-
-        # retrieve data source
-        stmt = select(DataSource).where(DataSource.id == data_source_id)
-        data_source = self.db.execute(stmt).scalar_one_or_none()
-
-        if not data_source:
-            raise Exception("Invalid specified Data Source ID to ingest data from")
-        
-        # generate current IngestionJob id & persist inital record
-        job_pk = uuid4() 
-        self.create_ingestion_job(job_pk=job_pk, data_source_id=data_source_id, start_time=job_start_time)
-
-
         # begin processing for current IngestionJob
         try:
+            data_source_id = data_source.id
 
             # use data source information to fetch relevant data & store in temp directory
             # TODO: Add configuration possibility to only retrieve data specific to the Jira Tickets provided in Project
-            code_path, docs_path = self._retrieve_data(data_source, project_id, job_pk)
+            code_path, docs_path = await self._retrieve_data(data_source, project_id, job_pk)
 
             # determine which data source types were downloaded
             has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(code_path)
@@ -91,6 +109,8 @@ class IngestionJobService:
             # TODO: Consider moving logic surronding chunking & converting & storing to Chroma in their own seperate services 
             if has_docs:
                 logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant docs files; chunking & saving to ChromaDB")
+
+                #TODO: Run blocking CPU work in seperate thread 
 
                 # convert docs to docling files 
                 converted_files = self._convert_docs_files_to_docling()
@@ -105,7 +125,7 @@ class IngestionJobService:
                 logger.debug(f"Successfully convert DocChunks to LlamaIndex TextNode's")
 
                 # store results within Chroma DB, using embedding specified DataSource
-                self._save_to_chroma(nodes, "DOCS", data_source)
+                await self._save_to_chroma(nodes, "DOCS", data_source)
 
             # code files were ingested 
             if has_code:
@@ -119,7 +139,7 @@ class IngestionJobService:
             duration = job_end_time - job_start_time
 
             # update IngestionJob status to be SUCCESS
-            self.update_ingestion_job(
+            await self.update_ingestion_job(
                 job_pk=job_pk, 
                 status=ProcessingStatus.SUCCESS,
                 end_time=job_end_time,
@@ -130,15 +150,6 @@ class IngestionJobService:
                 f"Ingestion Job for DataSource={data_source_id} completed successfully in {duration.seconds} seconds"
             )
 
-            return {
-                "ingestion_job_id": job_pk, 
-                "status": ProcessingStatus.SUCCESS,
-                "start_time": job_start_time,
-                "end_time": job_end_time,
-                "duration": duration
-            }
-        
-
         except Exception as e:
             logger.error(f"Failure occurred while performing IngestionJob={job_pk}: {str(e)}")
 
@@ -146,7 +157,7 @@ class IngestionJobService:
             job_fail_time = datetime.now()
             duration=(job_fail_time - job_start_time).seconds
 
-            self.update_ingestion_job(
+            await self.update_ingestion_job(
                 job_pk=job_pk,
                 status=ProcessingStatus.FAILED,
                 end_time=job_fail_time,
@@ -162,7 +173,7 @@ class IngestionJobService:
             }
     
 
-    def update_ingestion_job(
+    async def update_ingestion_job(
             self, 
             job_pk: UUID, 
             status: ProcessingStatus,
@@ -188,10 +199,10 @@ class IngestionJobService:
         ingestion_job.total_duration = duration 
 
         self.db.add(ingestion_job)
-        self.db.flush()
+        await self.db.flush()
 
     
-    def create_ingestion_job(self, job_pk: UUID, data_source_id: UUID, start_time: datetime):
+    async def create_ingestion_job(self, job_pk: UUID, data_source_id: UUID, start_time: datetime):
         """
         Persist a new IngestionJob that we are kicking off for a particular DataSource
 
@@ -208,10 +219,10 @@ class IngestionJobService:
         )
 
         self.db.add(ingestion_job)
-        self.db.flush()
+        await self.db.flush()
     
 
-    def _retrieve_data(
+    async def _retrieve_data(
         self, data_source: DataSource, project_id: UUID, job_pk: UUID,
     ) -> Tuple[Path, Path]:
         """
@@ -238,7 +249,7 @@ class IngestionJobService:
                     f"Attempting to retrieve data from GitHub provider for URL: {data_source.url}"
                 )
                 provider = GithubDataProvider(file_service=self.file_service, data_source=data_source, url=data_source.url, job_pk=job_pk)
-                provider.ingest_data()
+                await provider.ingest_data()
             case _:
                 logger.error(
                     f"The specified Data Source provider is not configured for this application"
@@ -386,7 +397,7 @@ class IngestionJobService:
         return conv_results
 
 
-    def _save_to_chroma(self, project_chunks: dict, source_type: str, data_source: DataSource): 
+    async def _save_to_chroma(self, project_chunks: dict, source_type: str, data_source: DataSource): 
         """
         Save context-rich ingested documentation and code to our relevant Chroma collections based on Projects 
         this ingested job is being ran for 
@@ -399,7 +410,7 @@ class IngestionJobService:
         # create mapping of project name to Project model 
         project_mapping = {record.project.project_name: record.project for record in data_source.project_data} 
 
-        chroma_client = self.chroma_mnger.get_sync_client()
+        chroma_client = self.chroma_mnger.get_sync_client() # TODO: Get Aysnc Client 
 
         for project, nodes in project_chunks.items():
 
