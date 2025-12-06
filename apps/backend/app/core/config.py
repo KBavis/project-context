@@ -4,6 +4,7 @@ from typing import Optional, Set
 import logging
 import sys
 
+# TODO: There may be a better way to handle the excess configs we have here, maybe having "generic" settings VS "llm" settings
 
 class Settings(BaseSettings):
 
@@ -11,7 +12,8 @@ class Settings(BaseSettings):
 
     PYTHONDONTWRITEBYTECODE: int = 1
 
-    REL_DB_URL: str = ""
+    SYNC_REL_DB_URL: str = ""
+    ASYNC_REL_DB_URL: str = ""
 
     VECTOR_DB_HOST: str = "localhost"
     VECTOR_DB_PORT: int = 8000

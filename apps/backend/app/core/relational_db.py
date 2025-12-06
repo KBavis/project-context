@@ -1,28 +1,55 @@
 from sqlalchemy import create_engine
-from .config import settings
+from sqlalchemy.ext.asyncio import (
+    AsyncSession, 
+    AsyncEngine, 
+    async_sessionmaker,
+    create_async_engine
+)
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
-from typing import Generator
+
+from typing import Generator, AsyncGenerator
+from functools import lru_cache
+
 from ..models import Base
+from .config import settings
 
 
-# create engine
-def _make_engine() -> Engine:
-    """Create database Engine"""
-    engine = create_engine(settings.REL_DB_URL)
+@lru_cache(maxsize=1)
+def _make_sync_engine() -> Engine:
+    """
+    Create Sync DB Engine
+    """
+    engine = create_engine(settings.SYNC_REL_DB_URL)
     return engine
 
 
-engine: Engine = _make_engine()
+@lru_cache(maxsize=1)
+def _make_async_engine() -> AsyncEngine:
+    """
+    Create Async DB Engine 
+    """
+    engine = create_async_engine(settings.ASYNC_REL_DB_URL)
+    return engine
 
 
-# create session factory for FastAPI runtime
+
+sync_engine: Engine = _make_sync_engine()
+async_engine: AsyncEngine = _make_async_engine()
+
+
+# sync session factory
 SessionLocal: sessionmaker[Session] = sessionmaker(
-    autoflush=False, autocommit=False, bind=engine
+    autoflush=False, autocommit=False, bind=sync_engine
+)
+
+# async session factory 
+AsyncSessionsLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
+   bind=async_engine, expire_on_commit=False
 )
 
 
-def get_db_session() -> Generator[Session, None, None]:
+def get_sync_db_session() -> Generator[Session, None, None]:
     """
     Create transactional DB session that will commit
     in the case that no exceptions occurred, or else
@@ -41,10 +68,25 @@ def get_db_session() -> Generator[Session, None, None]:
         raise
     finally:
         db.close()
+    
+
+async def get_async_db_session() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Create transactional async DB session
+    """
+    
+    async with AsyncSessionsLocal() as session:
+        try:
+            yield session 
+            await session.commit() 
+        except Exception:
+            await session.rollback() 
+            raise 
+
 
 
 def init_db() -> None:
     """
     Initalize necessary DB tables used through application
     """
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=sync_engine)
