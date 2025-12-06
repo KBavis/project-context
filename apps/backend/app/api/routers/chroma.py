@@ -12,7 +12,7 @@ from uuid import UUID
 
 
 
-router = APIRouter(prefix="/test/chroma")
+router = APIRouter(prefix="/chroma")
 
 # TODO: Make this endpoint admin only accessible
 
