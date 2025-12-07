@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class FileService:
 
-    def __init__(self, db: Session | AsyncSession):
+    def __init__(self, db: AsyncSession):
         self.db = db
 
 
@@ -46,7 +46,7 @@ class FileService:
             return []
 
     
-    def update_last_seen_job_pk(self, ingestion_job_id: UUID, data_source_id: UUID, files: List["File"]):
+    async def update_last_seen_job_pk(self, ingestion_job_id: UUID, data_source_id: UUID, files: List["File"]):
         """
         Update all processed files during IngestionJob "last_seen_by" column to reference current IngestionJob PK 
 
@@ -66,11 +66,11 @@ class FileService:
             .values(last_ingestion_job_id = ingestion_job_id)
         )
 
-        self.db.execute(stmt)
-        self.db.flush()
+        await self.db.execute(stmt)
+        await self.db.flush()
 
     
-    def delete_stale_files(self, data_source_id: UUID, ingestion_job_id: UUID):
+    async def delete_stale_files(self, data_source_id: UUID, ingestion_job_id: UUID):
         """
         Remove Files from DB that we did not see/process during current IngestionJob 
 
@@ -84,12 +84,12 @@ class FileService:
             .where(File.data_source_id == data_source_id, File.last_ingestion_job_id != ingestion_job_id)
         )
 
-        self.db.execute(stmt)
+        await self.db.execute(stmt)
 
         logger.debug(f"Successfully removed files associated with DataSource={data_source_id}, but were not processed by IngestionJob={ingestion_job_id}")
     
     
-    def get_file_by_hash(self, hash: str) -> File:
+    async def get_file_by_hash(self, hash: str) -> File:
         """
         Find File by its hashed content 
 
@@ -101,10 +101,11 @@ class FileService:
             .where(File.hash == hash)
         )
 
-        return self.db.execute(stmt).scalars().one_or_none()
+        res = await self.db.execute(stmt)
+        return res.scalars().one_or_none()
 
     
-    def get_file_by_path_and_data_source(self, path: str, data_source_id: UUID) -> File: 
+    async def get_file_by_path_and_data_source(self, path: str, data_source_id: UUID) -> File: 
         """
         Get File by path and its data source ID
 
@@ -118,11 +119,12 @@ class FileService:
             .where(File.path == path, File.data_source_id == data_source_id)
         )
 
-        return self.db.execute(stmt).scalars().one_or_none()
+        res = await self.db.execute(stmt)
+        return res.scalars().one_or_none()
 
         
 
-    def update_existing_file(self, file: FilePydantic, data_source: DataSource):
+    async def update_existing_file(self, file: FilePydantic, data_source: DataSource):
         """
         Functionality to update an existing File 
 
@@ -131,7 +133,7 @@ class FileService:
         """
 
         # attempt to find file by either path OR hash, and the respective DataSource ID
-        files = self.db.query(File).filter(
+        files = await self.db.query(File).filter(
             and_(
                 or_(
                     File.hash == file.hash,
@@ -157,12 +159,12 @@ class FileService:
         existing_file.path = file.path
         existing_file.file_extension = file.file_type
         
-        self.db.flush()
+        await self.db.flush()
             
         
     
 
-    def add_new_file(self, file: FilePydantic, data_source: DataSource, job_pk: UUID):
+    async def add_new_file(self, file: FilePydantic, data_source: DataSource, job_pk: UUID):
         """
         Functionality to insert a new File & corresponding FileCollection record
         """
@@ -179,14 +181,14 @@ class FileService:
 
 
         self.db.add(new_file)
-        self.db.flush()
+        await self.db.flush()
 
-        self.add_file_to_collections(new_file, data_source)
+        await self.add_file_to_collections(new_file, data_source)
 
         return new_file
     
 
-    def add_file_to_collections(self, file: File, data_source: DataSource):
+    async def add_file_to_collections(self, file: File, data_source: DataSource):
         """
         Add a newly created file to project collections
 
@@ -206,4 +208,4 @@ class FileService:
         ]
 
         self.db.add_all(collections)
-        self.db.flush()
+        await self.db.flush()
