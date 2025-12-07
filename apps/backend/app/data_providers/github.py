@@ -1,6 +1,6 @@
 import logging
 import re
-import requests
+import httpx
 from io import BytesIO
 
 from .base import DataProvider
@@ -39,7 +39,7 @@ class GithubDataProvider(DataProvider):
         await self._get_repository_data(self.repository_url)
 
         # cleanup any files assocaited with DataSource not processed via current job
-        self.file_handler.cleanup(self.data_source.id, self.job_pk)
+        await self.file_handler.cleanup(self.data_source.id, self.job_pk)
 
     def _get_request_headers(self):
         """
@@ -67,8 +67,6 @@ class GithubDataProvider(DataProvider):
         """
         Functionality to recurisvely download files from the specified repository
 
-        TODO: MAKE THESE REQUESTS ASYNC
-
         TODO: Look into handling private GitHub repositories
 
         TODO: Consider making the "get_repo_data" function more generic for BitBucket re-use
@@ -80,9 +78,11 @@ class GithubDataProvider(DataProvider):
         # make request to retrieve content from specific directory
         content = None
         try:
-            response = requests.get(curr_url, headers=self.request_headers)
-            response.raise_for_status()
-            content = response.json()
+            # make async request to curr URL 
+            async with httpx.AsyncClient() as client:
+                response = await client.get(curr_url, headers=self.request_headers)
+                response.raise_for_status()
+                content = response.json()
         except Exception as e:
             logger.error(
                 f"Failure while attempting to retrieve data from the URL {curr_url}"
@@ -128,13 +128,14 @@ class GithubDataProvider(DataProvider):
             return
 
         try:
-            # retrieve file from specific URL
-            response = requests.get(url, stream=True, headers=self.request_headers)
-            response.raise_for_status()
+            # retrieve file from specific URL asynchronously
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.request_headers)
+                response.raise_for_status()
 
             # hash file content & store in buffer 
             buffer = BytesIO()
-            hashed_content = self.file_handler.hash_file_content(response, buffer)
+            hashed_content = await self.file_handler.hash_file_content(response, buffer)
 
             # determine file status 
             file = File(
@@ -144,7 +145,7 @@ class GithubDataProvider(DataProvider):
                 size=size, 
                 hash=hashed_content
             )
-            file_status = self.file_handler.process_file(file, self.data_source, self.job_pk)
+            file_status = await self.file_handler.process_file(file, self.data_source, self.job_pk)
 
             # TODO: Account for additional statuses that main indicate we can skip
             if file_status in {FileProcesingStatus.UNCHANGED, FileProcesingStatus.MOVED}:
