@@ -1,5 +1,5 @@
-from requests import Response
 import logging
+from httpx import Response
 
 from app.models import DataSource
 from app.pydantic import File
@@ -32,7 +32,7 @@ class FileHandler():
         self._file_service = file_service
            
 
-    def process_file(self, file: File, data_source: DataSource, job_pk: UUID) -> FileProcesingStatus:
+    async def process_file(self, file: File, data_source: DataSource, job_pk: UUID) -> FileProcesingStatus:
         """
         Main function for processing a particular file that we are looking to download from a particular DataSource,
         by determining what status a particular file has & then performing the relevant actions based on that status 
@@ -44,7 +44,8 @@ class FileHandler():
         """
 
         # Step 1. Determine if this File has been previously ingested based on file_path, hashed file content, and relevant data source 
-        status, persisted_file = self.get_file_status(file.hash, file.path, data_source.id)
+        status, persisted_file = await self.get_file_status(file.hash, file.path, data_source.id)
+
 
         # Step 2. Perform necessary procesisng based on File Status
         match status:
@@ -67,25 +68,26 @@ class FileHandler():
             case FileProcesingStatus.NEW | FileProcesingStatus.COPIED:
                 
                 # insert new file into DB in the case its new or copied
-                persisted_file = self._file_service.add_new_file(file=file, data_source=data_source, job_pk=job_pk)
+                persisted_file = await self._file_service.add_new_file(file=file, data_source=data_source, job_pk=job_pk)
 
         
         # Step 3. Determine if this File is currently not ingested for a particular Project, even if Project Status indicates we can skip further processing
         if status == FileProcesingStatus.UNCHANGED or status == FileProcesingStatus.MOVED:
             data_source_project_ids = [source.project_id for source in data_source.project_data]
-            if self._file_service.get_project_ids_not_linked_to_file(persisted_file, data_source_project_ids):
+            unlinked_project_ids = await self._file_service.get_project_ids_not_linked_to_file(persisted_file, data_source_project_ids)
+            if unlinked_project_ids:
                 status = FileProcesingStatus.MISSING_PROJECT_LINKS
-        
+
 
         # Step 4. Mark this File's "last_ingestion_job_id" with relevant ingestion_job that is currently being ran (if needed)
         if status not in [FileProcesingStatus.NEW, FileProcesingStatus.COPIED]:
-            self._file_service.update_last_seen_job_pk(job_pk, data_source.id, [persisted_file])
+            await self._file_service.update_last_seen_job_pk(job_pk, data_source.id, [persisted_file])
 
         # Step 5. Return status back to calling function
         return status
 
 
-    def get_file_status(self, hashed_content: str, file_path: str, data_source_id: UUID) -> FileProcesingStatus:
+    async def get_file_status(self, hashed_content: str, file_path: str, data_source_id: UUID) -> FileProcesingStatus:
         """
         Utility function to determine what the particular status is of the File we are currently processing 
 
@@ -102,12 +104,12 @@ class FileHandler():
         """
 
         # check if file exists based on path 
-        status, file = self.process_file_by_path(hashed_content, file_path, data_source_id)
+        status, file = await self.process_file_by_path(hashed_content, file_path, data_source_id)
         if status != FileProcesingStatus.NOT_FOUND:
             return status, file
 
         # check if file exists based on hash
-        status, file = self.process_file_by_hash(hashed_content)
+        status, file = await self.process_file_by_hash(hashed_content)
         if status != FileProcesingStatus.NOT_FOUND:
             return status, file
 
@@ -116,7 +118,7 @@ class FileHandler():
         return FileProcesingStatus.NEW, None
     
 
-    def process_file_by_hash(self, hashed_content):
+    async def process_file_by_hash(self, hashed_content):
         """
         Check if we have an existing File in the database corresponding to this particular file hash. If we do, this 
         implies that the file has either been a) COPIED, or b) MOVED
@@ -124,11 +126,11 @@ class FileHandler():
         Args:
             hashed_content (str): the hash corresponding to the file content we are currently ingesting 
         """
-        file_by_hash = self._file_service.get_file_by_hash(hashed_content) 
+        file_by_hash = await self._file_service.get_file_by_hash(hashed_content) 
         if file_by_hash:
             # if file exists by hash, BUT NOT by path, it either was moved or copied
 
-            old_file_path = self._file_service.get_file_by_path_and_data_source(file_by_hash.path, file_by_hash.data_source_id)
+            old_file_path = await self._file_service.get_file_by_path_and_data_source(file_by_hash.path, file_by_hash.data_source_id)
             if old_file_path:
                 # if old file exists, this was a copy 
                 logger.debug(f"Existing file found corresponding to hashed content, file copied from old location")
@@ -142,7 +144,7 @@ class FileHandler():
         return FileProcesingStatus.NOT_FOUND, None
 
 
-    def process_file_by_path(self, hashed_content, file_path, data_source_id):
+    async def process_file_by_path(self, hashed_content, file_path, data_source_id):
         """
         Check if we have an existing file corresponding to this DataSource with the same path. 
         If so, this means that this file has either been CHANGED or UNCHANGED since we last ingested 
@@ -154,7 +156,7 @@ class FileHandler():
         """
         
         # try to get file by full path & data source ID 
-        file_by_path = self._file_service.get_file_by_path_and_data_source(file_path, data_source_id)
+        file_by_path = await self._file_service.get_file_by_path_and_data_source(file_path, data_source_id)
         if file_by_path:
             
             if file_by_path.hash == hashed_content: 
@@ -170,7 +172,7 @@ class FileHandler():
         return FileProcesingStatus.NOT_FOUND, None
             
 
-    def cleanup(self, data_source_id: UUID, job_pk: UUID):
+    async def cleanup(self, data_source_id: UUID, job_pk: UUID):
         """
         Functionaltiy to go through and remove any stale files assocaited with a particular DataSource 
 
@@ -179,25 +181,26 @@ class FileHandler():
             job_pk (UUID): the ID corresponding to current IngestionJob
         """
 
-        self._file_service.delete_stale_files(data_source_id, job_pk)
+        await self._file_service.delete_stale_files(data_source_id, job_pk)
 
 
-    def hash_file_content(self, response: Response, buffer: BytesIO):
+    async def hash_file_content(self, response: Response, buffer: BytesIO):
         """
         Helper function to hash a file based on strictly its content (i.e no meta data, file name, etc)
 
         TODO: Storing file bytes in buffer can be expensive if we start dealing with larger files,
         think of a nicer way of handling this 
         
-        response (Response) - response containing relevant file bytes 
+        response (httpx.Response) - response containing relevant file bytes 
         buffer (BytesIO) - buffer to write file to 
         """
 
         sha256_hash = sha256()
 
-        for chunk in response.iter_content(chunk_size=8192):
+        # process response async (write bytes to buffer and hash)
+        async for chunk in response.aiter_bytes():
             if chunk:
                 sha256_hash.update(chunk)
                 buffer.write(chunk)
-        
+
         return sha256_hash.hexdigest()

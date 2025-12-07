@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     init_db()
     yield
     sync_engine.dispose()
-    async_engine.dispose()
+    await async_engine.dispose()
 
 
 def create_app() -> FastAPI:
