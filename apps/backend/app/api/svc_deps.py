@@ -95,6 +95,10 @@ def get_file_svc(
     """
     Setup FileService dependency
 
+    TODO: Abstract away the async capabilities in order to use this service 
+    with a sync session OR async session. Right now, it will fail if we use sync 
+    DB session since we have hard-coded async/await throughout service 
+
     Args:
         db (Session): current DB session
     """
@@ -109,6 +113,8 @@ def get_ingestion_job_svc(
 ):
     """
     Setup IngestionJobService dependency
+
+    TODO: this FileSvc dep will cause issues since FileSvc is hard-coded to be async currently
 
     Args:
         db (Session): current DB session
