@@ -31,16 +31,13 @@ from llama_index.core.schema import TextNode
 
 logger = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from app.services import RecordLockService
-
 class IngestionJobService:
     def __init__(
             self, 
             db: Session | AsyncSession, 
             file_service, 
             chroma_client_manager: ChromaClientManager,
-            record_lock_svc: RecordLockService
+            record_lock_svc
     ):
         self.db = db
         self.chroma_mnger = chroma_client_manager
@@ -68,9 +65,9 @@ class IngestionJobService:
             raise Exception("Invalid specified Data Source ID to ingest data from")
         
         # lock specified DataSource 
-        locked = self.record_lock_svc.lock(data_source.id, RecordType.DATA_SOURCE)
+        locked = await self.record_lock_svc.lock(data_source.id, RecordType.DATA_SOURCE)
         if not locked:
-            raise Exception(f"Failed to lock DataSource={data_source_id}")
+            raise Exception(f"Failed to acquire lock for DataSource={data_source_id}: Record already locked")
             
         
         # generate current IngestionJob id & persist inital record
@@ -184,7 +181,7 @@ class IngestionJobService:
                 )
         finally:
             # unlock DataSource after processing 
-            self.record_lock_svc.unlock(data_source_id, record_type=RecordType.DATA_SOURCE)
+            await self.record_lock_svc.unlock(data_source_id, record_type=RecordType.DATA_SOURCE)
 
 
     

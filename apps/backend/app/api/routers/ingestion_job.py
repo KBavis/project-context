@@ -4,7 +4,6 @@ from datetime import datetime
 from app.services import IngestionJobService
 from app.models import ProcessingStatus
 from ..svc_deps import (
-    get_ingestion_job_svc, 
     get_async_ingestion_job_svc
 )
 

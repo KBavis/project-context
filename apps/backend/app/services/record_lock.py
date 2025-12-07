@@ -4,7 +4,8 @@ from app.core import AsyncSessionsLocal
 from uuid import UUID
 import logging
 
-from sqlalchemy import select, update, insert
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
