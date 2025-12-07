@@ -1,5 +1,5 @@
 from sqlalchemy import select, or_, and_, update, delete
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from uuid import UUID
@@ -20,7 +20,7 @@ class FileService:
         self.db = db
 
 
-    def get_project_ids_not_linked_to_file(self, file: File, project_ids: List[UUID]):
+    async def get_project_ids_not_linked_to_file(self, file: File, project_ids: List[UUID]):
         """
         Determine if a particular file has been ingested for all relevant Projects 
 
@@ -98,6 +98,7 @@ class FileService:
         """
         stmt = (
             select(File)
+            .options(selectinload(File.file_collections)) # eagely load file collections 
             .where(File.hash == hash)
         )
 
@@ -116,6 +117,7 @@ class FileService:
 
         stmt = (
             select(File)
+            .options(selectinload(File.file_collections)) # eagely load file collections 
             .where(File.path == path, File.data_source_id == data_source_id)
         )
 
