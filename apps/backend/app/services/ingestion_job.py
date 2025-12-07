@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from typing import Tuple, Iterator, Dict, List
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSource, IngestionJob, ProcessingStatus
@@ -52,8 +52,10 @@ class IngestionJobService:
             data_source_id (UUID): the data source this ingestion job corresponds to 
         """
         
-        # retrieve data source
-        stmt = select(DataSource).where(DataSource.id == data_source_id)
+        # retrieve data source (EAGERLY load project_data for future calculations)
+        stmt = select(DataSource) \
+                .options(selectinload(DataSource.project_data)) \
+                .where(DataSource.id == data_source_id)
         res = await self.db.execute(stmt)
         data_source = res.scalar_one_or_none()
 
