@@ -2,13 +2,13 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from uuid import UUID, uuid4
-from typing import Tuple, Iterator, Dict, List
+from typing import Tuple, Iterator, Dict, List, TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import DataSource, IngestionJob, ProcessingStatus
+from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType
 from app.data_providers import GithubDataProvider
 from app.core import settings, AsyncSessionsLocal
 from app.embeddings import EmbeddingManager
@@ -31,17 +31,21 @@ from llama_index.core.schema import TextNode
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from app.services import RecordLockService
 
 class IngestionJobService:
     def __init__(
             self, 
             db: Session | AsyncSession, 
             file_service, 
-            chroma_client_manager: ChromaClientManager
+            chroma_client_manager: ChromaClientManager,
+            record_lock_svc: RecordLockService
     ):
         self.db = db
         self.chroma_mnger = chroma_client_manager
         self.file_service = file_service
+        self.record_lock_svc = record_lock_svc
 
     
     async def init_ingestion_job(self, data_source_id: UUID, job_start_time: datetime): 
@@ -62,6 +66,12 @@ class IngestionJobService:
         if not data_source:
             logger.error(f"Failed to find DataSource corresponding to ID={data_source_id}")
             raise Exception("Invalid specified Data Source ID to ingest data from")
+        
+        # lock specified DataSource 
+        locked = self.record_lock_svc.lock(data_source.id, RecordType.DATA_SOURCE)
+        if not locked:
+            raise Exception(f"Failed to lock DataSource={data_source_id}")
+            
         
         # generate current IngestionJob id & persist inital record
         job_pk = uuid4() 
@@ -172,6 +182,9 @@ class IngestionJobService:
                     duration=duration,
                     session=session
                 )
+        finally:
+            # unlock DataSource after processing 
+            self.record_lock_svc.unlock(data_source_id, record_type=RecordType.DATA_SOURCE)
 
 
     

@@ -8,6 +8,7 @@ from .conversation import Conversation
 from .message import Message
 from .file import File
 from .file_collection import FileCollection
+from .record_lock import RecordLock, RecordType
 
 
 __all__ = [
@@ -21,5 +22,7 @@ __all__ = [
     "Message",
     "ProcessingStatus",
     "File",
-    "FileCollection"
+    "FileCollection",
+    "RecordLock",
+    "RecordType"
 ]

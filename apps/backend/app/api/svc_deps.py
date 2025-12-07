@@ -4,7 +4,8 @@ from app.services import (
     DataSourceService,
     IngestionJobService,
     ProjectService, 
-    FileService
+    FileService,
+    RecordLockService
 )
 
 from app.core import (
@@ -89,40 +90,6 @@ def get_conversation_svc(
     return ConversationService(db=db)
 
 
-def get_file_svc(
-        db: Session = Depends(get_sync_db_session)
-):
-    """
-    Setup FileService dependency
-
-    TODO: Abstract away the async capabilities in order to use this service 
-    with a sync session OR async session. Right now, it will fail if we use sync 
-    DB session since we have hard-coded async/await throughout service 
-
-    Args:
-        db (Session): current DB session
-    """
-
-    return FileService(db=db)
-
-
-def get_ingestion_job_svc(
-        db: Session = Depends(get_sync_db_session),
-        file_svc: FileService = Depends(get_file_svc),
-        chroma_mnger: ChromaClientManager = Depends(get_chroma_manager)
-):
-    """
-    Setup IngestionJobService dependency
-
-    TODO: this FileSvc dep will cause issues since FileSvc is hard-coded to be async currently
-
-    Args:
-        db (Session): current DB session
-    """
-
-    return IngestionJobService(db=db, file_service=file_svc, chroma_client_manager=chroma_mnger)
-
-
 def get_project_svc(
         db: Session = Depends(get_sync_db_session),
         chroma_mnger: ChromaClientManager = Depends(get_chroma_manager)
@@ -154,11 +121,22 @@ def get_async_file_svc(
 
     return FileService(db=db)
 
+def get_async_record_lock_svc():
+    """
+    Setup async RecordLockService dependency 
+
+    Args:   
+        db (AsyncSession): async DB session
+    """
+
+    return RecordLockService()
+
 
 def get_async_ingestion_job_svc(
         db: AsyncSession = Depends(get_async_db_session),
         file_svc: FileService = Depends(get_async_file_svc),
-        chroma_mnger: ChromaClientManager = Depends(get_chroma_manager)
+        chroma_mnger: ChromaClientManager = Depends(get_chroma_manager),
+        record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc)
 ):
     """
     Setup async IngestionJobService dependency 
@@ -171,5 +149,6 @@ def get_async_ingestion_job_svc(
     return IngestionJobService(
         db=db, 
         file_service=file_svc, 
-        chroma_client_manager=chroma_mnger
+        chroma_client_manager=chroma_mnger,
+        record_lock_svc=record_lock_svc
     )

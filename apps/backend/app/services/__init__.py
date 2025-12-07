@@ -4,6 +4,7 @@ from .ingestion_job import IngestionJobService
 from .conversation import ConversationService
 from .chroma import ChromaService
 from .file import FileService
+from .record_lock import RecordLockService
 
 __all__ = [
     "DataSourceService", 
@@ -11,5 +12,6 @@ __all__ = [
     "IngestionJobService", 
     "ConversationService",
     "ChromaService",
-    "FileService"
+    "FileService",
+    "RecordLockService"
 ]
