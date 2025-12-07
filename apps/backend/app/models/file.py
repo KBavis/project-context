@@ -1,7 +1,7 @@
 from .base import Base
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import text, ForeignKey, String
+from sqlalchemy import text, ForeignKey, String, Index
 
 from typing import TYPE_CHECKING, List
 
@@ -15,6 +15,14 @@ if TYPE_CHECKING:
 class File(Base):
 
     __tablename__ = "file"
+
+    # ensure data_source is leading column in index, to mitigate blocking of IngestionJobs
+    __table_args__ = (
+        Index("ix_file_data_source_path", "data_source_id", "path"),
+        Index("ix_file_data_source_name", "data_source_id", "name"),
+        Index("ix_file_data_source_hash", "data_source_id", "hash"),
+        Index("ix_file_data_source_fk", "data_source_id", "id"),
+    )
 
     id: Mapped[UUID] = mapped_column(
         primary_key=True, index=True, server_default=text("gen_random_uuid()")

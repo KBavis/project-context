@@ -1,7 +1,7 @@
 from .base import Base
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import text, ForeignKey, String
+from sqlalchemy import text, ForeignKey, String, Index
 
 from uuid import UUID
 
@@ -21,6 +21,12 @@ class FileCollection(Base):
     """
 
     __tablename__ = "file_collection"
+
+    # ensure data_source is leading column in index, to mitigate blocking of IngestionJobs
+    __table_args__ = (
+        Index("ix_file_collection_file_id", "file_id"),
+        Index("ix_file_collection_project_id", "project_id"),
+    )
 
     file_id = mapped_column(
         ForeignKey("file.id", ondelete="CASCADE"),

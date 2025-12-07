@@ -1,6 +1,6 @@
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import ForeignKey, text, Enum as SQLEnum
+from sqlalchemy import ForeignKey, text, Index, Enum as SQLEnum
 from uuid import UUID
 from typing import TYPE_CHECKING
 from enum import Enum
@@ -18,6 +18,11 @@ class ProcessingStatus(Enum):
 
 class IngestionJob(Base):
     __tablename__ = "ingestion_job"
+
+    # ensure data_source is leading column in index, to mitigate blocking of IngestionJobs
+    __table_args__ = (
+        Index("ix_ingestion_job_data_source_status", "data_source_id", "processing_status"),
+    )
 
     id: Mapped[UUID] = mapped_column(
         primary_key=True, index=True, server_default=text("gen_random_uuid()")
