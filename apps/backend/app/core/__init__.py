@@ -4,7 +4,9 @@ from .relational_db import (
     get_async_db_session, 
     init_db, 
     sync_engine, 
-    async_engine
+    async_engine,
+    SessionLocal,
+    AsyncSessionsLocal
 )
 from .vector_db import ChromaClientManager
 
@@ -15,6 +17,8 @@ __all__ = [
     "init_db",
     "sync_engine",
     "async_engine",
+    "AsyncSessionLocal",
+    "SessionLocal",
     "ChromaClientManager",
     "setup_logging",
 ]

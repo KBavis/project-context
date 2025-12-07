@@ -45,7 +45,7 @@ SessionLocal: sessionmaker[Session] = sessionmaker(
 
 # async session factory 
 AsyncSessionsLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
-   bind=async_engine, expire_on_commit=False
+   bind=async_engine, autoflush=False, expire_on_commit=False
 )
 
 

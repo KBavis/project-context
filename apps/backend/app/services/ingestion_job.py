@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSource, IngestionJob, ProcessingStatus
 from app.data_providers import GithubDataProvider
-from app.core import settings
+from app.core import settings, AsyncSessionsLocal
 from app.embeddings import EmbeddingManager
 from app.services.util import get_normalized_project_name
 from app.core import ChromaClientManager
@@ -54,7 +54,8 @@ class IngestionJobService:
         
         # retrieve data source
         stmt = select(DataSource).where(DataSource.id == data_source_id)
-        data_source = self.db.execute(stmt).scalar_one_or_none()
+        res = await self.db.execute(stmt)
+        data_source = res.scalar_one_or_none()
 
         if not data_source:
             logger.error(f"Failed to find DataSource corresponding to ID={data_source_id}")
@@ -144,7 +145,8 @@ class IngestionJobService:
                 job_pk=job_pk, 
                 status=ProcessingStatus.SUCCESS,
                 end_time=job_end_time,
-                duration=duration.seconds
+                duration=duration.seconds,
+                session=self.db # use main DB session
             )
 
             logger.info(
@@ -154,24 +156,22 @@ class IngestionJobService:
         except Exception as e:
             logger.error(f"Failure occurred while performing IngestionJob={job_pk}: {str(e)}")
 
-            # update IngestionJob record in db
             job_fail_time = datetime.now()
             duration=(job_fail_time - job_start_time).seconds
 
-            await self.update_ingestion_job(
-                job_pk=job_pk,
-                status=ProcessingStatus.FAILED,
-                end_time=job_fail_time,
-                duration=duration
-            )
+            # NOTE: seperate session required in order to ensure status update is not rolled back
+            async with AsyncSessionsLocal() as session:
 
-            return {
-                "ingestion_job_id": job_pk, 
-                "status": ProcessingStatus.FAILED,
-                "start_time": job_start_time,
-                "end_time": job_fail_time,
-                "duration": duration
-            }
+                # update IngestionJob with status/duration
+                await self.update_ingestion_job(
+                    job_pk=job_pk,
+                    status=ProcessingStatus.FAILED,
+                    end_time=job_fail_time,
+                    duration=duration,
+                    session=session
+                )
+
+
     
 
     async def update_ingestion_job(
@@ -179,7 +179,8 @@ class IngestionJobService:
             job_pk: UUID, 
             status: ProcessingStatus,
             end_time: datetime, 
-            duration: int
+            duration: int, 
+            session: AsyncSession
         ):
         """
         Update existing IngestionJob with relevant status, end_time, and duration
@@ -191,7 +192,7 @@ class IngestionJobService:
             duration (int): total amount of time it took to complete ingestion job
         """
 
-        ingestion_job = self.db.get(IngestionJob, job_pk)
+        ingestion_job = await session.get(IngestionJob, job_pk)
         if not ingestion_job:
             raise Exception(f"Failed to find IngestionJob by PK={job_pk}")
 
@@ -199,8 +200,9 @@ class IngestionJobService:
         ingestion_job.end_time = end_time
         ingestion_job.total_duration = duration 
 
-        self.db.add(ingestion_job)
-        await self.db.flush()
+        session.add(ingestion_job)
+        await session.flush()
+        await session.commit()
 
     
     async def create_ingestion_job(self, job_pk: UUID, data_source_id: UUID, start_time: datetime):
