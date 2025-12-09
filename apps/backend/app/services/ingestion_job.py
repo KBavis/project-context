@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType
+from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType, ProjectData, Project
 from app.data_providers import GithubDataProvider
 from app.core import settings, AsyncSessionsLocal
 from app.embeddings import EmbeddingManager
@@ -53,10 +53,16 @@ class IngestionJobService:
             data_source_id (UUID): the data source this ingestion job corresponds to 
         """
         
-        # retrieve data source (EAGERLY load project_data for future calculations)
-        stmt = select(DataSource) \
-                .options(selectinload(DataSource.project_data)) \
+        # retrieve data source (EAGERLY load project_data, project, and model_configs for future processing)
+        stmt = (
+            select(DataSource)
+                .options( 
+                    selectinload(DataSource.project_data) 
+                    .selectinload(ProjectData.project) 
+                    .selectinload(Project.model_configs)
+                ) 
                 .where(DataSource.id == data_source_id)
+        )
         res = await self.db.execute(stmt)
         data_source = res.scalar_one_or_none()
 
