@@ -5,8 +5,7 @@ from io import BytesIO
 
 from .base import DataProvider
 from app.core import settings
-from app.pydantic import File
-from app.files import FileProcesingStatus
+from app.pydantic import File, FileProcesingStatus
 
 
 logger = logging.getLogger(__name__)
@@ -39,7 +38,7 @@ class GithubDataProvider(DataProvider):
         await self._get_repository_data(self.repository_url)
 
         # cleanup any files assocaited with DataSource not processed via current job
-        await self.file_handler.cleanup(self.data_source.id, self.job_pk)
+        await self.file_service.cleanup(self.data_source.id, self.job_pk)
 
     def _get_request_headers(self):
         """
@@ -99,6 +98,7 @@ class GithubDataProvider(DataProvider):
                 # recursively download files in specificied directory
                 await self._get_repository_data(node["url"])
 
+
     async def _download_file(self, url: str, file_name: str, file_path: str, size: int):
         """
         Helper function to download a file and store within relevant temporary directory
@@ -135,7 +135,7 @@ class GithubDataProvider(DataProvider):
 
             # hash file content & store in buffer 
             buffer = BytesIO()
-            hashed_content = await self.file_handler.hash_file_content(response, buffer)
+            hashed_content = await self.file_service.hash_file_content(response, buffer)
 
             # determine file status 
             file = File(
@@ -145,7 +145,7 @@ class GithubDataProvider(DataProvider):
                 size=size, 
                 hash=hashed_content
             )
-            file_status = await self.file_handler.process_file(file, self.data_source, self.job_pk)
+            file_status = await self.file_service.process_file(file, self.data_source, self.job_pk)
 
             # TODO: Account for additional statuses that main indicate we can skip
             if file_status in {FileProcesingStatus.UNCHANGED, FileProcesingStatus.MOVED}:

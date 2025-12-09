@@ -1,7 +1,5 @@
-from sqlalchemy.orm import Session
 from uuid import UUID
 
-from app.files import FileHandler
 from app.models import DataSource
 
 from abc import abstractmethod, ABC
@@ -13,7 +11,7 @@ class DataProvider(ABC):
         self.job_pk = job_pk
         self.url = url
         self.request_headers = self._get_request_headers()
-        self.file_handler = FileHandler(file_service)
+        self.file_service = file_service
 
     @abstractmethod
     async def ingest_data(self):

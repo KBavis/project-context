@@ -31,6 +31,16 @@ class DocsFileExtension(str, Enum):
     MD = "md"
 
 
+class FileProcesingStatus(Enum):
+    UNCHANGED = "unchanged"
+    CHANGED = "changed"
+    NEW = "new"
+    MOVED = "moved"
+    COPIED = "copied"
+    NOT_FOUND = "not_found"
+    MISSING_PROJECT_LINKS = "missing_project_links"
+
+
 class File(BaseModel):
     path: str
     file_name: str 
