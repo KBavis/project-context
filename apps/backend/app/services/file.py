@@ -145,8 +145,6 @@ class FileService:
             data_source_id (UUID): the data source ID this file corresponds to 
         """
 
-        logger.debug(f"Testing if we still see failures!")
-        
         # try to get file by full path & data source ID 
         file_by_path = await self.get_file_by_path_and_data_source(file_path, data_source_id)
         if file_by_path:

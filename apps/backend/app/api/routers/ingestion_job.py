@@ -8,10 +8,12 @@ from ..svc_deps import (
 )
 
 from uuid import UUID
+import logging
 
 
 router = APIRouter(prefix="/ingestion/jobs")
 
+logger = logging.getLogger(__name__)
 
 @router.post(
     "/{data_source_id}", summary="Kick off ingestion of data from a datasource"
@@ -26,7 +28,9 @@ async def create_ingestion_job(
     Kick off ingestion job for a specific data source
     """
 
+
     job_start_time = datetime.now()
+    logging.info(f"create_ingestion_job() request recieved for dataSource={data_source_id} at {job_start_time}")
 
     # create inital ingestion job 
     try:
