@@ -34,7 +34,7 @@ def _make_async_engine() -> AsyncEngine:
     """
     Create Async DB Engine (NOT cached - allows for per-thread creation)
     """
-    engine = create_async_engine(settings.ASYNC_REL_DB_URL, pool_pre_ping=True)
+    engine = create_async_engine(settings.ASYNC_REL_DB_URL, pool_pre_ping=True, pool_size=10)
     return engine
 
 
