@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from typing import Generator, AsyncGenerator
 from functools import lru_cache
@@ -47,9 +48,7 @@ async_engine: AsyncEngine = _make_async_engine()
 # NOTE: This logic takes into consideration the ability to create new session on Worker thread
 #############################################################################################
 
-# mappings for each thread to its corresponding engine 
-_thread_local_sync_engines = {} 
-_thread_local_async_engines = {}
+# store main thread ID 
 _main_thread_id = threading.get_ident()
 
 
@@ -60,10 +59,10 @@ def get_sync_session_maker() -> sessionmaker[Session]:
         - Worker Thread: creates & caches thread-specific engine
     """
 
-    current_thread_id = threading.get_ident() 
+    _current_thread_id = threading.get_ident() 
 
     # Main Thread - use the main engine
-    if current_thread_id == _main_thread_id:
+    if _current_thread_id == _main_thread_id:
         return sessionmaker(
             autoflush=False,
             autocommit=False,
@@ -72,14 +71,16 @@ def get_sync_session_maker() -> sessionmaker[Session]:
 
 
     # Worker Thread - create or re-use thread specific engine 
-    if current_thread_id not in _thread_local_sync_engines:
-        thread_engine = create_engine(settings.SYNC_REL_DB_URL)
-        _thread_local_sync_engines[current_thread_id] = thread_engine
+    _thread_engine = create_engine(
+        settings.SYNC_REL_DB_URL, 
+        pool_pre_ping=True, 
+        poolclass=NullPool # don't pool connection in Worker thread
+    )
 
     return sessionmaker(
         autoflush=False, 
         autocommit=False,
-        bind=_thread_local_sync_engines[current_thread_id]
+        bind=_thread_engine
     )
 
 
@@ -90,10 +91,10 @@ def get_async_session_maker() -> async_sessionmaker[AsyncSession]:
     - Worker Thread: create & cache thread-specific engine
     """
 
-    current_thread_id = threading.get_ident()
+    _current_thread_id = threading.get_ident()
     
     # Main Thread - use the main engine
-    if current_thread_id == _main_thread_id:
+    if _current_thread_id == _main_thread_id:
         return async_sessionmaker(
             bind=async_engine,
             autoflush=False,
@@ -101,15 +102,14 @@ def get_async_session_maker() -> async_sessionmaker[AsyncSession]:
         )
     
     # Worker Thread - create or re-use thread specific engine
-    if current_thread_id not in _thread_local_async_engines:
-        thread_engine = create_async_engine(
-            settings.ASYNC_REL_DB_URL,
-            pool_pre_ping=True,
-        )
-        _thread_local_async_engines[current_thread_id] = thread_engine
+    _thread_engine = create_async_engine(
+        settings.ASYNC_REL_DB_URL,
+        pool_pre_ping=True,
+        poolclass=NullPool # don't pool connections on worker thread
+    )
     
     return async_sessionmaker(
-        bind=_thread_local_async_engines[current_thread_id],
+        bind=_thread_engine,
         autoflush=False,
         expire_on_commit=False
     )
