@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     DOCS_FILE_EXTENSIONS: Set[str] = {"docx", "pdf", "md"}
 
     model_config = SettingsConfigDict(
+        extra='ignore',
         env_file=Path(__file__).resolve().parents[2] / ".env", env_file_encoding="utf-8"
     )
 
