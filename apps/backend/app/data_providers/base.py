@@ -71,7 +71,8 @@ def _sync_ingestion(provider_class: Type, data_source: DataSource, job_pk: UUID)
     """
 
     async def run():
-
+        
+        # create async DB session (NOTE: This will create new Async DB Engine on this worker thread)
         session_maker = get_async_session_maker()
         
         async with session_maker() as session:
