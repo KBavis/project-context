@@ -2,7 +2,6 @@ from sqlalchemy import select, or_, and_, update, delete
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
 from app.models import File, DataSource, FileCollection
 from app.pydantic import FileProcesingStatus, File as FilePydantic
 
@@ -19,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 class FileService:
 
-    def __init__(self, db: AsyncSession):
-        self.db = db
+    def __init__(self, db_session: AsyncSession):
+        self.session = db_session
 
 
     async def process_file(self, file: File, data_source: DataSource, job_pk: UUID) -> FileProcesingStatus:
@@ -145,6 +144,8 @@ class FileService:
             file_path (str): the current file path assocaited with the file we are ingesting 
             data_source_id (UUID): the data source ID this file corresponds to 
         """
+
+        logger.debug(f"Testing if we still see failures!")
         
         # try to get file by full path & data source ID 
         file_by_path = await self.get_file_by_path_and_data_source(file_path, data_source_id)
@@ -175,7 +176,7 @@ class FileService:
         await self.delete_stale_files(data_source_id, job_pk)
 
 
-    async def hash_file_content(self, response: Response, buffer: BytesIO):
+    def hash_file_content(self, response: Response, buffer: BytesIO):
         """
         Helper function to hash a file based on strictly its content (i.e no meta data, file name, etc)
 
@@ -188,13 +189,17 @@ class FileService:
 
         sha256_hash = sha256()
 
-        # process response async (write bytes to buffer and hash)
-        async for chunk in response.aiter_bytes():
-            if chunk:
-                sha256_hash.update(chunk)
-                buffer.write(chunk)
+        # process response synchronously (write bytes to buffer and hash)
+        try:
+            for chunk in response.iter_bytes():
+                    if chunk:
+                        sha256_hash.update(chunk)
+                        buffer.write(chunk)
 
-        return sha256_hash.hexdigest()
+            return sha256_hash.hexdigest()
+        except Exception as e:
+            logger.error(f"Failure occurred while attempting to hash file content: {str(e)}")
+            raise e
 
 
 
@@ -232,7 +237,10 @@ class FileService:
             ingestion_job_id (UUID): PK of the current ingestion job 
             files (List["File"]): list of files we processed 
         """
-        
+
+        session = self.session
+
+    
         file_ids = [file.id for file in files]
         
         stmt = (
@@ -244,8 +252,8 @@ class FileService:
             .values(last_ingestion_job_id = ingestion_job_id)
         )
 
-        await self.db.execute(stmt)
-        await self.db.flush()
+        await session.execute(stmt)
+        await session.flush()
 
     
     async def delete_stale_files(self, data_source_id: UUID, ingestion_job_id: UUID):
@@ -257,12 +265,14 @@ class FileService:
             ingestion_job_id (UUID): PK of the current ingestion job
         """
 
+        session = self.session
+
         stmt = (
             delete(File)
             .where(File.data_source_id == data_source_id, File.last_ingestion_job_id != ingestion_job_id)
         )
 
-        await self.db.execute(stmt)
+        await session.execute(stmt)
 
         logger.debug(f"Successfully removed files associated with DataSource={data_source_id}, but were not processed by IngestionJob={ingestion_job_id}")
     
@@ -274,13 +284,16 @@ class FileService:
         Args:
             hash (str): the hash to search for 
         """
+
+        session = self.session
+
         stmt = (
             select(File)
             .options(selectinload(File.file_collections)) # eagely load file collections 
             .where(File.hash == hash)
         )
 
-        res = await self.db.execute(stmt)
+        res = await session.execute(stmt)
         return res.scalars().one_or_none()
 
     
@@ -292,6 +305,9 @@ class FileService:
             path (str): relevant path of file 
             data_source_id (UUID): ID of the data source this file belongs to 
         """
+        
+        session = self.session
+
 
         stmt = (
             select(File)
@@ -299,7 +315,7 @@ class FileService:
             .where(File.path == path, File.data_source_id == data_source_id)
         )
 
-        res = await self.db.execute(stmt)
+        res = await session.execute(stmt)
         return res.scalars().one_or_none()
 
         
@@ -312,8 +328,11 @@ class FileService:
             file (FilePydantic): file with relevant updates 
         """
 
+        session = self.session
+
+
         # attempt to find file by either path OR hash, and the respective DataSource ID
-        files = await self.db.query(File).filter(
+        files = await session.query(File).filter(
             and_(
                 or_(
                     File.hash == file.hash,
@@ -339,7 +358,7 @@ class FileService:
         existing_file.path = file.path
         existing_file.file_extension = file.file_type
         
-        await self.db.flush()
+        await session.flush()
             
         
     
@@ -349,6 +368,9 @@ class FileService:
         Functionality to insert a new File & corresponding FileCollection record
         """
 
+        session = self.session
+        
+        # create the File record 
         new_file = File(
             hash=file.hash,
             size=file.size,
@@ -360,23 +382,11 @@ class FileService:
         )
 
 
-        self.db.add(new_file)
-        await self.db.flush()
+        session.add(new_file)
+        await session.flush()
+        await session.commit()
 
-        await self.add_file_to_collections(new_file, data_source)
-
-        return new_file
-    
-
-    async def add_file_to_collections(self, file: File, data_source: DataSource):
-        """
-        Add a newly created file to project collections
-
-        Args:   
-            file (File): newly created file 
-            data_source (DataSource): data source this file corresponds to 
-        """
-
+        # create FileCollections records 
         data_source_project_ids = [source.project_id for source in data_source.project_data]
 
         collections = [
@@ -387,5 +397,8 @@ class FileService:
             for project_id in data_source_project_ids
         ]
 
-        self.db.add_all(collections)
-        await self.db.flush()
+        session.add_all(collections)
+        await session.flush()
+
+        return new_file
+

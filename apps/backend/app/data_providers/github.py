@@ -1,6 +1,7 @@
 import logging
 import re
 import httpx
+from sqlalchemy.ext.asyncio import AsyncSession
 from io import BytesIO
 
 from .base import DataProvider
@@ -13,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 class GithubDataProvider(DataProvider):
 
-    def __init__(self, file_service, data_source, job_pk, url: str = "", branch: str = "main"):
-        super().__init__(file_service, data_source, job_pk, url)
+    def __init__(self, data_source, job_pk, db_session: AsyncSession, url: str = "", branch: str = "main"):
+        super().__init__(data_source, job_pk, url, db_session=db_session)
         self._validate_url()
 
         # deconstruct URL 
@@ -87,7 +88,7 @@ class GithubDataProvider(DataProvider):
                 f"Failure while attempting to retrieve data from the URL {curr_url}"
             )
             raise e
-
+        
         # iterate through nodes in response
         for node in content:
 
@@ -135,7 +136,7 @@ class GithubDataProvider(DataProvider):
 
             # hash file content & store in buffer 
             buffer = BytesIO()
-            hashed_content = await self.file_service.hash_file_content(response, buffer)
+            hashed_content = self.file_service.hash_file_content(response, buffer)
 
             # determine file status 
             file = File(
@@ -164,7 +165,7 @@ class GithubDataProvider(DataProvider):
                 f.write(buffer.getbuffer())
 
         except Exception as e:
-            logger.debug(f"Failure downloading file={file_name} with exception={str(e)}")
+            logger.error(f"Failure downloading file={file_name} with exception={str(e)}")
             raise Exception(
                 f"Failure occurred while attempt to download file: {file_name}", e
             )

@@ -1,5 +1,5 @@
 from app.models import RecordLock, RecordType
-from app.core import AsyncSessionsLocal 
+from app.core import get_async_session_maker
 
 from uuid import UUID
 import logging
@@ -30,8 +30,8 @@ class RecordLockService:
             record_id (UUID): ID of record that is being locked
             record_type (RecordType): the type of record being locked
         """
-
-        async with AsyncSessionsLocal() as session:
+        session_maker = get_async_session_maker()
+        async with session_maker() as session:
 
             # Step 1. Ensure record already exists 
             insert_stmt = insert(RecordLock).values(
@@ -80,28 +80,37 @@ class RecordLockService:
             record_type (RecordType): the type of record being locked
         """
         # create seperate session to ensure DB changes are persisted  
-        async with AsyncSessionsLocal() as session: 
+        session_maker = get_async_session_maker() 
+        
+        async with session_maker() as session: 
 
-            # unlock the record 
-            stmt = (
-                update(RecordLock)
-                .where(
-                    RecordLock.record_id == record_id,
-                    RecordLock.record_type == record_type
+            try:
+
+                # unlock the record 
+                stmt = (
+                    update(RecordLock)
+                    .where(
+                        RecordLock.record_id == record_id,
+                        RecordLock.record_type == record_type
+                    )
+                    .values(is_locked = "N")
                 )
-                .values(is_locked = "N")
-            )
 
-            result = await session.execute(stmt)
+                result = await session.execute(stmt)
 
-            # ensure we updated record 
-            if result.rowcount == 0:
-                logger.error(f"Failed to find RecordLock by recordId={record_id} and recordType={record_type}")
-                raise Exception(f"No RecordLock found by recordId={record_id} and recordType={record_type}")
+                # ensure we updated record 
+                if result.rowcount == 0:
+                    logger.error(f"Failed to find RecordLock by recordId={record_id} and recordType={record_type}")
+                    raise Exception(f"No RecordLock found by recordId={record_id} and recordType={record_type}")
 
-            await session.flush()
-            await session.commit()
-            logger.debug(f"Successfully unlocked RecordLock with recordId={record_id} and recordType={record_type}")
+                await session.flush()
+                await session.commit()
+                logger.debug(f"Successfully unlocked RecordLock with recordId={record_id} and recordType={record_type}")
+            
+            except Exception as e:
+                await session.rollback() 
+                logger.error(f"Fatal Error occurred while attempting to unlock record with id={record_id} and type={record_type}: {str(e)}")
+                raise e
 
 
 

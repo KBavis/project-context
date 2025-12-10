@@ -134,7 +134,6 @@ def get_async_record_lock_svc():
 
 def get_async_ingestion_job_svc(
         db: AsyncSession = Depends(get_async_db_session),
-        file_svc: FileService = Depends(get_async_file_svc),
         chroma_mnger: ChromaClientManager = Depends(get_chroma_manager),
         record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc)
 ):
@@ -148,7 +147,6 @@ def get_async_ingestion_job_svc(
     """
     return IngestionJobService(
         db=db, 
-        file_service=file_svc, 
         chroma_client_manager=chroma_mnger,
         record_lock_svc=record_lock_svc
     )

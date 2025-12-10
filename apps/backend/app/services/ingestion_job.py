@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType, ProjectData, Project
 from app.data_providers import GithubDataProvider
-from app.core import settings, AsyncSessionsLocal
+from app.core import settings, get_async_session_maker
 from app.embeddings import EmbeddingManager
 from app.services.util import get_normalized_project_name
 from app.core import ChromaClientManager
@@ -35,13 +35,11 @@ class IngestionJobService:
     def __init__(
             self, 
             db: Session | AsyncSession, 
-            file_service, 
             chroma_client_manager: ChromaClientManager,
             record_lock_svc
     ):
         self.db = db
         self.chroma_mnger = chroma_client_manager
-        self.file_service = file_service
         self.record_lock_svc = record_lock_svc
 
     
@@ -175,7 +173,8 @@ class IngestionJobService:
             duration=(job_fail_time - job_start_time).seconds
 
             # NOTE: seperate session required in order to ensure status update is not rolled back
-            async with AsyncSessionsLocal() as session:
+            session_maker = get_async_session_maker()
+            async with session_maker() as session:
 
                 # update IngestionJob with status/duration
                 await self.update_ingestion_job(
@@ -261,7 +260,7 @@ class IngestionJobService:
         Jira Ticket number
         """
 
-        code_path, docs_path = self._create_tmp_dirs()
+        code_path, docs_path = self._create_tmp_dirs() # TODO: Temp dirs should reference UUID for request in order to ensure two threads aren't accessing same directory 
 
         # retrieve data based on provider & store within temp directory
         match data_source.provider:
@@ -269,8 +268,7 @@ class IngestionJobService:
                 logger.info(
                     f"Attempting to retrieve data from GitHub provider for URL: {data_source.url}"
                 )
-                provider = GithubDataProvider(file_service=self.file_service, data_source=data_source, url=data_source.url, job_pk=job_pk)
-                await provider.ingest_data()
+                await GithubDataProvider.run_ingestion(data_source=data_source, job_pk=job_pk)
             case _:
                 logger.error(
                     f"The specified Data Source provider is not configured for this application"
