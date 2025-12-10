@@ -260,7 +260,7 @@ class IngestionJobService:
         Jira Ticket number
         """
 
-        code_path, docs_path = self._create_tmp_dirs() # TODO: Temp dirs should reference UUID for request in order to ensure two threads aren't accessing same directory 
+        code_path, docs_path = self._create_tmp_dirs(job_pk) 
 
         # retrieve data based on provider & store within temp directory
         match data_source.provider:
@@ -339,14 +339,17 @@ class IngestionJobService:
                 "content_types": content_types
             }
 
-    def _create_tmp_dirs(self):
+    def _create_tmp_dirs(self, job_pk: UUID):
         """
         Create temporary directory for storing downloaded code and documentation files
+
+        Args:
+            job_pk (UUID): unique ID for current job (used to ensure files downloaded for ingestion job stored in unique dir)
         """
 
-        docs_path = Path(settings.TMP_DOCS)
+        docs_path = Path(f"{settings.TMP_DOCS}/{job_pk}")
         docs_path.mkdir(exist_ok=True, parents=True)
-        code_path = Path(settings.TMP_CODE)
+        code_path = Path(f"{settings.TMP_CODE}/{job_pk}")
         code_path.mkdir(exist_ok=True, parents=True)
 
         return code_path, docs_path
@@ -456,26 +459,6 @@ class IngestionJobService:
             )
 
 
-
-
-    
-    def _create_temporary_markdown_files(conversion_results: Iterator[ConversionResult]):
-        """
-        Helper function to store covnerted docs files as markdown files 
-        """
-        # create processed docs dir to save md files to
-        path = settings.TMP_DOCS + settings.PROCESSED_DIR
-        out_path = Path(path)
-        out_path.mkdir(exist_ok=True, parents=True)
-
-        # write docling files as md files in processed dir
-        for res in conversion_results:
-            file_name = f"{res.input.file.stem}.md"
-
-            with open(out_path / f"{file_name}", "w") as fp:
-                fp.write(res.document.export_to_markdown())
-
-
     def _cleanup_tmp_dirs(self, code_path: Path, docs_path: Path):
         """
         Remove files from temporary directory and remove directory altogether
@@ -492,14 +475,10 @@ class IngestionJobService:
             if file_path.is_file():
                 file_path.unlink()
 
-        # remove dirs
-        path = Path(settings.TMP_DOCS + settings.PROCESSED_DIR)
-        if path.exists():
-            path.rmdir()
-
         docs_path.rmdir()
         code_path.rmdir()
         tmp_dir.rmdir()
+        
 
     def is_dir_not_empty(self, path: Path):
         """

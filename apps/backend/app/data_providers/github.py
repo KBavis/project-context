@@ -153,7 +153,7 @@ class GithubDataProvider(DataProvider):
                 return 
 
             # write file to temporary directory if needed
-            dir = settings.TMP_DOCS if file_type == "DOCS" else settings.TMP_CODE
+            dir = f"{settings.TMP_DOCS}/{self.job_pk}" if file_type == "DOCS" else f"{settings.TMP_CODE}/{self.job_pk}"
             temp_file_name = f"{dir}/{self._get_file_name(url)}" 
             
             """
