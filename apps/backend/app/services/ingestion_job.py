@@ -148,7 +148,7 @@ class IngestionJobService:
                 logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
 
 
-            self._cleanup_tmp_dirs(code_path, docs_path)
+            self._cleanup_tmp_dirs(job_pk)
 
             job_end_time = datetime.now()
             duration = job_end_time - job_start_time
@@ -459,26 +459,56 @@ class IngestionJobService:
             )
 
 
-    def _cleanup_tmp_dirs(self, code_path: Path, docs_path: Path):
+    def _cleanup_tmp_dirs(self, job_pk: UUID):
         """
         Remove files from temporary directory and remove directory altogether
 
         Args:
-            code_path: directory storing code files
-            docs_path: directory storing docs files
+            job_pk (UUID): unique ID for current ingestion job 
         """
-
-        tmp_dir = Path(settings.TMP)
-
-        # delete all files in /tmp & corresponding sub-directories
-        for file_path in tmp_dir.rglob("*"):
-            if file_path.is_file():
-                file_path.unlink()
-
-        docs_path.rmdir()
-        code_path.rmdir()
-        tmp_dir.rmdir()
         
+        logger.info(f"Cleaning up temporary directories for IngestionJob={job_pk}")
+
+        # base dirs to remove
+        tmp_dir = Path(settings.TMP)
+        code_dir = Path(settings.TMP_CODE)
+        docs_dir = Path(settings.TMP_DOCS)
+
+        # ingestion specific dirs to fully clean 
+        job_code_path = code_dir / str(job_pk)
+        job_docs_path = docs_dir / str(job_pk)
+
+        # cleanup job-specific sub-directories files
+        for job_path in [job_docs_path, job_code_path]: 
+
+            # ensure path is a dir 
+            if job_path.is_dir():
+
+                # remove all files  
+                for file_path in job_path.rglob("*"):
+                    if file_path.is_file():
+                        try:
+                            file_path.unlink() 
+                        except OSError as e:
+                            logger.warning(f"Failed to delete file {file_path}: {e}")
+        
+        # remove job-specific dirs 
+        job_code_path.rmdir() 
+        job_docs_path.rmdir() 
+
+        # attempt to remove base dir (NOTE: If another process is running, this will be handled by subsequent process)
+        for base_dir in [code_dir, docs_dir, tmp_dir]:
+            if base_dir.is_dir():
+                
+                # handle failrues gracefully & log
+                try:
+                    base_dir.rmdir()
+                except OSError as e:
+                    logger.warning(f"Failed to remove non-empty base directory: {base_dir}")
+                    pass
+        
+
+
 
     def is_dir_not_empty(self, path: Path):
         """
