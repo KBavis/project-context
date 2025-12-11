@@ -22,7 +22,7 @@ class FileService:
         self.session = db_session
 
 
-    async def process_file(self, file: File, data_source: DataSource, job_pk: UUID) -> FileProcesingStatus:
+    async def process_file(self, file: FilePydantic, data_source: DataSource, job_pk: UUID) -> FileProcesingStatus:
         """
         Main function for processing a particular file that we are looking to download from a particular DataSource,
         by determining what status a particular file has & then performing the relevant actions based on that status 
@@ -37,41 +37,23 @@ class FileService:
         status, persisted_file = await self.get_file_status(file.hash, file.path, data_source.id)
 
 
-        # Step 2. Perform necessary procesisng based on File Status
-        match status:
-            case FileProcesingStatus.MOVED:
-                """
-                TODO: 
-                    1. Update existing TextNodes associated with this File (retrieve TextNodes by metadatas hash)
-                    2. Update File record in DB with new file path 
-                    3. Verify that all projects corresponding to this file have correctly ingested it (FileCollections)
-                    4. Indicate to calling function we should continue processing 
-                """
-            case FileProcesingStatus.CHANGED:
-                """
-                TODO:
-                    1. Delete text nodes assocaited with this File from all relevant Project Collections
-                    2. Update File record in DB with relevant hashed content 
-                    3. Verify that all projects corresponding to this file have correctly ingested it (FileCollections)
-                    4. Indicate to calling function we should continue processing 
-                """
-            case FileProcesingStatus.NEW | FileProcesingStatus.COPIED:
-                
-                # insert new file into DB in the case its new or copied
+        # Step 2: Insert file into relational DB if needed
+        if status == FileProcesingStatus.NEW:
                 persisted_file = await self.add_new_file(file=file, data_source=data_source, job_pk=job_pk)
 
         
         # Step 3. Determine if this File is currently not ingested for a particular Project, even if Project Status indicates we can skip further processing
-        if status == FileProcesingStatus.UNCHANGED or status == FileProcesingStatus.MOVED:
+        if status == FileProcesingStatus.UNCHANGED:
             data_source_project_ids = [source.project_id for source in data_source.project_data]
             unlinked_project_ids = await self.get_project_ids_not_linked_to_file(persisted_file, data_source_project_ids)
             if unlinked_project_ids:
-                status = FileProcesingStatus.MISSING_PROJECT_LINKS
+                status = FileProcesingStatus.MISSING_PROJECT_LINKS # update status to indicate further processing required 
 
 
         # Step 4. Mark this File's "last_ingestion_job_id" with relevant ingestion_job that is currently being ran (if needed)
-        if status not in [FileProcesingStatus.NEW, FileProcesingStatus.COPIED]:
+        if status != FileProcesingStatus.NEW:
             await self.update_last_seen_job_pk(job_pk, data_source.id, [persisted_file])
+
 
         # Step 5. Return status back to calling function
         return status
@@ -84,8 +66,6 @@ class FileService:
             FileProcessingStatus.UNCHANGED --> file content & path is the same 
             FileProcessingStatus.CHANGED --> file content has changed, but the path is the same 
             FileProcessingStatus.NEW --> no file existing with the specified path OR the specified content 
-            FileProcessingStatus.MOVED --> files content is the same, but now has a different path 
-            FileProcessingStatus.COPIED --> file content is the same, but file exists at new path AND the old path 
         
         Args:
             response (Response): response wrapper around file bytes 
@@ -93,45 +73,14 @@ class FileService:
             file_path (str): the complete file path of this particular file 
         """
 
-        # check if file exists based on path 
+        # check if file exists based on path & data source
         status, file = await self.process_file_by_path(hashed_content, file_path, data_source_id)
         if status != FileProcesingStatus.NOT_FOUND:
             return status, file
 
-        # check if file exists based on hash
-        status, file = await self.process_file_by_hash(hashed_content)
-        if status != FileProcesingStatus.NOT_FOUND:
-            return status, file
-
-        # if no file exists based on hash or path, this is a new file
-        logger.debug(f"No existing file found by hash={hashed_content} or path={file_path}, insertion required")
+        # if no file exists based on path or data source, treat this is a new file (even though, it technically could have been moved/copied)
+        logger.debug(f"No existing file by path={file_path}, insertion required")
         return FileProcesingStatus.NEW, None
-    
-
-    async def process_file_by_hash(self, hashed_content):
-        """
-        Check if we have an existing File in the database corresponding to this particular file hash. If we do, this 
-        implies that the file has either been a) COPIED, or b) MOVED
-
-        Args:
-            hashed_content (str): the hash corresponding to the file content we are currently ingesting 
-        """
-        file_by_hash = await self.get_file_by_hash(hashed_content) 
-        if file_by_hash:
-            # if file exists by hash, BUT NOT by path, it either was moved or copied
-
-            old_file_path = await self.get_file_by_path_and_data_source(file_by_hash.path, file_by_hash.data_source_id)
-            if old_file_path:
-                # if old file exists, this was a copy 
-                logger.debug(f"Existing file found corresponding to hashed content, file copied from old location")
-                return FileProcesingStatus.COPIED, file_by_hash
-            else:
-                # old file DNE, this was moved
-                logger.debug(f"Existing file found corresponding to hashed content, file moved from old location")
-                return FileProcesingStatus.MOVED, file_by_hash
-        
-        # indicate to invoking function that we did not find a file based on the provided hash 
-        return FileProcesingStatus.NOT_FOUND, None
 
 
     async def process_file_by_path(self, hashed_content, file_path, data_source_id):
@@ -275,12 +224,14 @@ class FileService:
         logger.debug(f"Successfully removed files associated with DataSource={data_source_id}, but were not processed by IngestionJob={ingestion_job_id}")
     
     
-    async def get_file_by_hash(self, hash: str) -> File:
+    async def get_files_by_hash_and_data_source(self, hash: str, data_source_id: UUID) -> File:
         """
-        Find File by its hashed content 
+        Find File(s) by hashed content & data source 
+                NOTE: There could be multiple files with same hash existing at data source 
 
         Args:
             hash (str): the hash to search for 
+            data_source_id (UUID): the data source the file should belong to 
         """
 
         session = self.session
@@ -288,11 +239,11 @@ class FileService:
         stmt = (
             select(File)
             .options(selectinload(File.file_collections)) # eagely load file collections 
-            .where(File.hash == hash)
+            .where(File.hash == hash, File.data_source_id == data_source_id)
         )
 
         res = await session.execute(stmt)
-        return res.scalars().one_or_none()
+        return res.scalars().all()
 
     
     async def get_file_by_path_and_data_source(self, path: str, data_source_id: UUID) -> File: 
@@ -382,14 +333,13 @@ class FileService:
 
         session.add(new_file)
         await session.flush()
-        await session.commit()
 
         # create FileCollections records 
         data_source_project_ids = [source.project_id for source in data_source.project_data]
 
         collections = [
             FileCollection(
-                file_id=file.id, 
+                file_id=new_file.id, 
                 project_id=project_id
             )
             for project_id in data_source_project_ids
