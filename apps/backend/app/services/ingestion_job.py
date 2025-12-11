@@ -2,7 +2,9 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from uuid import UUID, uuid4
-from typing import Tuple, Iterator, Dict, List, TYPE_CHECKING
+from typing import Tuple, Iterator, Dict, List
+import asyncio
+import threading
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -125,22 +127,15 @@ class IngestionJobService:
             if has_docs:
                 logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant docs files; chunking & saving to ChromaDB")
 
-                #TODO: Run blocking CPU work in seperate thread 
+                # TODO: Consider thread pool based on available resources to user (CPU cores, GPU, etc)
+                # run Docling conversion, chunking, and ChromaDB persistence in seperate worker thread 
+                await asyncio.to_thread(
+                    self.convert_chunk_and_store,
+                    data_source,
+                    project_id,
+                    job_pk
+                )
 
-                # convert docs to docling files 
-                converted_files = self._convert_docs_files_to_docling()
-                logger.debug(f'Converted files to Docling files')
-
-                # chunk ingested documentation based on configured project embedding model
-                project_chunks = self._chunk_docs(data_source, project_id, converted_files)
-                logger.debug('Successfully chunked ingested documentation for each project')
-
-                # convert docling project chunks to LlamaIndex TextNodes
-                nodes = self._convert_to_text_nodes(project_chunks)
-                logger.debug(f"Successfully convert DocChunks to LlamaIndex TextNode's")
-
-                # store results within Chroma DB, using embedding specified DataSource
-                await self._save_to_chroma(nodes, "DOCS", data_source)
 
             # code files were ingested 
             if has_code:
@@ -189,7 +184,39 @@ class IngestionJobService:
             await self.record_lock_svc.unlock(data_source_id, record_type=RecordType.DATA_SOURCE)
 
 
-    
+    def convert_chunk_and_store(
+            self,
+            data_source: DataSource, 
+            project_id: UUID,
+            job_pk: UUID
+        ):
+        """
+        Convert downloaded Documentation files to Docling files, chunk using Docling's HybridChunker,
+        convert to LlamaIndex TextNodes & store in relevant Chroma DB collection
+
+        Args:
+            data_source (DataSource): the data source corresponding to current ingestion job
+            project_id (Optional[UUID]): optional specified project to run ingestion job for 
+        """
+
+        logger.info(f"Converting, chunking, and storing downloaded Documentation via workerThreadId={threading.get_ident()}")
+
+        # convert docs to docling files 
+        converted_files = self._convert_docs_files_to_docling(job_pk)
+
+        # chunk ingested documentation based on configured project embedding model
+        project_chunks = self._chunk_docs(data_source, project_id, converted_files)
+        logger.debug('Successfully chunked ingested documentation for each project')
+
+        # convert docling project chunks to LlamaIndex TextNodes
+        nodes = self._convert_to_text_nodes(project_chunks)
+        logger.debug(f"Successfully convert DocChunks to LlamaIndex TextNode's")
+
+        # store results within Chroma DB, using embedding specified DataSource
+        self._save_to_chroma(nodes, "DOCS", data_source)
+
+        logger.info(f"Succesfully converted, chunked, and stored downloaded Documentation files")
+
 
     async def update_ingestion_job(
             self, 
@@ -268,7 +295,10 @@ class IngestionJobService:
                 logger.info(
                     f"Attempting to retrieve data from GitHub provider for URL: {data_source.url}"
                 )
-                await GithubDataProvider.run_ingestion(data_source=data_source, job_pk=job_pk)
+                #TODO: This logic needs to use same DB transaction as original call
+                # if not, we could successfully download files / store in relational DB, BUT fail during chunking/storing in Chroma DHB 
+                # if we re-run ingestion job, we will see files persisted and note these as "UNCHANGED" and skip processing (even though they require processing)
+                await GithubDataProvider.run_ingestion(data_source=data_source, job_pk=job_pk) 
             case _:
                 logger.error(
                     f"The specified Data Source provider is not configured for this application"
@@ -296,7 +326,6 @@ class IngestionJobService:
                 doc_chunk = data['doc_chunk']
                 context_chunk = data['contextualized_chunk']
 
-                # TODO: Change TextNode ID to contain File Content Hash (NOTE: This is because once content changed, these TextNodes should get removed & re-created)
                 project_nodes[project].append(
                     TextNode(
                         _id=f"{doc_chunk.meta.origin.filename}_{i}", 
@@ -354,7 +383,7 @@ class IngestionJobService:
 
         return code_path, docs_path
 
-    def _convert_docs_files_to_docling(self) -> Iterator[ConversionResult]:
+    def _convert_docs_files_to_docling(self, job_pk: UUID) -> Iterator[ConversionResult]:
         """
         Convert each temporary document downloaded to a markdown file
 
@@ -394,7 +423,7 @@ class IngestionJobService:
         )
 
         # retrieve list of files from tmp docs
-        tmp_docs = Path(settings.TMP_DOCS)
+        tmp_docs = Path(f"{settings.TMP_DOCS}/{job_pk}") 
         input_files = list(tmp_docs.glob("**/*"))
         filtered_doc_files = [
             f for f in input_files if f.is_file()
@@ -403,7 +432,7 @@ class IngestionJobService:
         # skip conversion if no new document files retrieved
         if not filtered_doc_files:
             logger.debug(
-                f"No new Documentation files downloaded; skipping markdown conversion"
+                f"No new Documentation files downloaded; skipping Docling conversion"
             )
             return
 
@@ -419,7 +448,7 @@ class IngestionJobService:
         return conv_results
 
 
-    async def _save_to_chroma(self, project_chunks: dict, source_type: str, data_source: DataSource): 
+    def _save_to_chroma(self, project_chunks: dict, source_type: str, data_source: DataSource): 
         """
         Save context-rich ingested documentation and code to our relevant Chroma collections based on Projects 
         this ingested job is being ran for 
@@ -432,7 +461,8 @@ class IngestionJobService:
         # create mapping of project name to Project model 
         project_mapping = {record.project.project_name: record.project for record in data_source.project_data} 
 
-        chroma_client = self.chroma_mnger.get_sync_client() # TODO: Get Aysnc Client 
+        # NOTE: Llama Index doesn't support workign with Async Client when creating ChromaVectorStore / VectorStoreIndex
+        chroma_client = self.chroma_mnger.get_sync_client() 
 
         for project, nodes in project_chunks.items():
 
