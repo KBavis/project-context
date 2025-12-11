@@ -151,8 +151,8 @@ class GithubDataProvider(DataProvider):
             )
             file_status = await self.file_service.process_file(file, self.data_source, self.job_pk)
 
-            # TODO: Account for additional statuses that main indicate we can skip
-            if file_status in {FileProcesingStatus.UNCHANGED, FileProcesingStatus.MOVED}:
+            # skip files already processed & unchanged 
+            if file_status == FileProcesingStatus.UNCHANGED:
                 return 
 
             # write file to temporary directory if needed
