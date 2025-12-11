@@ -10,8 +10,8 @@ if __name__ == "__main__":
         port=8000, 
         reload=True,
         reload_excludes=[
-            "tmp/*",
-            "tmp/**/*",  
+            "tmp/code/**/*",   
+            "tmp/docs/**/*",    
             "*.pyc",
             "__pycache__/*"
         ]
