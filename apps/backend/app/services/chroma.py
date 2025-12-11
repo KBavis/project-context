@@ -177,7 +177,7 @@ class ChromaService:
             return None
 
         if collection.count() == 0:
-            logger.debug(f"No Documents currently ingested for Project={project_name}")
+            logger.debug(f"No Documents currently ingested for Project={project_name} and SourceType={source_type}")
             return {"message": "No documents found"}
 
         docs = collection.get()
