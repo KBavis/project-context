@@ -41,6 +41,9 @@ class GithubDataProvider(DataProvider):
         # cleanup any files assocaited with DataSource not processed via current job
         await self.file_service.cleanup(self.data_source.id, self.job_pk)
 
+        # TODO: Along with cleaning up stale files from relational DB, we should also cleanup stale files from Chroma DB.
+        #           - This can be done by first querying for files not seen, and then removing textnodes associated from Chroma based on meta data 
+
     def _get_request_headers(self):
         """
         Get headers for current Data Provider
@@ -165,7 +168,7 @@ class GithubDataProvider(DataProvider):
                 f.write(buffer.getbuffer())
 
         except Exception as e:
-            logger.error(f"Failure downloading file={file_name} with exception={str(e)}")
+            logger.error(f"Failure downloading file={file_path} with exception={str(e)}")
             raise Exception(
                 f"Failure occurred while attempt to download file: {file_name}", e
             )
