@@ -1,13 +1,11 @@
 import logging
 
-from chromadb.api import ClientAPI
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.pydantic import ProjectRequest
-from app.models import Project, ModelConfigs
-from app.core import ChromaClientManager
+from app.services.chroma import ChromaService
+from app.models import Project
 from app.services.util import get_normalized_project_name
 
 from typing import TYPE_CHECKING
@@ -18,39 +16,57 @@ class ProjectService:
     def __init__(
         self,
         db: Session,
-        chroma_manager: ChromaClientManager
+        chroma_svc: ChromaService
     ):
         self.db = db
-        self.chroma_manager = chroma_manager
+        self.chroma_svc = chroma_svc
 
     def create_project(self, request: ProjectRequest) -> dict:
         """
         Functionality to persist new Project based on specified request
 
+        TODO: Validate dependent projects exist, lob is valid, etc
         """
+
+        # create Project record & flush to DB
         project = Project(
             project_name=request.name,
             epics=request.epics,
-            # TODO: Add logic to validate specified provider/model pairs
-            model_configs=ModelConfigs(
-                docs_embedding_provider=request.docs_embedding_provider,
-                docs_embedding_model=request.docs_embedding_model,
-                code_embedding_provider=request.code_embedding_provider,
-                code_embedding_model=request.code_embedding_model,
-            ),
+            meta_data=request.meta_data,
+            lob=request.lob,
+            dependent_projects=request.dependent_projects 
         )
 
-        # persist & flush new Projectrecord
         self.db.add(project)
         self.db.flush()
 
-        # create new ChromaDB collections for new project
-        self.create_new_collections(request.name)
+        # create records for ChromaCollections
+        docs_collection, code_collection = self.chroma_svc.create_collections(
+            project_id=project.id,
+            project_name=project.project_name,
+            docs_embedding_provider=request.docs_embedding_provider,
+            docs_embedding_model=request.docs_embedding_model,
+            code_embedding_provider=request.code_embedding_provider,
+            code_embedding_model=request.code_embedding_model
+        )
 
         return {
             "id": project.id,
             "name": project.project_name,
-            "model_configs_id": project.model_configs.id,
+            "collections": [
+                {
+                    "name": code_collection.name,
+                    "type": code_collection.content_type,
+                    "provider": code_collection.embedding_provider,
+                    "model": code_collection.embedding_model
+                },
+                {
+                    "name": docs_collection.name,
+                    "type": docs_collection.content_type,
+                    "provider": docs_collection.embedding_provider,
+                    "model": docs_collection.embedding_model
+                },
+            ],
         }
 
     def get_project_by_id(self, project_id) -> dict:
@@ -82,60 +98,3 @@ class ProjectService:
         return [
             {"id": project.id, "name": project.project_name} for project in projects
         ]
-
-
-    def create_new_collections(self, project_name: str) -> None:
-        """
-        Create a new ChromaDB collection corresponding to the new Project
-
-        TODO: Consider moving this functionality out of Project Service into its own ChromaDbService or soemthing
-        """
-
-        PROJECT = get_normalized_project_name(project_name)
-        chroma_client = (
-            self.chroma_manager.get_sync_client()
-        )  # TODO: Make this configurable for async vs sync
-
-        # verify docs collection do not exist
-        self._verify_project_collections_dne(
-            chroma_client, PROJECT, original_name=project_name
-        )
-
-        # create new CODE and DOCS collections for project
-        """
-        To account for two collections per project, a sophisitcated way of using RAG will need to be implemented. Either some sort of routing functionality
-        based on the posed question or a conveint way to query information from both collecitons if the the posed question corresponds to both.
-        """
-        chroma_client.create_collection(
-            name=f"{PROJECT}_CODE",
-        )
-        chroma_client.create_collection(name=f"{PROJECT}_DOCS")
-
-    def _verify_project_collections_dne(
-        self, chroma_client: ClientAPI, project_name: str, original_name: str
-    ) -> None:
-        """
-        Helper function for verifying relevant collections for specified project do not exist already
-
-        NOTE: ChromaDB will raise exception in the case the collction does not exist by name
-        """
-
-        project_dne = True
-
-        # attempt to retrieve docs chroma db collection
-        try:
-            chroma_client.get_collection(f"{project_name}_DOCS")
-            project_dne = False
-        except Exception as e:
-            pass
-
-        # attempt to retrieve code chromadb collection
-        try:
-            chroma_client.get_collection(f"{project_name}_CODE")
-            project_dne = False
-        except Exception as e:
-            pass
-
-        # error out if either one exists (as this indicates a project with this name is in use)
-        if project_dne == False:
-            raise Exception(f"Project with the name {original_name} already exists")
