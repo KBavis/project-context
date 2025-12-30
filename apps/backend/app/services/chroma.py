@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.services.util import get_normalized_project_name
 from app.core import ChromaClientManager
 from app.pydantic import DeleteCollectionDocsRequest
+from app.models import ChromaCollection
 
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,98 @@ class ChromaService:
         """
 
         return {"total": len(self.client.list_collections())}
+    
+
+    def create_collections(
+        self, 
+        project_id: UUID, 
+        project_name: str, 
+        docs_embedding_provider: str, 
+        docs_embedding_model: str, 
+        code_embedding_provider: str, 
+        code_embedding_model: str
+    ):
+        """
+        Create collections for a particular project
+
+        Args:
+            project_id (UUID): specific project id to create collections for 
+            project_name (str): project name 
+            docs_embedding_provider (str): embedding provider for documents 
+            docs_embedding_model (str): embedding model for documents 
+            code_embedding_provider (str): embedding provider for code 
+            code_embedding_model (str): embedding model for code 
+        """
+
+        PROJECT = get_normalized_project_name(project_name)
+
+        self._verify_project_collections_dne(PROJECT, original_name=project_name)
+
+        try:
+            # create collections in ChromaDB
+            self.client.create_collection(
+                name=f"{PROJECT}_CODE",
+            )
+            self.client.create_collection(
+                name=f"{PROJECT}_DOCS"
+            )
+
+            # create relational DB records 
+            docs_collection = ChromaCollection(
+                project_id=project_id,
+                name=f"{PROJECT}_DOCS",
+                embedding_provider=docs_embedding_provider,
+                embedding_model=docs_embedding_model,
+                content_type="DOCS"
+            )
+
+            code_collection = ChromaCollection(
+                project_id=project_id,
+                name=f"{PROJECT}_CODE",
+                embedding_provider=code_embedding_provider,
+                embedding_model=code_embedding_model,
+                content_type="CODE"
+            )
+
+            self.db.add(docs_collection)
+            self.db.add(code_collection)
+            self.db.flush()
+
+            return docs_collection, code_collection          
+
+        except Exception as e:
+            logger.error(f"Failure occurred while attempting to create ChromaDB Collections for Project={project_name}: {str(e)}")
+            raise e
+
+    
+    def _verify_project_collections_dne(
+        self, project_name: str, original_name: str
+    ) -> None:
+        """
+        Helper function for verifying relevant collections for specified project do not exist already
+
+        NOTE: ChromaDB will raise exception in the case the collction does not exist by name
+        """
+
+        project_dne = True
+
+        # attempt to retrieve docs chroma db collection
+        try:
+            self.client.get_collection(f"{project_name}_DOCS")
+            project_dne = False
+        except Exception as e:
+            pass
+
+        # attempt to retrieve code chromadb collection
+        try:
+            self.client.get_collection(f"{project_name}_CODE")
+            project_dne = False
+        except Exception as e:
+            pass
+
+        # error out if either one exists (as this indicates a project with this name is in use)
+        if project_dne == False:
+            raise Exception(f"Project with the name {original_name} already exists")
 
 
     def delete_collection(self, project_id: UUID, source_type: Optional[str] = "N/A"):
