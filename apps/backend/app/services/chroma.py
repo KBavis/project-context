@@ -3,7 +3,8 @@ from uuid import UUID
 
 from typing import Dict, Optional, List
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import select
 
 from app.services.util import get_normalized_project_name
 from app.core import ChromaClientManager
@@ -19,12 +20,25 @@ class ChromaService:
     def __init__(
             self, 
             db: Session, 
-            chroma_manager: ChromaClientManager, 
-            project_svc
+            chroma_manager: ChromaClientManager,
     ):
         self.db = db
-        self.project_svc = project_svc
         self.client = chroma_manager.get_sync_client()
+    
+
+    def get_collections_by_project(self, project_id) -> List["ChromaCollection"]:
+        """
+        Get all collections corresponding to a particular Project 
+
+        Args:
+            project_id (UUID): the project ID to fetch collections for 
+        """
+        stmt = (
+            select(ChromaCollection)
+            .options(selectinload(ChromaCollection.project))
+            .where(ChromaCollection.project_id == project_id)
+        )
+        return self.db.execute(stmt).scalars().all() 
 
 
     def get_total_number_of_collections(self) -> Dict:
@@ -136,11 +150,13 @@ class ChromaService:
             source_type (str): optional source type speciifc to get files for 
         """
 
-        # retrieve Project by ID or return message to user indicating not found
-        project = self.project_svc.get_project_by_id(project_id)
-        if "id" not in project: 
-            return project
-        
+        # fetch all ChromaCollections corresponding to ProjectID 
+        collections = self.get_collections_by_project(project_id)
+        if not collections:
+            logger.warning(f"No ChromaCollections found corresponding to ProjectId={project_id}")
+            return
+    
+        project = collections[0].project
         project_name = get_normalized_project_name(project_name=project["name"])
 
 
@@ -172,11 +188,13 @@ class ChromaService:
             document_ids (List): list of document ids to delete 
         """
 
-        # retrieve Project by ID or return message to user indicating not found
-        project = self.project_svc.get_project_by_id(project_id)
-        if "id" not in project: 
-            return project
-        
+        # fetch all ChromaCollections corresponding to ProjectID 
+        collections = self.get_collections_by_project(project_id)
+        if not collections:
+            logger.warning(f"No ChromaCollections found corresponding to ProjectId={project_id}")
+            return
+    
+        project = collections[0].project
         project_name = get_normalized_project_name(project_name=project["name"])
 
         match source_type:
@@ -203,11 +221,13 @@ class ChromaService:
             source_type (str): optional source type speciifc to get files for 
         """
         
-        # retrieve Project by ID or return message to user indicating not found
-        project = self.project_svc.get_project_by_id(project_id)
-        if "id" not in project: 
-            return project
-        
+        # fetch all ChromaCollections corresponding to ProjectID 
+        collections = self.get_collections_by_project(project_id)
+        if not collections:
+            logger.warning(f"No ChromaCollections found corresponding to ProjectId={project_id}")
+            return
+    
+        project = collections[0].project
         project_name = get_normalized_project_name(project_name=project["name"])
         
         match source_type:

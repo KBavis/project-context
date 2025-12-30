@@ -37,8 +37,7 @@ def get_chroma_manager() -> ChromaClientManager:
 
 def get_chroma_svc(
         db: Session = Depends(get_sync_db_session),
-        chroma_mnger: ChromaClientManager = Depends(get_chroma_manager),
-        svc: ProjectService = Depends(get_project_svc)
+        chroma_mnger: ChromaClientManager = Depends(get_chroma_manager)
     ):
     """
     Setup ChromaService dependency 
@@ -47,7 +46,10 @@ def get_chroma_svc(
         db (Session): current DB session
     """
     
-    return ChromaService(db=db, chroma_manager=chroma_mnger, project_svc=svc)
+    return ChromaService(
+        db=db, 
+        chroma_manager=chroma_mnger
+    )
 
 def get_project_svc(
         db: Session = Depends(get_sync_db_session),

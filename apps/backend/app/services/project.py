@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from app.pydantic import ProjectRequest
 from app.services.chroma import ChromaService
 from app.models import Project
-from app.services.util import get_normalized_project_name
 
 from typing import TYPE_CHECKING
 
