@@ -1,20 +1,23 @@
 from app.core import settings
-from app.models import ModelConfigs
+from app.models.collection import ChromaCollection
+
 from transformers import AutoTokenizer
+
 import logging
+from typing import Dict
 
 
 class EmbeddingManager:
 
-    def __init__(self, model_configs: ModelConfigs):
+    def __init__(self, chroma_collections: Dict[str, ChromaCollection]):
 
         # Coding Embedding Specific Values
-        self._code_provider = model_configs.code_embedding_provider
-        self._code_model = model_configs.code_embedding_model 
+        self._code_provider = chroma_collections["CODE"].embedding_provider 
+        self._code_model = chroma_collections["CODE"].embedding_model  
 
         # Docs Embedding Specific Values
-        self._docs_provider = model_configs.docs_embedding_provider
-        self._docs_model = model_configs.docs_embedding_model
+        self._docs_provider = chroma_collections["DOCS"].embedding_provider
+        self._docs_model = chroma_collections["DOCS"].embedding_model
 
     def get_embedding_model(self, source_type: str):
         """

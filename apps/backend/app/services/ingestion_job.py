@@ -53,13 +53,13 @@ class IngestionJobService:
             data_source_id (UUID): the data source this ingestion job corresponds to 
         """
         
-        # retrieve data source (EAGERLY load project_data, project, and model_configs for future processing)
+        # retrieve data source (EAGERLY load project_data, project, and chroma collections for future processing)
         stmt = (
             select(DataSource)
                 .options( 
                     selectinload(DataSource.project_data) 
                     .selectinload(ProjectData.project) 
-                    .selectinload(Project.model_configs)
+                    .selectinload(Project.chroma_collections)
                 ) 
                 .where(DataSource.id == data_source_id)
         )
@@ -508,7 +508,7 @@ class IngestionJobService:
             curr_project = project_mapping[project]
 
             # get embedding manager for project
-            embedding_manager = EmbeddingManager(curr_project.model_configs)
+            embedding_manager = EmbeddingManager(curr_project.collections_by_type)
 
             # retrieve Chroma DB collection 
             collection = chroma_client.get_collection(
@@ -650,7 +650,7 @@ class IngestionJobService:
         for project in projects:
             
             # get chunker based on configured embedding model for the current project
-            embedding_manager = EmbeddingManager(project.model_configs)
+            embedding_manager = EmbeddingManager(project.collections_by_type)
             chunker = HybridChunker(
                 tokenizer=embedding_manager.get_docs_tokenizer(), 
                 #TODO: Consider setting maximum length of tokens = 512 
