@@ -1,6 +1,6 @@
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Dict
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy import String
 from uuid import UUID
@@ -8,9 +8,9 @@ from sqlalchemy import text, ForeignKey, Table, Column
 
 if TYPE_CHECKING:
     from .project_data import ProjectData
-    from .model_configs import ModelConfigs
     from .conversation import Conversation
     from .file_collection import FileCollection
+    from .collection import ChromaCollection
 
 
 project_dependencies = Table(
@@ -43,12 +43,14 @@ class Project(Base):
 
     # TODO: Create association table for Team and Project
 
-    # one to one relationship with ModelConfigs
-    model_configs: Mapped["ModelConfigs"] = relationship(
-        "ModelConfigs",
-        back_populates="project", 
-        cascade="all, delete-orphan"
+    chroma_collections: Mapped[List["ChromaCollection"]] = relationship(
+        "ChromaCollection",
+        back_populates="project"
     )
+
+    @property
+    def collections_by_type(self) -> Dict[str, "ChromaCollection"]:
+        return {c.content_type: c for c in self.chroma_collections}
 
     # many to many relationship with DataSource
     project_data: Mapped[List["ProjectData"]] = relationship(
