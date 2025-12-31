@@ -187,7 +187,7 @@ class ChromaService:
             return
     
         project = collections[0].project
-        project_name = get_normalized_project_name(project_name=project["name"])
+        project_name = get_normalized_project_name(project_name=project.project_name)
 
 
         match source_type:
@@ -225,7 +225,7 @@ class ChromaService:
             return
     
         project = collections[0].project
-        project_name = get_normalized_project_name(project_name=project["name"])
+        project_name = get_normalized_project_name(project_name=project.project_name)
 
         match source_type:
             case "DOCS":
@@ -258,7 +258,7 @@ class ChromaService:
             return
     
         project = collections[0].project
-        project_name = get_normalized_project_name(project_name=project["name"])
+        project_name = get_normalized_project_name(project_name=project.project_name)
         
         match source_type:
             case "DOCS":
