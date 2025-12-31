@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from uuid import UUID, uuid4
-from typing import Tuple, Iterator, Dict, List
+from typing import Tuple, Iterator, Dict, List, TYPE_CHECKING
 import asyncio
 import threading
 
@@ -15,7 +15,7 @@ from app.data_providers import GithubDataProvider
 from app.core import settings, get_async_session_maker
 from app.embeddings import EmbeddingManager
 from app.services.util import get_normalized_project_name
-from app.core import ChromaClientManager
+
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
@@ -31,17 +31,21 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.schema import TextNode
 
+if TYPE_CHECKING:
+    from app.services.chroma import ChromaService 
+    from app.services.record_lock import RecordLockService
+
 logger = logging.getLogger(__name__)
 
 class IngestionJobService:
     def __init__(
             self, 
             db: Session | AsyncSession, 
-            chroma_client_manager: ChromaClientManager,
-            record_lock_svc
+            chroma_svc: ChromaService,
+            record_lock_svc: RecordLockService
     ):
         self.db = db
-        self.chroma_mnger = chroma_client_manager
+        self.chroma_svc = chroma_svc
         self.record_lock_svc = record_lock_svc
 
     
@@ -499,9 +503,6 @@ class IngestionJobService:
         # create mapping of project name to Project model 
         project_mapping = {record.project.project_name: record.project for record in data_source.project_data} 
 
-        # NOTE: Llama Index doesn't support workign with Async Client when creating ChromaVectorStore / VectorStoreIndex
-        chroma_client = self.chroma_mnger.get_sync_client() 
-
         for project, nodes in project_chunks.items():
 
             # get Project model 
@@ -511,7 +512,7 @@ class IngestionJobService:
             embedding_manager = EmbeddingManager(curr_project.collections_by_type)
 
             # retrieve Chroma DB collection 
-            collection = chroma_client.get_collection(
+            collection = self.chroma_svc.get_real_chroma_collection(
                 f"{get_normalized_project_name(project)}_{source_type}"
             )
 

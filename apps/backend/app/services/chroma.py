@@ -23,8 +23,22 @@ class ChromaService:
             chroma_manager: ChromaClientManager,
     ):
         self.db = db
-        self.client = chroma_manager.get_sync_client()
+        self.client = chroma_manager.get_sync_client() # NOTE: LlamaIndex doesn't support working with Async Client when creating VectorStore/Index
+
     
+    def get_real_chroma_collection(self, collection_name): 
+        """
+        Functionality to retreive the "real" ChromaCollection by its name (i.e not our relational DB record)
+
+        Args:
+            collection_name (str): the name of the collection
+        """    
+        try:
+            return self.client.get_collection(collection_name)
+        except Exception as e: 
+            logger.error(f"Failure occurred while attempting to retrieve real Chroma DB collection acocrding to name={collection_name}", exc_info=True)
+            raise e
+
 
     def get_collections_by_project(self, project_id) -> List["ChromaCollection"]:
         """
