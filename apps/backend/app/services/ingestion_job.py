@@ -339,7 +339,7 @@ class IngestionJobService:
                 #TODO: This logic needs to use same DB transaction as original call
                 # if not, we could successfully download files / store in relational DB, BUT fail during chunking/storing in Chroma DHB 
                 # if we re-run ingestion job, we will see files persisted and note these as "UNCHANGED" and skip processing (even though they require processing)
-                await GithubDataProvider.run_ingestion(data_source=data_source, job_pk=job_pk) 
+                await GithubDataProvider.run_ingestion(data_source=data_source, job_pk=job_pk, chroma_svc=self.chroma_svc) 
             case _:
                 logger.error(
                     f"The specified Data Source provider is not configured for this application"

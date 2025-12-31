@@ -106,7 +106,7 @@ def get_async_file_svc(
         db (AsyncSession): async DB session
     """
 
-    return FileService(db=db)
+    return FileService(db=db, chroma_svc=get_chroma_svc)
 
 def get_async_record_lock_svc():
     """

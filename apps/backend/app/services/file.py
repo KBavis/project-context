@@ -4,6 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import File, DataSource, FileCollection
 from app.pydantic import FileProcesingStatus, File as FilePydantic
+from app.core import settings
+from app.services.chroma import ChromaService
 
 from typing import List
 from uuid import UUID
@@ -18,8 +20,9 @@ logger = logging.getLogger(__name__)
 
 class FileService:
 
-    def __init__(self, db_session: AsyncSession):
+    def __init__(self, db_session: AsyncSession, chroma_svc: ChromaService):
         self.session = db_session
+        self.chroma_svc = chroma_svc
 
 
     async def process_file(self, file: FilePydantic, data_source: DataSource, job_pk: UUID) -> FileProcesingStatus:
@@ -340,15 +343,23 @@ class FileService:
         session.add(new_file)
         await session.flush()
 
-        # create FileCollections records 
+
+        # get all relevant project IDs corresponding to data source
         data_source_project_ids = [source.project_id for source in data_source.project_data]
 
+        # determine what type of content this is 
+        content_type = "DOCS" if file.file_type in settings.DOCS_FILE_EXTENSIONS else "CODE"
+
+        # get all ChromaCollections corresponding to file type for each relevant project 
+        chroma_collections = [self.chroma_svc.get_collection_by_project_and_type(project_id, content_type) for project_id in data_source_project_ids]
+
+        # create FileCollections records 
         collections = [
             FileCollection(
                 file_id=new_file.id, 
-                project_id=project_id
+                chroma_collection_id=chroma_collection.id
             )
-            for project_id in data_source_project_ids
+            for chroma_collection in chroma_collections
         ]
 
         session.add_all(collections)
