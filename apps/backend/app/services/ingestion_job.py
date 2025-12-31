@@ -15,6 +15,8 @@ from app.data_providers import GithubDataProvider
 from app.core import settings, get_async_session_maker
 from app.embeddings import EmbeddingManager
 from app.services.util import get_normalized_project_name
+from app.services.chroma import ChromaService 
+from app.services.record_lock import RecordLockService
 
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
@@ -31,9 +33,6 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.schema import TextNode
 
-if TYPE_CHECKING:
-    from app.services.chroma import ChromaService 
-    from app.services.record_lock import RecordLockService
 
 logger = logging.getLogger(__name__)
 
@@ -528,6 +527,8 @@ class IngestionJobService:
                 storage_context=storage_context,
                 embed_model=embedding_manager.get_embedding_model(source_type) # use configured embedding model for current Project
             )
+
+            # TODO: Update Chroma DB Collection with new total number of documents in Relational DB 
 
 
     def _cleanup_tmp_dirs(self, job_pk: UUID):
