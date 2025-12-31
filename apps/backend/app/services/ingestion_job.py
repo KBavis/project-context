@@ -143,16 +143,16 @@ class IngestionJobService:
 
 
             # code files were ingested 
-            # if has_code:
-            #     # TODO: Handle chunking and saving of Code files to Chroma DB 
-            #     logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
+            if has_code:
+                # TODO: Handle chunking and saving of Code files to Chroma DB 
+                logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
 
-            #     await asyncio.to_thread(
-            #         self.code_chunk_and_store, 
-            #         data_source, 
-            #         project_id,
-            #         job_pk
-            #     )
+                await asyncio.to_thread(
+                    self.code_chunk_and_store, 
+                    data_source, 
+                    project_id,
+                    job_pk
+                )
 
 
             self._cleanup_tmp_dirs(job_pk)
