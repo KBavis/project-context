@@ -7,8 +7,6 @@ from app.pydantic import ProjectRequest
 from app.services.chroma import ChromaService
 from app.models import Project
 
-from typing import TYPE_CHECKING
-
 logger = logging.getLogger(__name__)
 
 class ProjectService:
@@ -54,12 +52,14 @@ class ProjectService:
             "name": project.project_name,
             "collections": [
                 {
+                    "id": code_collection.id,
                     "name": code_collection.name,
                     "type": code_collection.content_type,
                     "provider": code_collection.embedding_provider,
                     "model": code_collection.embedding_model
                 },
                 {
+                    "id": docs_collection.id,
                     "name": docs_collection.name,
                     "type": docs_collection.content_type,
                     "provider": docs_collection.embedding_provider,
