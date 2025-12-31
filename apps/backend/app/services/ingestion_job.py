@@ -495,6 +495,8 @@ class IngestionJobService:
         Save context-rich ingested documentation and code to our relevant Chroma collections based on Projects 
         this ingested job is being ran for 
 
+        TODO: Consider moving this to Chroma Service 
+
         Args:
             project_chunks (dict): relevant chunked docs/code 
             source_type (str): the content type of the files being saved 
