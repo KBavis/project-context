@@ -238,8 +238,10 @@ class FileService:
 
         stmt = (
             select(File)
-            .options(selectinload(File.file_collections)) # eagely load file collections 
-            .options(selectinload(FileCollection.chroma_collection))
+            .options(
+                selectinload(File.file_collections)
+                .selectinload(FileCollection.chroma_collection)
+            )
             .where(File.hash == hash, File.data_source_id == data_source_id)
         )
 
@@ -261,8 +263,10 @@ class FileService:
 
         stmt = (
             select(File)
-            .options(selectinload(File.file_collections)) # eagely load file collections 
-            .options(selectinload(FileCollection.chroma_collection))
+            .options(
+                selectinload(File.file_collections)
+                .selectinload(FileCollection.chroma_collection)
+            )
             .where(File.path == path, File.data_source_id == data_source_id)
         )
 

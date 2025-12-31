@@ -41,7 +41,7 @@ class ChromaCollection(Base):
 
     doc_count: Mapped[int] = mapped_column(
         nullable=False,
-        server_default=0,
+        server_default=text("0"),
         comment="Number of Documents ingested into this collection"
     )
 
@@ -51,7 +51,7 @@ class ChromaCollection(Base):
         comment="FK to Project that this collection belongs to"
     )
 
-    # one to one relationship with Project
+    # many to one relationship with Project
     project: Mapped["Project"] = relationship(
         "Project",
         back_populates="chroma_collections"
@@ -61,6 +61,6 @@ class ChromaCollection(Base):
     # one to many relationship with FileCollection
     file_collections: Mapped[List["FileCollection"]] = relationship(
         "FileCollection",
-        back_populates="project", 
+        back_populates="chroma_collection", 
         cascade="all, delete-orphan"
     )
