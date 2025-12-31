@@ -40,7 +40,7 @@ class ChromaService:
             raise e
 
 
-    def get_collections_by_project(self, project_id) -> List["ChromaCollection"]:
+    def get_collections_by_project(self, project_id: UUID) -> List["ChromaCollection"]:
         """
         Get all collections corresponding to a particular Project 
 
@@ -53,6 +53,22 @@ class ChromaService:
             .where(ChromaCollection.project_id == project_id)
         )
         return self.db.execute(stmt).scalars().all() 
+
+
+    def get_collection_by_project_and_type(self, project_id: UUID, content_type: str) -> ChromaCollection:
+        """
+        Get ChromaCollection by Project and Content Type
+
+        Args:
+            project_id (UUID): the project ID to fetch collections for 
+            content_type (str): the type of content
+        """
+        stmt = (
+            select(ChromaCollection)
+            .options(selectinload(ChromaCollection.project))
+            .where(ChromaCollection.project_id == project_id, ChromaCollection.content_type == content_type)
+        )
+        return self.db.execute(stmt).scalars().one()
 
 
     def get_total_number_of_collections(self) -> Dict:
