@@ -160,7 +160,7 @@ class FileService:
         """
 
         # get all project IDs this file is currently associated with 
-        associated_project_ids = [collection.project_id for collection in file.file_collections]
+        associated_project_ids = [collection.chroma_collection.project_id for collection in file.file_collections]
 
         # get list of project_ids assocaited with data source, but not file 
         not_linked_project_ids = [
@@ -239,6 +239,7 @@ class FileService:
         stmt = (
             select(File)
             .options(selectinload(File.file_collections)) # eagely load file collections 
+            .options(selectinload(FileCollection.chroma_collection))
             .where(File.hash == hash, File.data_source_id == data_source_id)
         )
 
@@ -261,6 +262,7 @@ class FileService:
         stmt = (
             select(File)
             .options(selectinload(File.file_collections)) # eagely load file collections 
+            .options(selectinload(FileCollection.chroma_collection))
             .where(File.path == path, File.data_source_id == data_source_id)
         )
 
