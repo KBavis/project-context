@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from uuid import UUID, uuid4
-from typing import Tuple, Iterator, Dict, List
+from typing import Tuple, Iterator, Dict, List, TYPE_CHECKING
 import asyncio
 import threading
 
@@ -15,7 +15,9 @@ from app.data_providers import GithubDataProvider
 from app.core import settings, get_async_session_maker
 from app.embeddings import EmbeddingManager
 from app.services.util import get_normalized_project_name
-from app.core import ChromaClientManager
+from app.services.chroma import ChromaService 
+from app.services.record_lock import RecordLockService
+
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
@@ -31,17 +33,18 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.schema import TextNode
 
+
 logger = logging.getLogger(__name__)
 
 class IngestionJobService:
     def __init__(
             self, 
             db: Session | AsyncSession, 
-            chroma_client_manager: ChromaClientManager,
-            record_lock_svc
+            chroma_svc: ChromaService,
+            record_lock_svc: RecordLockService
     ):
         self.db = db
-        self.chroma_mnger = chroma_client_manager
+        self.chroma_svc = chroma_svc
         self.record_lock_svc = record_lock_svc
 
     
@@ -53,13 +56,13 @@ class IngestionJobService:
             data_source_id (UUID): the data source this ingestion job corresponds to 
         """
         
-        # retrieve data source (EAGERLY load project_data, project, and model_configs for future processing)
+        # retrieve data source (EAGERLY load project_data, project, and chroma collections for future processing)
         stmt = (
             select(DataSource)
                 .options( 
                     selectinload(DataSource.project_data) 
                     .selectinload(ProjectData.project) 
-                    .selectinload(Project.model_configs)
+                    .selectinload(Project.chroma_collections)
                 ) 
                 .where(DataSource.id == data_source_id)
         )
@@ -336,7 +339,7 @@ class IngestionJobService:
                 #TODO: This logic needs to use same DB transaction as original call
                 # if not, we could successfully download files / store in relational DB, BUT fail during chunking/storing in Chroma DHB 
                 # if we re-run ingestion job, we will see files persisted and note these as "UNCHANGED" and skip processing (even though they require processing)
-                await GithubDataProvider.run_ingestion(data_source=data_source, job_pk=job_pk) 
+                await GithubDataProvider.run_ingestion(data_source=data_source, job_pk=job_pk, chroma_svc=self.chroma_svc) 
             case _:
                 logger.error(
                     f"The specified Data Source provider is not configured for this application"
@@ -491,6 +494,8 @@ class IngestionJobService:
         Save context-rich ingested documentation and code to our relevant Chroma collections based on Projects 
         this ingested job is being ran for 
 
+        TODO: Consider moving this to Chroma Service 
+
         Args:
             project_chunks (dict): relevant chunked docs/code 
             source_type (str): the content type of the files being saved 
@@ -499,19 +504,16 @@ class IngestionJobService:
         # create mapping of project name to Project model 
         project_mapping = {record.project.project_name: record.project for record in data_source.project_data} 
 
-        # NOTE: Llama Index doesn't support workign with Async Client when creating ChromaVectorStore / VectorStoreIndex
-        chroma_client = self.chroma_mnger.get_sync_client() 
-
         for project, nodes in project_chunks.items():
 
             # get Project model 
             curr_project = project_mapping[project]
 
             # get embedding manager for project
-            embedding_manager = EmbeddingManager(curr_project.model_configs)
+            embedding_manager = EmbeddingManager(curr_project.collections_by_type)
 
             # retrieve Chroma DB collection 
-            collection = chroma_client.get_collection(
+            collection = self.chroma_svc.get_real_chroma_collection(
                 f"{get_normalized_project_name(project)}_{source_type}"
             )
 
@@ -525,6 +527,8 @@ class IngestionJobService:
                 storage_context=storage_context,
                 embed_model=embedding_manager.get_embedding_model(source_type) # use configured embedding model for current Project
             )
+
+            # TODO: Update ChromaDB Collection with Document Count OR Remove Doc Count entirely from DB 
 
 
     def _cleanup_tmp_dirs(self, job_pk: UUID):
@@ -650,7 +654,7 @@ class IngestionJobService:
         for project in projects:
             
             # get chunker based on configured embedding model for the current project
-            embedding_manager = EmbeddingManager(project.model_configs)
+            embedding_manager = EmbeddingManager(project.collections_by_type)
             chunker = HybridChunker(
                 tokenizer=embedding_manager.get_docs_tokenizer(), 
                 #TODO: Consider setting maximum length of tokens = 512 

@@ -1,20 +1,18 @@
 from .base import Base
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import text, ForeignKey, String, Index
-
-from uuid import UUID
+from sqlalchemy import ForeignKey, Index
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .file import File
-    from .project import Project
+    from .collection import ChromaCollection
 
 class FileCollection(Base):
     """
-    Association table for a particular File and which Projects currently 
-    have it chunked & stored within their relevant collections
+    Association table for a particular File and the corresponding 
+    ChromaCollections that its associated to 
 
     NOTE: This allows for easy checking of whether or not a particular file has been 
     chunked and stored for a given Chroma collection
@@ -25,15 +23,15 @@ class FileCollection(Base):
     # ensure data_source is leading column in index, to mitigate blocking of IngestionJobs
     __table_args__ = (
         Index("ix_file_collection_file_id", "file_id"),
-        Index("ix_file_collection_project_id", "project_id"),
+        Index("ix_file_collection_chroma_collection_id", "chroma_collection_id"),
     )
 
     file_id = mapped_column(
         ForeignKey("file.id", ondelete="CASCADE"),
         primary_key=True
     )
-    project_id = mapped_column(
-        ForeignKey("project.id"),
+    chroma_collection_id = mapped_column(
+        ForeignKey("chroma_collection.id"),
         primary_key=True
     )
 
@@ -41,8 +39,8 @@ class FileCollection(Base):
         "File",
         back_populates="file_collections"
     )
-    project: Mapped["Project"] = relationship(
-        "Project",
+    chroma_collection: Mapped["ChromaCollection"] = relationship(
+        "ChromaCollection",
         back_populates="file_collections"
     )
 

@@ -13,6 +13,10 @@ class ProjectRequest(BaseModel):
     code_embedding_model: Optional[str] = settings.CODE_EMBEDDING_MODEL
     docs_embedding_provider: Optional[str] = settings.DOCS_EMBEDDING_PROVIDER
     docs_embedding_model: Optional[str] = settings.DOCS_EMBEDDING_MODEL
+    
+    lob: Optional[str] = "N/A"
+    meta_data: Optional[List[str]] = []
+    dependent_projects: Optional[List[UUID]] = []
 
     teams: Optional[List[UUID]] = (
         []

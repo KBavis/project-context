@@ -7,6 +7,7 @@ from io import BytesIO
 from .base import DataProvider
 from app.core import settings
 from app.pydantic import File, FileProcesingStatus
+from app.services.chroma import ChromaService
 
 
 logger = logging.getLogger(__name__)
@@ -14,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 class GithubDataProvider(DataProvider):
 
-    def __init__(self, data_source, job_pk, db_session: AsyncSession, url: str = "", branch: str = "main"):
-        super().__init__(data_source, job_pk, url, db_session=db_session)
+    def __init__(self, data_source, job_pk, db_session: AsyncSession, chroma_svc: ChromaService, url: str = "", branch: str = "main"):
+        super().__init__(data_source, job_pk, chroma_svc, url, db_session=db_session)
         self._validate_url()
 
         # deconstruct URL 
