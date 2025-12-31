@@ -9,7 +9,6 @@ from sqlalchemy import text, ForeignKey, Table, Column
 if TYPE_CHECKING:
     from .project_data import ProjectData
     from .conversation import Conversation
-    from .file_collection import FileCollection
     from .collection import ChromaCollection
 
 
@@ -62,13 +61,6 @@ class Project(Base):
     # one to many relationship with Conversation 
     conversations: Mapped[List["Conversation"]] = relationship(
         "Conversation",
-        back_populates="project", 
-        cascade="all, delete-orphan"
-    )
-
-    # one to many relationship with FileCollection
-    file_collections: Mapped[List["FileCollection"]] = relationship(
-        "FileCollection",
         back_populates="project", 
         cascade="all, delete-orphan"
     )

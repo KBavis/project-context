@@ -1,11 +1,12 @@
 from .base import Base
 from sqlalchemy import text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 from uuid import UUID
 
 if TYPE_CHECKING:
     from .project import Project
+    from .file_collection import FileCollection
 
 class ChromaCollection(Base):
 
@@ -50,7 +51,16 @@ class ChromaCollection(Base):
         comment="FK to Project that this collection belongs to"
     )
 
+    # one to one relationship with Project
     project: Mapped["Project"] = relationship(
         "Project",
         back_populates="chroma_collections"
+    )
+
+
+    # one to many relationship with FileCollection
+    file_collections: Mapped[List["FileCollection"]] = relationship(
+        "FileCollection",
+        back_populates="project", 
+        cascade="all, delete-orphan"
     )
