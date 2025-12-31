@@ -143,16 +143,16 @@ class IngestionJobService:
 
 
             # code files were ingested 
-            if has_code:
-                # TODO: Handle chunking and saving of Code files to Chroma DB 
-                logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
+            # if has_code:
+            #     # TODO: Handle chunking and saving of Code files to Chroma DB 
+            #     logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
 
-                await asyncio.to_thread(
-                    self.code_chunk_and_store, 
-                    data_source, 
-                    project_id,
-                    job_pk
-                )
+            #     await asyncio.to_thread(
+            #         self.code_chunk_and_store, 
+            #         data_source, 
+            #         project_id,
+            #         job_pk
+            #     )
 
 
             self._cleanup_tmp_dirs(job_pk)
@@ -528,7 +528,7 @@ class IngestionJobService:
                 embed_model=embedding_manager.get_embedding_model(source_type) # use configured embedding model for current Project
             )
 
-            # TODO: Update Chroma DB Collection with new total number of documents in Relational DB 
+            # TODO: Update ChromaDB Collection with Document Count OR Remove Doc Count entirely from DB 
 
 
     def _cleanup_tmp_dirs(self, job_pk: UUID):
