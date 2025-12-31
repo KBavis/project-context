@@ -1,16 +1,23 @@
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Dict
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy import String
 from uuid import UUID
-from sqlalchemy import text, ForeignKey
+from sqlalchemy import text, ForeignKey, Table, Column
 
 if TYPE_CHECKING:
     from .project_data import ProjectData
-    from .model_configs import ModelConfigs
     from .conversation import Conversation
-    from .file_collection import FileCollection
+    from .collection import ChromaCollection
+
+
+project_dependencies = Table(
+    "project_dependencies",
+    Base.metadata,
+    Column("dependency_id", ForeignKey("project.id"), primary_key=True),
+    Column("dependent_id", ForeignKey("project.id"), primary_key=True),
+)
 
 
 class Project(Base):
@@ -22,14 +29,27 @@ class Project(Base):
     project_name: Mapped[str] = mapped_column(nullable=False)
     epics: Mapped[List[str]] = mapped_column(ARRAY(String))
 
+    dependent_projects: Mapped[List["Project"]] = relationship(
+        "Project",
+        secondary=project_dependencies, # tell SQLAchemy that relationship is in project_dependencies table
+        primaryjoin="Project.id == project_dependencies.c.dependency_id", # find the 'source' project (i.e self)
+        secondaryjoin="Project.id == project_dependencies.c.dependent_id", # find the 'destination' project (i.e dependent project)
+        backref="dependencies",
+    )
+
+    lob: Mapped[str] = mapped_column(nullable=False, comment="Line of Business")
+    meta_data: Mapped[List[str]] = mapped_column(ARRAY(String))
+
     # TODO: Create association table for Team and Project
 
-    # one to one relationship with ModelConfigs
-    model_configs: Mapped["ModelConfigs"] = relationship(
-        "ModelConfigs",
-        back_populates="project", 
-        cascade="all, delete-orphan"
+    chroma_collections: Mapped[List["ChromaCollection"]] = relationship(
+        "ChromaCollection",
+        back_populates="project"
     )
+
+    @property
+    def collections_by_type(self) -> Dict[str, "ChromaCollection"]:
+        return {c.content_type: c for c in self.chroma_collections}
 
     # many to many relationship with DataSource
     project_data: Mapped[List["ProjectData"]] = relationship(
@@ -41,13 +61,6 @@ class Project(Base):
     # one to many relationship with Conversation 
     conversations: Mapped[List["Conversation"]] = relationship(
         "Conversation",
-        back_populates="project", 
-        cascade="all, delete-orphan"
-    )
-
-    # one to many relationship with FileCollection
-    file_collections: Mapped[List["FileCollection"]] = relationship(
-        "FileCollection",
         back_populates="project", 
         cascade="all, delete-orphan"
     )

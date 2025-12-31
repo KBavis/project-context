@@ -35,25 +35,9 @@ def get_chroma_manager() -> ChromaClientManager:
 # Sync Service Dependencies 
 ###########################
 
-
-def get_project_svc(
-        db: Session = Depends(get_sync_db_session),
-        chroma_mnger: ChromaClientManager = Depends(get_chroma_manager)
-):
-    """
-    Setup ProjectService dependency
-
-    Args:
-        db (Session): current DB session
-    """
-
-    return ProjectService(db=db, chroma_manager=chroma_mnger)
-
-
 def get_chroma_svc(
         db: Session = Depends(get_sync_db_session),
-        chroma_mnger: ChromaClientManager = Depends(get_chroma_manager),
-        svc: ProjectService = Depends(get_project_svc)
+        chroma_mnger: ChromaClientManager = Depends(get_chroma_manager)
     ):
     """
     Setup ChromaService dependency 
@@ -62,7 +46,24 @@ def get_chroma_svc(
         db (Session): current DB session
     """
     
-    return ChromaService(db=db, chroma_manager=chroma_mnger, project_svc=svc)
+    return ChromaService(
+        db=db, 
+        chroma_manager=chroma_mnger
+    )
+
+def get_project_svc(
+        db: Session = Depends(get_sync_db_session),
+        chroma_svc: ChromaService= Depends(get_chroma_svc)
+):
+    """
+    Setup ProjectService dependency
+
+    Args:
+        db (Session): current DB session
+    """
+
+    return ProjectService(db=db, chroma_svc=chroma_svc)
+
 
 
 def get_data_source_svc(
@@ -90,20 +91,6 @@ def get_conversation_svc(
     return ConversationService(db=db)
 
 
-def get_project_svc(
-        db: Session = Depends(get_sync_db_session),
-        chroma_mnger: ChromaClientManager = Depends(get_chroma_manager)
-):
-    """
-    Setup ProjectService dependency
-
-    Args:
-        db (Session): current DB session
-    """
-
-    return ProjectService(db=db, chroma_manager=chroma_mnger)
-
-
 
 ##########################
 # Async Service Dependencies 
@@ -119,7 +106,7 @@ def get_async_file_svc(
         db (AsyncSession): async DB session
     """
 
-    return FileService(db=db)
+    return FileService(db=db, chroma_svc=get_chroma_svc)
 
 def get_async_record_lock_svc():
     """
@@ -134,7 +121,7 @@ def get_async_record_lock_svc():
 
 def get_async_ingestion_job_svc(
         db: AsyncSession = Depends(get_async_db_session),
-        chroma_mnger: ChromaClientManager = Depends(get_chroma_manager),
+        chroma_svc: ChromaService = Depends(get_chroma_svc),
         record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc)
 ):
     """
@@ -147,6 +134,6 @@ def get_async_ingestion_job_svc(
     """
     return IngestionJobService(
         db=db, 
-        chroma_client_manager=chroma_mnger,
+        chroma_svc=chroma_svc,
         record_lock_svc=record_lock_svc
     )

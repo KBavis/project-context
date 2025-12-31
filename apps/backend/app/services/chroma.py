@@ -3,11 +3,13 @@ from uuid import UUID
 
 from typing import Dict, Optional, List
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import select
 
 from app.services.util import get_normalized_project_name
 from app.core import ChromaClientManager
 from app.pydantic import DeleteCollectionDocsRequest
+from app.models import ChromaCollection
 
 
 logger = logging.getLogger(__name__)
@@ -18,12 +20,55 @@ class ChromaService:
     def __init__(
             self, 
             db: Session, 
-            chroma_manager: ChromaClientManager, 
-            project_svc
+            chroma_manager: ChromaClientManager,
     ):
         self.db = db
-        self.project_svc = project_svc
-        self.client = chroma_manager.get_sync_client()
+        self.client = chroma_manager.get_sync_client() # NOTE: LlamaIndex doesn't support working with Async Client when creating VectorStore/Index
+
+    
+    def get_real_chroma_collection(self, collection_name): 
+        """
+        Functionality to retreive the "real" ChromaCollection by its name (i.e not our relational DB record)
+
+        Args:
+            collection_name (str): the name of the collection
+        """    
+        try:
+            return self.client.get_collection(collection_name)
+        except Exception as e: 
+            logger.error(f"Failure occurred while attempting to retrieve real Chroma DB collection acocrding to name={collection_name}", exc_info=True)
+            raise e
+
+
+    def get_collections_by_project(self, project_id: UUID) -> List["ChromaCollection"]:
+        """
+        Get all collections corresponding to a particular Project 
+
+        Args:
+            project_id (UUID): the project ID to fetch collections for 
+        """
+        stmt = (
+            select(ChromaCollection)
+            .options(selectinload(ChromaCollection.project))
+            .where(ChromaCollection.project_id == project_id)
+        )
+        return self.db.execute(stmt).scalars().all() 
+
+
+    def get_collection_by_project_and_type(self, project_id: UUID, content_type: str) -> ChromaCollection:
+        """
+        Get ChromaCollection by Project and Content Type
+
+        Args:
+            project_id (UUID): the project ID to fetch collections for 
+            content_type (str): the type of content
+        """
+        stmt = (
+            select(ChromaCollection)
+            .options(selectinload(ChromaCollection.project))
+            .where(ChromaCollection.project_id == project_id, ChromaCollection.content_type == content_type)
+        )
+        return self.db.execute(stmt).scalars().one()
 
 
     def get_total_number_of_collections(self) -> Dict:
@@ -32,6 +77,98 @@ class ChromaService:
         """
 
         return {"total": len(self.client.list_collections())}
+    
+
+    def create_collections(
+        self, 
+        project_id: UUID, 
+        project_name: str, 
+        docs_embedding_provider: str, 
+        docs_embedding_model: str, 
+        code_embedding_provider: str, 
+        code_embedding_model: str
+    ):
+        """
+        Create collections for a particular project
+
+        Args:
+            project_id (UUID): specific project id to create collections for 
+            project_name (str): project name 
+            docs_embedding_provider (str): embedding provider for documents 
+            docs_embedding_model (str): embedding model for documents 
+            code_embedding_provider (str): embedding provider for code 
+            code_embedding_model (str): embedding model for code 
+        """
+
+        PROJECT = get_normalized_project_name(project_name)
+
+        self._verify_project_collections_dne(PROJECT, original_name=project_name)
+
+        try:
+            # create collections in ChromaDB
+            self.client.create_collection(
+                name=f"{PROJECT}_CODE",
+            )
+            self.client.create_collection(
+                name=f"{PROJECT}_DOCS"
+            )
+
+            # create relational DB records 
+            docs_collection = ChromaCollection(
+                project_id=project_id,
+                name=f"{PROJECT}_DOCS",
+                embedding_provider=docs_embedding_provider,
+                embedding_model=docs_embedding_model,
+                content_type="DOCS"
+            )
+
+            code_collection = ChromaCollection(
+                project_id=project_id,
+                name=f"{PROJECT}_CODE",
+                embedding_provider=code_embedding_provider,
+                embedding_model=code_embedding_model,
+                content_type="CODE"
+            )
+
+            self.db.add(docs_collection)
+            self.db.add(code_collection)
+            self.db.flush()
+
+            return docs_collection, code_collection          
+
+        except Exception as e:
+            logger.error(f"Failure occurred while attempting to create ChromaDB Collections for Project={project_name}: {str(e)}")
+            raise e
+
+    
+    def _verify_project_collections_dne(
+        self, project_name: str, original_name: str
+    ) -> None:
+        """
+        Helper function for verifying relevant collections for specified project do not exist already
+
+        NOTE: ChromaDB will raise exception in the case the collction does not exist by name
+        """
+
+        project_dne = True
+
+        # attempt to retrieve docs chroma db collection
+        try:
+            self.client.get_collection(f"{project_name}_DOCS")
+            project_dne = False
+        except Exception as e:
+            pass
+
+        # attempt to retrieve code chromadb collection
+        try:
+            self.client.get_collection(f"{project_name}_CODE")
+            project_dne = False
+        except Exception as e:
+            pass
+
+        # error out if either one exists (as this indicates a project with this name is in use)
+        if project_dne == False:
+            raise Exception(f"Project with the name {original_name} already exists")
 
 
     def delete_collection(self, project_id: UUID, source_type: Optional[str] = "N/A"):
@@ -43,12 +180,14 @@ class ChromaService:
             source_type (str): optional source type speciifc to get files for 
         """
 
-        # retrieve Project by ID or return message to user indicating not found
-        project = self.project_svc.get_project_by_id(project_id)
-        if "id" not in project: 
-            return project
-        
-        project_name = get_normalized_project_name(project_name=project["name"])
+        # fetch all ChromaCollections corresponding to ProjectID 
+        collections = self.get_collections_by_project(project_id)
+        if not collections:
+            logger.warning(f"No ChromaCollections found corresponding to ProjectId={project_id}")
+            return
+    
+        project = collections[0].project
+        project_name = get_normalized_project_name(project_name=project.project_name)
 
 
         match source_type:
@@ -79,12 +218,14 @@ class ChromaService:
             document_ids (List): list of document ids to delete 
         """
 
-        # retrieve Project by ID or return message to user indicating not found
-        project = self.project_svc.get_project_by_id(project_id)
-        if "id" not in project: 
-            return project
-        
-        project_name = get_normalized_project_name(project_name=project["name"])
+        # fetch all ChromaCollections corresponding to ProjectID 
+        collections = self.get_collections_by_project(project_id)
+        if not collections:
+            logger.warning(f"No ChromaCollections found corresponding to ProjectId={project_id}")
+            return
+    
+        project = collections[0].project
+        project_name = get_normalized_project_name(project_name=project.project_name)
 
         match source_type:
             case "DOCS":
@@ -110,12 +251,14 @@ class ChromaService:
             source_type (str): optional source type speciifc to get files for 
         """
         
-        # retrieve Project by ID or return message to user indicating not found
-        project = self.project_svc.get_project_by_id(project_id)
-        if "id" not in project: 
-            return project
-        
-        project_name = get_normalized_project_name(project_name=project["name"])
+        # fetch all ChromaCollections corresponding to ProjectID 
+        collections = self.get_collections_by_project(project_id)
+        if not collections:
+            logger.warning(f"No ChromaCollections found corresponding to ProjectId={project_id}")
+            return
+    
+        project = collections[0].project
+        project_name = get_normalized_project_name(project_name=project.project_name)
         
         match source_type:
             case "DOCS":

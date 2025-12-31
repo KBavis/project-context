@@ -3,28 +3,27 @@ from uuid import UUID
 from app.models.data_source import DataSource
 from app.services.file import FileService
 from app.core import get_async_session_maker
+from app.services.chroma import ChromaService
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from abc import abstractmethod, ABC
 from typing import Type
-import asyncio
 import logging
-import threading
 
 logger = logging.getLogger(__name__)
 
 class DataProvider(ABC):
 
-    def __init__(self, data_source: DataSource, job_pk: UUID, url: str = "", db_session: AsyncSession = None):
+    def __init__(self, data_source: DataSource, job_pk: UUID, chroma_svc: ChromaService, url: str = "", db_session: AsyncSession = None):
         self.data_source = data_source
         self.job_pk = job_pk
         self.url = url
         self.request_headers = self._get_request_headers()
-        self.file_service = FileService(db_session=db_session)
+        self.file_service = FileService(db_session=db_session, chroma_svc=chroma_svc)
     
 
     @classmethod
-    async def run_ingestion(provider_class: Type, data_source: DataSource, job_pk: UUID):
+    async def run_ingestion(provider_class: Type, data_source: DataSource, job_pk: UUID, chroma_svc: ChromaService):
 
         # create async DB session for data retrieval 
         session_maker = get_async_session_maker()
@@ -37,7 +36,8 @@ class DataProvider(ABC):
                     data_source=data_source, 
                     url=data_source.url, 
                     job_pk=job_pk,
-                    db_session=session
+                    db_session=session,
+                    chroma_svc=chroma_svc 
                 )
 
                 logger.info(f"Ingesting data from DataProvider={provider_class} for IngestionJob={job_pk}")
