@@ -91,20 +91,6 @@ def get_conversation_svc(
     return ConversationService(db=db)
 
 
-def get_project_svc(
-        db: Session = Depends(get_sync_db_session),
-        chroma_mnger: ChromaClientManager = Depends(get_chroma_manager)
-):
-    """
-    Setup ProjectService dependency
-
-    Args:
-        db (Session): current DB session
-    """
-
-    return ProjectService(db=db, chroma_manager=chroma_mnger)
-
-
 
 ##########################
 # Async Service Dependencies 
