@@ -649,7 +649,9 @@ class IngestionJobService:
                 for doc in docs:
                     ext = Path(doc.metadata["file_name"]).suffix.lower().lstrip(".")
                     curr_file_type = settings.EXTENSION_TO_LANGUAGE[ext] if ext in settings.EXTENSION_TO_LANGUAGE else "plain_text"
-                    all_docs[curr_file_type].extend(doc)
+                    all_docs[curr_file_type].append(doc)
+
+            logger.debug(f"Successfully split ingested Code files into following language groups: {all_docs.keys()}") 
 
         except Exception as e:
             logger.error(f"Failed to read ingested code files from temporary directory", exc_info=True)
@@ -666,7 +668,13 @@ class IngestionJobService:
 
             logger.debug(f"Successfully chunked ingested code files for language={file_type} into {len(nodes)} nodes")
         
-        return nodes
+
+        # setup mapping for project to corresponding nodes 
+        project_nodes = {record.project.project_name: nodes for record in data_source.project_data} if not project_id else {project_id: nodes}
+
+        # TODO: Check that nodes don't exceed max token limit for embedding model configured for project collection (if so, break down chunk further intelligently)
+        # TODO: We may be able to leverage the "max length" field for this 
+        return project_nodes
 
         
 
