@@ -21,3 +21,5 @@ llama-index-llms-ollama==0.9.0
 
 docling==2.61.1 
 transformers==4.57.1
+tree-sitter==0.25.2
+tree-sitter-language-pack==0.13.0

@@ -9,6 +9,7 @@ from .relational_db import (
     get_async_session_maker
 )
 from .vector_db import ChromaClientManager
+from .constants import CODE, DOCS
 
 __all__ = [
     "settings",
@@ -20,5 +21,7 @@ __all__ = [
     "ChromaClientManager",
     "setup_logging",
     "get_sync_session_maker",
-    "get_async_session_maker"
+    "get_async_session_maker",
+    "CODE",
+    "DOCS",
 ]

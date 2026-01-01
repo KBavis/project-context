@@ -1,10 +1,12 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
-from typing import Optional, Set
+from typing import Optional, Set, Dict
 import logging
 import sys
 
 # TODO: There may be a better way to handle the excess configs we have here, maybe having "generic" settings VS "llm" settings
+
+# TODO: Move constants to constants.py and leave configurable values in herer 
 
 class Settings(BaseSettings):
 
@@ -25,7 +27,7 @@ class Settings(BaseSettings):
     DOCS_EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
 
     CODE_EMBEDDING_PROVIDER: Optional[str] = "HuggingFace"
-    CODE_EMBEDDING_MODEL: Optional[str] = "Salesforce/codet5-base"
+    CODE_EMBEDDING_MODEL: Optional[str] = "microsoft/codebert-base"
 
     GITHUB_SECRET_TOKEN: Optional[str] = None
     HUGGING_FACE_API_KEY: Optional[str] = None
@@ -66,6 +68,30 @@ class Settings(BaseSettings):
         "json",
         "yaml",
         "yml",
+    }
+
+    EXTENSION_TO_LANGUAGE: Dict[str, str] = {
+        "py": "python",
+        "js": "javascript",
+        "jsx": "javascript",
+        "ts": "typescript",
+        "tsx": "typescript",
+        "java": "java",
+        "c": "c",
+        "cpp": "cpp",
+        "cs": "csharp",
+        "rb": "ruby",
+        "php": "php",
+        "swift": "swift",
+        "pl": "perl",
+        "sh": "bash",
+        "sql": "sql",
+        "html": "html",
+        "css": "css",
+        "json": "json",
+        "yaml": "yaml",
+        "yml": "yaml",
+        "xml": "xml",
     }
 
     DOCS_FILE_EXTENSIONS: Set[str] = {"docx", "pdf", "md"}
@@ -114,6 +140,8 @@ def setup_logging():
         "httpcore.http11",
         "httpx",
         "httpcore.connection",
-        "chromadb.config"
+        "chromadb.config",
+        "fsspec.local",
+        "llama_index.core.readers.file.base"
     ]:
         logging.getLogger(noisy).setLevel(logging.WARNING)

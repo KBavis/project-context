@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 from typing import Tuple, Iterator, Dict, List, TYPE_CHECKING
 import asyncio
 import threading
+from collections import defaultdict
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -12,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType, ProjectData, Project
 from app.data_providers import GithubDataProvider
-from app.core import settings, get_async_session_maker
+from app.core import settings, get_async_session_maker, DOCS, CODE
 from app.embeddings import EmbeddingManager
 from app.services.util import get_normalized_project_name
 from app.services.chroma import ChromaService 
@@ -32,6 +33,9 @@ from docling_core.transforms.chunker.hybrid_chunker import DocChunk
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.schema import TextNode
+from llama_index.core.node_parser import CodeSplitter
+from llama_index.core.readers import SimpleDirectoryReader
+
 
 
 logger = logging.getLogger(__name__)
@@ -194,6 +198,8 @@ class IngestionJobService:
         finally:
             # unlock DataSource after processing 
             await self.record_lock_svc.unlock(data_source_id, record_type=RecordType.DATA_SOURCE)
+
+
         
 
     def code_chunk_and_store(
@@ -218,7 +224,9 @@ class IngestionJobService:
         nodes = self._chunk_code(data_source, project_id, job_pk)
 
         # save LlamaIndex nodes to ChromaDB collection
-        self._save_to_chroma(nodes, "CODE", data_source)
+        self._save_to_chroma(nodes, CODE, data_source)
+
+        logger.info(f"Succesfully chunked and stored downloaded Code files")
 
 
 
@@ -254,7 +262,7 @@ class IngestionJobService:
         logger.debug(f"Successfully convert DocChunks to LlamaIndex TextNode's")
 
         # store results within Chroma DB, using embedding specified DataSource
-        self._save_to_chroma(nodes, "DOCS", data_source)
+        self._save_to_chroma(nodes, DOCS, data_source)
 
         logger.info(f"Succesfully converted, chunked, and stored downloaded Documentation files")
 
@@ -626,13 +634,49 @@ class IngestionJobService:
                         - Instead of limiting all of them, we can just let CodeSplitter confiugre max chars for us
                         - Prior to saving, we should check that the length of the chunk DOESN'T exceed the max token limit for the embedding confiugred for this collection
                         - If it does, we likely will need to "break down chunk further intellignelty" 
-
-
         """
 
-        # retrieve projects corresponding to data soruce 
-        projects = [record.project for record in data_source.project_data] if not project_id else [project_id] # TODO: Fix me for single project
+        # read files from temporary directory 
+        reader = SimpleDirectoryReader( # TODO: Look into leveraging "num_workers" attribute if we choose to utilize multi-threading & 
+            input_dir=f"{settings.TMP_CODE}/{job_pk}", 
+            raise_on_error=True
+        )
 
+        # split files based on language support
+        try:
+            all_docs = defaultdict(list)
+            for docs in reader.iter_data():  
+                for doc in docs:
+                    ext = Path(doc.metadata["file_name"]).suffix.lower().lstrip(".")
+                    curr_file_type = settings.EXTENSION_TO_LANGUAGE[ext] if ext in settings.EXTENSION_TO_LANGUAGE else "plain_text"
+                    all_docs[curr_file_type].append(doc)
+
+            logger.debug(f"Successfully split ingested Code files into following language groups: {all_docs.keys()}") 
+
+        except Exception as e:
+            logger.error(f"Failed to read ingested code files from temporary directory", exc_info=True)
+            raise e
+
+
+        # chunk files based on language 
+        nodes = []
+        for file_type, docs in all_docs.items():
+            
+            # configure splitter to be used for grouped file types
+            splitter = CodeSplitter(language=file_type) # TODO: Consider tweaking max_chars or other attributes here
+            nodes.extend(splitter.get_nodes_from_documents(docs)) #TODO: Consider if using async get nodes from docs provides any benefits in performance
+
+            logger.debug(f"Successfully chunked ingested code files for language={file_type} into {len(nodes)} nodes")
+        
+
+        # setup mapping for project to corresponding nodes 
+        project_nodes = {record.project.project_name: nodes for record in data_source.project_data} if not project_id else {project_id: nodes}
+
+        # TODO: Check that nodes don't exceed max token limit for embedding model configured for project collection (if so, break down chunk further intelligently)
+        # TODO: We may be able to leverage the "max length" field for this 
+        return project_nodes
+
+        
 
 
 
