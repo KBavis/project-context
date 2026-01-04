@@ -31,9 +31,6 @@ class GithubDataProvider(DataProvider):
         Functionality to parse our GitHub Url and invoke relevant functionality
         to DFS through repository and retrieve relevant files to store within our
         temporary directory to be stored by Chroma DB
-
-        TODO: GitHub repositories may contain a /docs folder or some README files. These should
-        be stored within our docs collection
         """
 
         # reach out to GitHub and recurisvely fetch and store documentation within our temp directory
@@ -108,7 +105,6 @@ class GithubDataProvider(DataProvider):
         """
         Helper function to download a file and store within relevant temporary directory
 
-        TODO: Make this request async to not block thread
         """
 
         # ensure valid file name
