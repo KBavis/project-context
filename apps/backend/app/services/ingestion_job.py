@@ -111,7 +111,6 @@ class IngestionJobService:
         TODO:
             1. Consider adding multi-threading concurrency to this approach to speed up larger IngestionJobs 
             2. Look into total amount of time processing takes when ONLY using CPU (any optimizations we can make?)
-            3. Add async capabilities for this function in order to not have request waiting for response for excess time 
         """
 
         # begin processing for current IngestionJob
