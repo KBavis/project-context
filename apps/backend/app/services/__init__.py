@@ -5,6 +5,7 @@ from .conversation import ConversationService
 from .chroma import ChromaService
 from .file import FileService
 from .record_lock import RecordLockService
+from .query import QueryService
 
 __all__ = [
     "DataSourceService", 
@@ -13,5 +14,6 @@ __all__ = [
     "ConversationService",
     "ChromaService",
     "FileService",
-    "RecordLockService"
+    "RecordLockService",
+    "QueryService",
 ]
