@@ -77,6 +77,9 @@ class QueryService:
             collection (ChromaCollection): the Chroma collection to query against
             embedding: the LlamaIndex embedding model to use for querying
         """
+
+
+        # TODO: 1) Setting Settings.embed_model to llama index embeding, 2) Get ChromaStore based on "actual" chroma collection, 3) load existing index uisng Chroma store, 4) use index as retriever, 5) get nodes using passed in query 
     
 
         
