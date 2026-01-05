@@ -6,6 +6,7 @@ from .chroma import ChromaService
 from .file import FileService
 from .record_lock import RecordLockService
 from .query import QueryService
+from .ranking import RankingService
 
 __all__ = [
     "DataSourceService", 
@@ -16,4 +17,5 @@ __all__ = [
     "FileService",
     "RecordLockService",
     "QueryService",
+    "RankingService",
 ]

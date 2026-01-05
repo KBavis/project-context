@@ -6,7 +6,8 @@ from app.services import (
     ProjectService, 
     FileService,
     RecordLockService, 
-    QueryService
+    QueryService, 
+    RankingService
 )
 
 from app.core import (
@@ -97,6 +98,18 @@ def get_conversation_svc(
 # Async Service Dependencies 
 ###########################
 
+def get_async_ranking_svc(
+        db: AsyncSession = Depends(get_async_db_session)
+):
+    """
+    Setup async RankingService dependency 
+
+    Args:
+        db (AsyncSession): async DB session
+    """
+
+    return RankingService(db=db)
+
 
 def get_async_query_svc(
         db: AsyncSession = Depends(get_async_db_session),
@@ -110,7 +123,7 @@ def get_async_query_svc(
         chroma_svc (ChromaService): async chroma service dependency
     """
 
-    return QueryService(db=db, chroma_svc=chroma_svc)
+    return QueryService(db=db, chroma_svc=chroma_svc, )
 
 def get_async_file_svc(
         db: AsyncSession = Depends(get_async_db_session)

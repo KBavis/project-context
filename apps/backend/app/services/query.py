@@ -1,14 +1,18 @@
 from app.services.chroma import ChromaService
+from app.services.ranking import RankingService
+from app.core.constants import DOCS, CODE
+from app.embeddings import EmbeddingManager
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.constants import DOCS, CODE
 
 class QueryService:
     
     def __init__(
         self,
         db: AsyncSession,
-        chroma_svc: ChromaService   
+        chroma_svc: ChromaService,
+        ranking_svc: RankingService
     ):
         self.db = db
         self.chroma_svc = chroma_svc
@@ -26,6 +30,28 @@ class QueryService:
             project_id (str): The ID of the Project to query against.
         """
 
+        doc_chunks, code_chunks = await self.get_relevant_chunks(query, project_id)
+
+        re_ranked_chunks = await self.ranking_svc.get_rankings(
+            code_chunks=code_chunks,
+            doc_chunks=doc_chunks,
+            query=query,
+            top_k=5 # TODO: Make this a configuration 
+        )
+
+
+
+        
+
+    async def get_relevant_chunks(self, query, project_id): 
+        """
+        Retrieve relevant code and documentation chunks from Chroma based on the query and project ID.
+
+        Args:
+            query (str): user passed in query 
+            project_id (UUID): the project the query corresponds to 
+        """
+
         # retreive relevant Chroma Collections corresponding to Project 
         collections = self.chroma_svc.get_collections_by_project(project_id)
         if not collections:
@@ -36,7 +62,27 @@ class QueryService:
             raise Exception(f"Both Code and Documentation collections must be present for Project ID: {project_id}")
         
 
-        # TODO: Remove me 
-        return {"query": query, "project_id": project_id, "status": "success"}
+        embedding_manager = EmbeddingManager(collections_by_type)
+
+        # TODO: Call _get_chunks concurrentyl for both DOCS and CODE collections  
+
+    
+
+    async def _get_chunks(self, query, collection, embedding):
+        """
+        Retrieve relevant documentation chunks from Chroma based on the query.
+
+        Args:
+            query (str): user passed in query
+            collection (ChromaCollection): the Chroma collection to query against
+            embedding: the LlamaIndex embedding model to use for querying
+        """
+    
+
         
+
+        
+
+    
+    
 
