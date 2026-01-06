@@ -2,9 +2,19 @@ from app.services.chroma import ChromaService
 from app.services.ranking import RankingService
 from app.core.constants import DOCS, CODE
 from app.embeddings import EmbeddingManager
+from app.models.collection import ChromaCollection
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from typing import List
+import logging
+
+from llama_index.vector_stores.chroma import ChromaVectorStore
+from llama_index.core import VectorStoreIndex, Settings
+from llama_index.core.embeddings import BaseEmbedding
+from llama_index.core.schema import NodeWithScore
+
+logger = logging.getLogger(__name__)
 
 class QueryService:
     
@@ -16,6 +26,7 @@ class QueryService:
     ):
         self.db = db
         self.chroma_svc = chroma_svc
+        self.ranking_svc = ranking_svc
     
 
     async def execute_simple_query(self, query: str, project_id: str):
@@ -65,10 +76,23 @@ class QueryService:
         embedding_manager = EmbeddingManager(collections_by_type)
 
         # TODO: Call _get_chunks concurrentyl for both DOCS and CODE collections  
+        doc_chunks = await self._get_chunks(
+            query=query,
+            collection=collections_by_type[DOCS],
+            embedding=embedding_manager.get_embedding_model(DOCS)
+        )
+        code_chunks = await self._get_chunks(
+            query=query,
+            collection=collections_by_type[CODE],
+            embedding=embedding_manager.get_embedding_model(CODE)
+        )
+       
+        return doc_chunks, code_chunks
+
 
     
 
-    async def _get_chunks(self, query, collection, embedding):
+    async def _get_chunks(self, query: str, collection: ChromaCollection, embedding: BaseEmbedding) -> List[NodeWithScore]:
         """
         Retrieve relevant documentation chunks from Chroma based on the query.
 
@@ -78,8 +102,25 @@ class QueryService:
             embedding: the LlamaIndex embedding model to use for querying
         """
 
+        # get actual Chroma Collection 
+        chroma_collection = self.chroma_svc.get_real_chroma_collection(collection_name=collection.name)
 
-        # TODO: 1) Setting Settings.embed_model to llama index embeding, 2) Get ChromaStore based on "actual" chroma collection, 3) load existing index uisng Chroma store, 4) use index as retriever, 5) get nodes using passed in query 
+        # confiugre LlamaIndex to use Chroma collection embedding model
+        Settings.embed_model = embedding
+
+        # confiugre LlamaaIndex retriever from Chroma collection 
+        vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+        index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
+        retriever = index.as_retriever(similarity_top_k=10)
+
+        # retrieve relevant chunks from collection
+        nodes = await retriever.aretrieve(query)
+
+        logger.debug(f"Retrieved {len(nodes)} chunks from collection {collection.name} for query: {query}")
+
+        return nodes 
+
+
     
 
         
