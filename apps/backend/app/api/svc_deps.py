@@ -113,7 +113,8 @@ def get_async_ranking_svc(
 
 def get_async_query_svc(
         db: AsyncSession = Depends(get_async_db_session),
-        chroma_svc: ChromaService = Depends(get_chroma_svc)
+        chroma_svc: ChromaService = Depends(get_chroma_svc),
+        ranking_svc: RankingService = Depends(get_async_ranking_svc)
 ):
     """
     Setup async QueryService dependency 
@@ -123,7 +124,7 @@ def get_async_query_svc(
         chroma_svc (ChromaService): async chroma service dependency
     """
 
-    return QueryService(db=db, chroma_svc=chroma_svc, )
+    return QueryService(db=db, chroma_svc=chroma_svc, ranking_svc=ranking_svc)
 
 def get_async_file_svc(
         db: AsyncSession = Depends(get_async_db_session)
