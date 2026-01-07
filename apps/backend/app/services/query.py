@@ -75,7 +75,9 @@ class QueryService:
         """
 
         try:
-
+            
+            # TODO: Setup async task for initalizing EmbeddingManager in order to
+            # avoid blocking main thread when first loading model weights (lazily loaded at runtime currently)
             doc_chunks, code_chunks = await self.get_relevant_chunks(query, project_id)
             for chunks in [doc_chunks, code_chunks]:
                 await self.log_chunks(chunks, chunk_type="DOCS" if chunks == doc_chunks else "CODE")
