@@ -29,7 +29,36 @@ class QueryService:
         self.ranking_svc = ranking_svc
     
 
-    async def execute_simple_query(self, query: str, project_id: str):
+    async def init_q_and_a_record(self, project_id: str, query: str, start_time: datetime) -> QuestionAndAnswer:
+        """
+        Initialize a Question & Answer record in the database.
+
+        TODO: Consider seperating this Q&A logic into seperate service and having query service FULLY focus on LlamaIndex querying logic 
+
+        Args:
+            project_id (str): The ID of the Project being queried.
+            query (str): The query string.
+            start_time (datetime): The time when the query processing started.
+        """
+
+        q_and_a_pk = uuid4()
+
+        q_and_a = QuestionAndAnswer(
+            id=q_and_a_pk,
+            project_id=project_id,
+            question=query,
+            answer="",
+            start_time=start_time,
+            status=ProcessingStatus.IN_PROGRESS
+        )
+        self.db.add(q_and_a)
+
+        await self.db.flush()
+        return q_and_a
+
+
+
+    async def execute_simple_query(self, query: str, project_id: str) -> None:
         """
         Execute a one-time query against the ingested documentation and code for a specified Project
 
