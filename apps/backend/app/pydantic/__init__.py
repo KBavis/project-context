@@ -3,6 +3,7 @@ from .data_source import DataSourceRequest
 from .project import ProjectRequest
 from .file import File, CodeFileExtension, DocsFileExtension, FileProcesingStatus
 from .chroma import DeleteCollectionDocsRequest
+from .status import ProcessingStatus
 
 __all__ = [
     "ChatRequest", 
@@ -12,5 +13,6 @@ __all__ = [
     "CodeFileExtension", 
     "DocsFileExtension", 
     "DeleteCollectionDocsRequest",
-    "FileProcesingStatus"
+    "FileProcesingStatus",
+    "ProcessingStatus",
 ]

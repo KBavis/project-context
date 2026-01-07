@@ -3,18 +3,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import ForeignKey, text, Index, Enum as SQLEnum
 from uuid import UUID
 from typing import TYPE_CHECKING
-from enum import Enum
 from datetime import datetime
+
+from app.pydantic import ProcessingStatus
 
 # avoid warning
 if TYPE_CHECKING:
     from .data_source import DataSource
-
-
-class ProcessingStatus(Enum):
-    SUCCESS = "success"
-    IN_PROGRESS = "in_progress"
-    FAILED = "failed"
 
 class IngestionJob(Base):
     __tablename__ = "ingestion_job"

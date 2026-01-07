@@ -30,6 +30,13 @@ class QuestionAndAnswer(Base):
         comment="Total time taken to generate the answer in milliseconds"
     )
 
+    status: Mapped[ProcessingStatus] = mapped_column(
+        SQLEnum(ProcessingStatus),
+        nullable=False,
+        comment="Current status of the Q&A processing"
+    )
+
+    # LLM relevant fields
     total_token_count: Mapped[int] = mapped_column(
         nullable=False,
         comment="Total number of tokens used in generating the answer"
