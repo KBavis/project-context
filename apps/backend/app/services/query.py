@@ -3,11 +3,15 @@ from app.services.ranking import RankingService
 from app.core.constants import DOCS, CODE
 from app.embeddings import EmbeddingManager
 from app.models.collection import ChromaCollection
+from app.models.question_and_answer import QuestionAndAnswer
+from app.pydantic import ProcessingStatus
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from typing import List
 import logging
+from datetime import datetime
+from uuid import uuid4
 
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import VectorStoreIndex, Settings
@@ -70,17 +74,38 @@ class QueryService:
             project_id (str): The ID of the Project to query against.
         """
 
-        doc_chunks, code_chunks = await self.get_relevant_chunks(query, project_id)
+        try:
 
-        re_ranked_chunks = await self.ranking_svc.get_rankings(
-            code_chunks=code_chunks,
-            doc_chunks=doc_chunks,
-            query=query,
-            top_k=5 # TODO: Make this a configuration 
-        )
+            doc_chunks, code_chunks = await self.get_relevant_chunks(query, project_id)
+            for chunks in [doc_chunks, code_chunks]:
+                await self.log_chunks(chunks, chunk_type="DOCS" if chunks == doc_chunks else "CODE")
+
+            re_ranked_chunks = await self.ranking_svc.get_rankings(
+                code_chunks=code_chunks,
+                doc_chunks=doc_chunks,
+                query=query,
+                top_k=5 # TODO: Make this a configuration 
+            )
+        except Exception as e:
+            logger.error(f"Error executing query for project_id={project_id} with query='{query}': {str(e)}")
+
+            # TODO: Update Q&A record status to FAILED in DB
+            raise e
+
+        # TODO: Integrate with LLM to generate final response 
 
 
+    async def log_chunks(self, chunks: List[NodeWithScore], chunk_type: str):
+        """
+        Log retrieved chunks for debugging purposes.
 
+        Args:
+            chunks (List[NodeWithScore]): list of retrieved chunks 
+            chunk_type (str): type of chunks (e.g., "DOCS" or "CODE")
+        """
+        logger.debug(f"Logging {len(chunks)} {chunk_type} chunks: \n")
+        for i, chunk in enumerate(chunks):
+            logger.debug(f"\t{chunk_type} Chunk {i+1}: Score={chunk.score}, Text={chunk.node.get_text()}")
         
 
     async def get_relevant_chunks(self, query, project_id): 
@@ -140,7 +165,7 @@ class QueryService:
         # confiugre LlamaaIndex retriever from Chroma collection 
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
         index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
-        retriever = index.as_retriever(similarity_top_k=10)
+        retriever = index.as_retriever(similarity_top_k=5) # TODO: Make this configurable 
 
         # retrieve relevant chunks from collection
         nodes = await retriever.aretrieve(query)
