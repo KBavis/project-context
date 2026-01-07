@@ -4,7 +4,7 @@ from uuid import UUID
 from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import ForeignKey, text, String, Text
+from sqlalchemy import ForeignKey, text, Text
 
 if TYPE_CHECKING:
     from .project import Project

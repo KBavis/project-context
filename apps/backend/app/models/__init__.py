@@ -9,6 +9,7 @@ from .file import File
 from .file_collection import FileCollection
 from .record_lock import RecordLock, RecordType
 from .collection import ChromaCollection
+from .question_and_answer import QuestionAndAnswer
 
 
 __all__ = [
@@ -24,5 +25,6 @@ __all__ = [
     "FileCollection",
     "RecordLock",
     "RecordType",
-    "ChromaCollection"
+    "ChromaCollection",
+    "QuestionAndAnswer",
 ]
