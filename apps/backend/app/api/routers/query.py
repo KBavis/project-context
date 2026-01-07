@@ -1,23 +1,42 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from ..svc_deps import get_async_query_svc
 
 from app.services.query import QueryService
 from app.pydantic.query import QueryRequest
 
+import logging
+from datetime import datetime
+
 router = APIRouter(prefix="/query")
+
+logger = logging.getLogger(__name__)
 
 @router.post("/", summary="One-time querying of a specified Project's ingested Documentation & Code")
 async def query(
     request: QueryRequest,
+    background_tasks: BackgroundTasks,
     svc: QueryService = Depends(get_async_query_svc)
 ):
     """
     Perform a one-time query against the ingested documentation and code for a specified Project.
     """
+
     try:
-        # TODO: Run this as a background task in order to give user fast response and avoid timeouts
-        response = await svc.execute_simple_query(request.query, request.project_id)
-        return response
+        start_time = datetime.now()
+        logger.info(f"Received query request for project_id={request.project_id} with query='{request.query}' at {start_time}")
+
+        # create inital query record 
+        q_and_a_record = await svc.init_q_and_a_record(request.project_id, request.query, start_time)
+
+        background_tasks.add_task(svc.execute_simple_query, request.query, request.project_id)
+
+        return {
+            "id": q_and_a_record.id,
+            "status": q_and_a_record.status,
+            "start_time": start_time,
+            "question": q_and_a_record.question
+        }
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
