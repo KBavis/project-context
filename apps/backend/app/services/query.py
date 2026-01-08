@@ -135,12 +135,12 @@ class QueryService:
         doc_chunks = await self._get_chunks(
             query=query,
             collection=collections_by_type[DOCS],
-            embedding=embedding_manager.get_embedding_model(DOCS) # TODO: Conver this call to seperate worker thread thats async
+            embedding=embedding_manager.get_embedding_model(DOCS) # TODO: Convert this call to seperate worker thread thats async
         )
         code_chunks = await self._get_chunks(
             query=query,
             collection=collections_by_type[CODE],
-            embedding=embedding_manager.get_embedding_model(CODE)
+            embedding=embedding_manager.get_embedding_model(CODE)  #TODO: Conver this call to seperate worker thread thats async
         )
        
         return doc_chunks, code_chunks
