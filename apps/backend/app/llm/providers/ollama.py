@@ -48,7 +48,7 @@ class OllamaLLM(LLMBase):
             # validate model is available 
             response_data = response.json()
             available_models = response_data.get('models', [])
-            model_is_pulled = self.model_name in [model['name'] for model in available_models]
+            model_is_pulled = self.model_name in [model['name'] for model in available_models] # TODO: consider removing the EXACT name check and just defaulting to latest version if not found
 
             if not model_is_pulled:
                 logger.error(f"Ollama model '{self.model_name}' is not pulled locally. Please pull the model using the command `ollama pull {self.model_name}`.")
