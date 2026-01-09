@@ -81,6 +81,9 @@ class QueryService:
         """
 
         try:
+            # get initalized LLM instance
+            llm =  self.llm_manager.get_llm() 
+
             # TODO: Setup async task for initalizing EmbeddingManager in order to avoid blocking main thread when first loading model weights (lazily loaded at runtime currently)
             chunks = await self.get_relevant_chunks(query, project_id)
 
@@ -95,10 +98,19 @@ class QueryService:
             logger.debug(f"Top ranked chunks after re-ranking: \n")
             for i, chunk in enumerate(re_ranked_nodes):
                 logger.debug(f"\tRanked Chunk {i+1}: Score={chunk.score}, Text={chunk.node.get_content()}")
+            
+            prompt = self.get_prompt(query, re_ranked_nodes)
 
-            llm = self.llm_manager.get_llm() 
-            llama_idx_llm = llm.get_llama_idx_instance()
-            logger.debug(f"Using LLM Instance: {llama_idx_llm}")
+            # configure LlamaIndex to use the selected LLM 
+            Settings.llm = llm.get_llama_idx_instance()
+
+            response = Settings.llm.complete(prompt)
+
+            logger.debug(f"LLM Response: {response}")
+
+            # TODO: Update Q&A record with final answer and mark as COMPLETED in DB
+
+
 
 
         except Exception as e:
@@ -109,6 +121,28 @@ class QueryService:
 
         # TODO: Integrate with LLM to generate final response 
 
+    
+    def get_prompt(self, query: str, nodes: List[NodeWithScore]) -> str:
+        """
+        Get the prompt template to use for querying the LLM.
+
+        TODO: Make the system prompt configurable and also consider alternative prompt template and way of providing context to LLM as this is a very basic implementation.
+        """
+
+        system_prompt = """
+            You are an AI assistant that helps developers understand and work with codebases. 
+            You will be provided with relevant code snippets and documentation to help answer user queries.
+            Provide clear, concise, and accurate answers based on the provided code and documentation snippets.
+        """
+
+        context = "\n\n---\n\n".join([
+            f"Source: {node.metadata.get('source', 'Unknown')}\n{node.get_text()}" 
+            for node in nodes
+        ])
+
+        full_prompt = f"{system_prompt}\n\nContext:\n{context}\n\nUser Query: {query}\n\nAnswer:"
+
+        return full_prompt
 
     async def get_relevant_chunks(self, query, project_id) -> defaultdict[str, List[NodeWithScore]]: 
         """
