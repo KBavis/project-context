@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     VECTOR_DB_PORT: int = 8000
 
     LL_MODEL_PROVIDER: str = "Ollama"
-    LL_MODEL: str = "gpt-oss"
+    LL_MODEL: str = "gpt-oss:latest"
 
     DOCS_EMBEDDING_PROVIDER: str = "HuggingFace"
     DOCS_EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
