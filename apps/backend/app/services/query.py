@@ -18,6 +18,8 @@ from llama_index.core import VectorStoreIndex, Settings
 from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core.schema import NodeWithScore
 
+from collections import defaultdict
+
 logger = logging.getLogger(__name__)
 
 class QueryService:
@@ -78,13 +80,12 @@ class QueryService:
             
             # TODO: Setup async task for initalizing EmbeddingManager in order to
             # avoid blocking main thread when first loading model weights (lazily loaded at runtime currently)
-            doc_chunks, code_chunks = await self.get_relevant_chunks(query, project_id)
-            for chunks in [doc_chunks, code_chunks]:
-                await self.log_chunks(chunks, chunk_type="DOCS" if chunks == doc_chunks else "CODE")
+            chunks = await self.get_relevant_chunks(query, project_id)
+            for type, type_chunks in chunks.items():
+                await self.log_chunks(type_chunks, chunk_type=type)
 
             re_ranked_chunks = await self.ranking_svc.get_rankings(
-                code_chunks=code_chunks,
-                doc_chunks=doc_chunks,
+                chunks=chunks,
                 query=query,
                 top_k=5 # TODO: Make this a configuration 
             )
@@ -110,7 +111,7 @@ class QueryService:
             logger.debug(f"\t{chunk_type} Chunk {i+1}: Score={chunk.score}, Text={chunk.node.get_text()}")
         
 
-    async def get_relevant_chunks(self, query, project_id): 
+    async def get_relevant_chunks(self, query, project_id) -> defaultdict[str, List[NodeWithScore]]: 
         """
         Retrieve relevant code and documentation chunks from Chroma based on the query and project ID.
 
@@ -128,22 +129,19 @@ class QueryService:
         if CODE not in collections_by_type or DOCS not in collections_by_type:
             raise Exception(f"Both Code and Documentation collections must be present for Project ID: {project_id}")
         
-
         embedding_manager = EmbeddingManager(collections_by_type)
 
         # TODO: Call _get_chunks concurrentyl for both DOCS and CODE collections  
-        doc_chunks = await self._get_chunks(
-            query=query,
-            collection=collections_by_type[DOCS],
-            embedding=embedding_manager.get_embedding_model(DOCS) # TODO: Convert this call to seperate worker thread thats async
-        )
-        code_chunks = await self._get_chunks(
-            query=query,
-            collection=collections_by_type[CODE],
-            embedding=embedding_manager.get_embedding_model(CODE)  #TODO: Conver this call to seperate worker thread thats async
-        )
-       
-        return doc_chunks, code_chunks
+        chunks = defaultdict(list)
+        for source_type in [DOCS, CODE]:
+            embedding_model = await embedding_manager.aget_embedding_model(source_type)
+            chunks[source_type] = await self._get_chunks(
+                query=query,
+                collection=collections_by_type[source_type],
+                embedding=embedding_model
+            )
+
+        return chunks       
 
 
     
