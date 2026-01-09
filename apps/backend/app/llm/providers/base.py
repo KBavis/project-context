@@ -24,8 +24,14 @@ class LLMBase(ABC):
         Decompose a complex query into simpler sub-queries that can be answered individually.
         """
         raise NotImplementedError("Subclasses must implement decompose_query method.")
+    
 
-
+    @abstractmethod
+    def get_llama_idx_instance(self):
+        """
+        Get the underlying LlamaIndex LLM instance.
+        """
+        raise NotImplementedError("Subclasses must implement get_llama_idx_instance method.")
 
 
     

@@ -1,4 +1,5 @@
 from .base import LLMBase
+from llama_index.llms.ollama import Ollama
 
 class OllamaLLM(LLMBase):
 
@@ -34,3 +35,10 @@ class OllamaLLM(LLMBase):
         """
         # TODO: Implement me 
         return True
+    
+
+    def get_llama_idx_instance(self) -> Ollama:
+        """
+        Get the underlying LlamaIndex Ollama instance.
+        """
+        return Ollama(model=self.model_name) # TODO: Add additional configuration options as needed
