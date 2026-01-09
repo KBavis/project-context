@@ -6,6 +6,8 @@ from transformers import AutoTokenizer
 import logging
 from typing import Dict
 
+import asyncio
+
 
 class EmbeddingManager:
 
@@ -29,6 +31,13 @@ class EmbeddingManager:
             if source_type == "DOCS"
             else self.get_code_embedding_model()
         )
+
+    async def aget_embeeding_model(self, source_type: str):
+        """
+        Asynchronously retrieve relevant embedding model 
+        """
+        await asyncio.to_thread(self.get_embedding_model, source_type)
+
     
     def get_tokenizer(self, source_type):
         """
