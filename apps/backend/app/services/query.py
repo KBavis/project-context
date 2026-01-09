@@ -5,6 +5,7 @@ from app.embeddings import EmbeddingManager
 from app.models.collection import ChromaCollection
 from app.models.question_and_answer import QuestionAndAnswer
 from app.pydantic import ProcessingStatus
+from app.llm import LLMManager
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,11 +30,13 @@ class QueryService:
         self,
         db: AsyncSession,
         chroma_svc: ChromaService,
-        ranking_svc: RankingService
+        ranking_svc: RankingService,
+        llm_manager: LLMManager
     ):
         self.db = db
         self.chroma_svc = chroma_svc
         self.ranking_svc = ranking_svc
+        self.llm_manager = llm_manager
     
 
     async def init_q_and_a_record(self, project_id: str, query: str, start_time: datetime) -> QuestionAndAnswer:
@@ -78,7 +81,6 @@ class QueryService:
         """
 
         try:
-            
             # TODO: Setup async task for initalizing EmbeddingManager in order to avoid blocking main thread when first loading model weights (lazily loaded at runtime currently)
             chunks = await self.get_relevant_chunks(query, project_id)
 
@@ -93,6 +95,10 @@ class QueryService:
             logger.debug(f"Top ranked chunks after re-ranking: \n")
             for i, chunk in enumerate(re_ranked_nodes):
                 logger.debug(f"\tRanked Chunk {i+1}: Score={chunk.score}, Text={chunk.node.get_content()}")
+
+            llm = self.llm_manager.get_llm() 
+            llama_idx_llm = llm.get_llama_idx_instance()
+            logger.debug(f"Using LLM Instance: {llama_idx_llm}")
 
 
         except Exception as e:
@@ -122,9 +128,7 @@ class QueryService:
         if CODE not in collections_by_type or DOCS not in collections_by_type:
             raise Exception(f"Both Code and Documentation collections must be present for Project ID: {project_id}")
         
-        embedding_manager = EmbeddingManager(collections_by_type)
-
-        # TODO: Despite parallelizing these calls, loading large embedding models can take a good chunk of time. Consider caching models in memory at application startup 
+        embedding_manager = EmbeddingManager(collections_by_type) # TODO: Consider injecting as dependency
 
         # load embedding models in parallel
         embedding_docs, embedding_code = await asyncio.gather(

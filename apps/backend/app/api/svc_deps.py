@@ -15,6 +15,7 @@ from app.core import (
     get_async_db_session
 )
 from app.core import ChromaClientManager
+from app.llm import LLMManager  
 
 from fastapi import Depends
 from sqlalchemy.orm import Session
@@ -32,6 +33,13 @@ def get_chroma_manager() -> ChromaClientManager:
     """
 
     return ChromaClientManager()
+
+@lru_cache()
+def get_llm_manager() -> LLMManager:
+    """
+    Setup singleton dependency for LLMManager 
+    """
+    return LLMManager()
 
 ##########################
 # Sync Service Dependencies 
@@ -114,7 +122,8 @@ def get_async_ranking_svc(
 def get_async_query_svc(
         db: AsyncSession = Depends(get_async_db_session),
         chroma_svc: ChromaService = Depends(get_chroma_svc),
-        ranking_svc: RankingService = Depends(get_async_ranking_svc)
+        ranking_svc: RankingService = Depends(get_async_ranking_svc),
+        llm_manager: LLMManager = Depends(get_llm_manager)
 ):
     """
     Setup async QueryService dependency 
@@ -124,7 +133,7 @@ def get_async_query_svc(
         chroma_svc (ChromaService): async chroma service dependency
     """
 
-    return QueryService(db=db, chroma_svc=chroma_svc, ranking_svc=ranking_svc)
+    return QueryService(db=db, chroma_svc=chroma_svc, ranking_svc=ranking_svc, llm_manager=llm_manager)
 
 def get_async_file_svc(
         db: AsyncSession = Depends(get_async_db_session)
