@@ -1,6 +1,8 @@
 from .base import LLMBase
 from llama_index.llms.ollama import Ollama
 
+import os
+
 class OllamaLLM(LLMBase):
 
     def __init__(self, model_name: str):
@@ -40,5 +42,10 @@ class OllamaLLM(LLMBase):
     def get_llama_idx_instance(self) -> Ollama:
         """
         Get the underlying LlamaIndex Ollama instance.
+
+        TODO: In long run, we should have Ollama running in Docker container via compose.yaml 
         """
-        return Ollama(model=self.model_name) # TODO: Add additional configuration options as needed
+        return Ollama(
+            model=self.model_name, 
+            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        ) # TODO: Add additional configuration options as needed and move URL to configs 
