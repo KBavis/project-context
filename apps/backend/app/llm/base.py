@@ -1,0 +1,32 @@
+from abc import ABC, abstractmethod
+
+
+class LLMBase(ABC):
+
+    @abstractmethod
+    def get_max_context_length(self) -> int:
+        """
+        Return the maximum context length for the LLM (taking into considerations potential hardware limitations if applicable).
+        """
+        raise NotImplementedError("Subclasses must implement get_max_context_length method.")
+
+    @abstractmethod
+    def tokenize(self, text: str) -> list[str]:
+        """
+        Tokenize the input text using the tokenizer corresponding to the LLM and return list of tokens.
+        """
+        raise NotImplementedError("Subclasses must implement tokenize method.")
+    
+
+    @abstractmethod
+    def decompose_query(self, query: str) -> list[str]:
+        """
+        Decompose a complex query into simpler sub-queries that can be answered individually.
+        """
+        raise NotImplementedError("Subclasses must implement decompose_query method.")
+
+
+
+
+    
+    
