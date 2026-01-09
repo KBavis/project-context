@@ -75,6 +75,8 @@ class QueryService:
         NOTE: This is a placeholder implementation. Down the line, relevant logic will be setup 
         to create a Converation and have multiple interactions with the LLM in one singular session.
 
+        TODO: Add Context Length checks for LLM as timeouts will occurr if we provide too much context!
+
         Args:
             query (str): The query string to execute.
             project_id (str): The ID of the Project to query against.
