@@ -1,7 +1,11 @@
 from .base import LLMBase
 from llama_index.llms.ollama import Ollama
 
+import requests
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 class OllamaLLM(LLMBase):
 
@@ -35,9 +39,29 @@ class OllamaLLM(LLMBase):
         """
         Check if a) ollama is installed and b) the specified model is available.
         """
-        # TODO: Implement me 
-        return True
-    
+
+        try:
+            # check ollama server is running and get pulled model info
+            response = requests.get(os.getenv("OLLAMA_BASE_URL", "http://localhost:11434") + "/api/tags")
+            response.raise_for_status()
+
+            # validate model is available 
+            response_data = response.json()
+            available_models = response_data.get('models', [])
+            model_is_pulled = self.model_name in [model['name'] for model in available_models]
+
+            if not model_is_pulled:
+                logger.error(f"Ollama model '{self.model_name}' is not pulled locally. Please pull the model using the command `ollama pull {self.model_name}`.")
+                return False
+            
+            return True
+        except requests.RequestException as e:
+            logger.error(f"Failure checking Ollama availability, ensure Ollama is running locally via the command `ollama serve`: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error when checking Ollama availability: {e}")
+            return False
+        
 
     def get_llama_idx_instance(self) -> Ollama:
         """
@@ -45,6 +69,7 @@ class OllamaLLM(LLMBase):
 
         TODO: In long run, we should have Ollama running in Docker container via compose.yaml 
         """
+
         return Ollama(
             model=self.model_name, 
             base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
