@@ -12,6 +12,7 @@ from typing import List
 import logging
 from datetime import datetime
 from uuid import uuid4
+import asyncio
 
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import VectorStoreIndex, Settings
@@ -131,15 +132,32 @@ class QueryService:
         
         embedding_manager = EmbeddingManager(collections_by_type)
 
-        # TODO: Call _get_chunks concurrentyl for both DOCS and CODE collections  
-        chunks = defaultdict(list)
-        for source_type in [DOCS, CODE]:
-            embedding_model = await embedding_manager.aget_embedding_model(source_type)
-            chunks[source_type] = await self._get_chunks(
+        # TODO: Despite parallelizing these calls, loading large embedding models can take a good chunk of time. Consider caching models in memory at application startup 
+
+        # load embedding models in parallel
+        embedding_docs, embedding_code = await asyncio.gather(
+            embedding_manager.aget_embedding_model(DOCS),
+            embedding_manager.aget_embedding_model(CODE)
+        )
+
+        # fetch chunks in parallel
+        chunks_docs, chunks_code = await asyncio.gather(
+            self._get_chunks(
                 query=query,
-                collection=collections_by_type[source_type],
-                embedding=embedding_model
+                collection=collections_by_type[DOCS],
+                embedding=embedding_docs
+            ),
+            self._get_chunks(
+                query=query,
+                collection=collections_by_type[CODE],
+                embedding=embedding_code
             )
+        )
+
+        # organize chunks by type
+        chunks = defaultdict(list)
+        chunks[DOCS] = chunks_docs
+        chunks[CODE] = chunks_code
 
         return chunks       
 
