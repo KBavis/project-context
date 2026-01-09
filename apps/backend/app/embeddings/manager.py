@@ -32,7 +32,7 @@ class EmbeddingManager:
             else self.get_code_embedding_model()
         )
 
-    async def aget_embeeding_model(self, source_type: str):
+    async def aget_embedding_model(self, source_type: str):
         """
         Asynchronously retrieve relevant embedding model 
         """
