@@ -36,7 +36,7 @@ class EmbeddingManager:
         """
         Asynchronously retrieve relevant embedding model 
         """
-        await asyncio.to_thread(self.get_embedding_model, source_type)
+        return await asyncio.to_thread(self.get_embedding_model, source_type)
 
     
     def get_tokenizer(self, source_type):
