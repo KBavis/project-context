@@ -4,7 +4,7 @@ from app.core.config import settings
 class LLMManager:
 
 
-    def __init__(self, provider: str = settings.LL_MODEL_PROVIDER, model_name: str = settings.LL_MODEL_NAME):
+    def __init__(self, provider: str = settings.LL_MODEL_PROVIDER, model_name: str = settings.LL_MODEL):
         self.provider = provider
         self.model_name = model_name
         self.llm = self._initialize_llm()
