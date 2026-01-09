@@ -79,17 +79,22 @@ class QueryService:
 
         try:
             
-            # TODO: Setup async task for initalizing EmbeddingManager in order to
-            # avoid blocking main thread when first loading model weights (lazily loaded at runtime currently)
+            # TODO: Setup async task for initalizing EmbeddingManager in order to avoid blocking main thread when first loading model weights (lazily loaded at runtime currently)
             chunks = await self.get_relevant_chunks(query, project_id)
-            for type, type_chunks in chunks.items():
-                await self.log_chunks(type_chunks, chunk_type=type)
 
-            re_ranked_chunks = await self.ranking_svc.get_rankings(
+            # re-rank retrieved chunks
+            re_ranked_nodes = await self.ranking_svc.get_rankings(
                 chunks=chunks,
                 query=query,
                 top_k=5 # TODO: Make this a configuration 
             )
+
+            # log re-ranked nodes for debugging
+            logger.debug(f"Top ranked chunks after re-ranking: \n")
+            for i, chunk in enumerate(re_ranked_nodes):
+                logger.debug(f"\tRanked Chunk {i+1}: Score={chunk.score}, Text={chunk.node.get_content()}")
+
+
         except Exception as e:
             logger.error(f"Error executing query for project_id={project_id} with query='{query}': {str(e)}")
 
@@ -98,19 +103,6 @@ class QueryService:
 
         # TODO: Integrate with LLM to generate final response 
 
-
-    async def log_chunks(self, chunks: List[NodeWithScore], chunk_type: str):
-        """
-        Log retrieved chunks for debugging purposes.
-
-        Args:
-            chunks (List[NodeWithScore]): list of retrieved chunks 
-            chunk_type (str): type of chunks (e.g., "DOCS" or "CODE")
-        """
-        logger.debug(f"Logging {len(chunks)} {chunk_type} chunks: \n")
-        for i, chunk in enumerate(chunks):
-            logger.debug(f"\t{chunk_type} Chunk {i+1}: Score={chunk.score}, Text={chunk.node.get_text()}")
-        
 
     async def get_relevant_chunks(self, query, project_id) -> defaultdict[str, List[NodeWithScore]]: 
         """
