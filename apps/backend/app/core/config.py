@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     VECTOR_DB_HOST: str = "localhost"
     VECTOR_DB_PORT: int = 8000
 
+    OLLAMA_LOCAL_HOST_URL: str = "http://localhost:11434"
+
     LL_MODEL_PROVIDER: str = "Ollama"
     LL_MODEL: str = "gpt-oss:latest"
 

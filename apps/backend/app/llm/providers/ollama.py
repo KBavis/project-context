@@ -5,6 +5,8 @@ import requests
 import os
 import logging
 
+from app.core import settings
+
 logger = logging.getLogger(__name__)
 
 class OllamaLLM(LLMBase):
@@ -72,5 +74,5 @@ class OllamaLLM(LLMBase):
 
         return Ollama(
             model=self.model_name, 
-            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            base_url=os.getenv("OLLAMA_BASE_URL", settings.OLLAMA_LOCAL_HOST_URL)
         ) # TODO: Add additional configuration options as needed and move URL to configs 
