@@ -20,6 +20,14 @@ class OllamaLLM(LLMBase):
         Return the maximum context length for the Ollama LLM.
         """
 
+        """
+        TODO: 
+            1) Hit Ollama http://localhost:11434/api/tags endpoint to get model context length 
+                    - Detemrine if any other relevant information is needed 
+            2) Calculate available VRAM on host machine 
+            3) Restrict max context length accoridngly 
+        """
+
         return 2048  # TODO: Implement me and remove place holder value 
     
     def tokenize(self, text: str) -> list[str]:
