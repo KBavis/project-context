@@ -4,6 +4,7 @@ from llama_index.llms.ollama import Ollama
 import requests
 import os
 import logging
+import torch
 
 from app.core import settings
 
@@ -19,6 +20,21 @@ class OllamaLLM(LLMBase):
         """
         Return the maximum context length for the Ollama LLM.
         """
+
+
+        # get total VRAM for current machine
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+            total_vram_bytes = torch.cuda.get_device_properties(device=device).total_memory
+            total_vram_gbs = round(total_vram_bytes * 1e-9, 2)
+            logger.debug(f"Total VRAM available for Ollama LLM: {total_vram_gbs} GB")
+
+        else:
+            logger.warning("CUDA is not available. Ollama LLM may have limited performance on CPU-only systems.")
+            # TODO: Consider setting default max length of CPU based systems 
+        
+        # get the maximum context length of configured model 
+        
 
         """
         TODO: 
