@@ -10,6 +10,29 @@ from app.core import settings
 
 logger = logging.getLogger(__name__)
 
+# mapping of quantization level to corresponding 
+quantization_bytes = {
+    'Q2_K': 0.25,
+    'Q3_K_S': 0.375,
+    'Q3_K_M': 0.375,
+    'Q3_K_L': 0.375,
+    'Q4_0': 0.5,
+    'Q4_1': 0.5,
+    'Q4_K_S': 0.5,
+    'Q4_K_M': 0.5,
+    'Q5_0': 0.625,
+    'Q5_1': 0.625,
+    'Q5_K_S': 0.625,
+    'Q5_K_M': 0.625,
+    'Q6_K': 0.75,
+    'Q8_0': 1.0,
+    'F16': 2.0,
+    'F32': 4.0,
+    'MXFP4': 0.5,
+    'MXFP6': 0.75,
+    'MXFP8': 1.0,
+}
+
 class OllamaLLM(LLMBase):
 
     def __init__(self, model_name: str):
@@ -25,6 +48,20 @@ class OllamaLLM(LLMBase):
 
         model_stats = self._get_model_stats()
         logger.debug(f"{self.model_name} Statistics: {model_stats}")
+
+        """
+        TODO: 
+            1) Calculate model size (num params * quantization bytes)
+            2) Get remaining VRAM 
+            3) Account for overhead (15 - 20%)
+            4) Calcualte KV Budget (remaining - overehead)
+            5) Calcualte hardware max tokens 
+            7) Determine pratical max (min between hardware max tokens and model max tokens)
+            8) Determine expected response length (how many tokens will model generate)
+            9) Determine usable input budget (pratical max - response buffer)
+        """
+
+        model_size = 
 
         return self._calculate_max_context_length()
     
@@ -88,17 +125,14 @@ class OllamaLLM(LLMBase):
 
         Note: VRAM is essentially the working space for LLMs, everything must fit into
         this space: a) the model weights, b) KV-cache, c) input/output token generation, etc
-
-        TODO: Consider making this an abstract method in LLMBase if needed (may only be required for Ollama due to local usage)
         """
 
         # ensure that GPU device is avaialble 
         if torch.cuda.is_available():
             device = torch.device("cuda")
             total_vram_bytes = torch.cuda.get_device_properties(device=device).total_memory
-            total_vram_gbs = round(total_vram_bytes * 1e-9, 2)
-            logger.debug(f"Total VRAM available for Ollama LLM: {total_vram_gbs} GB")
-
+            logger.debug(f"Total VRAM available for Ollama LLM: {total_vram_bytes} Bytes")
+            return total_vram_bytes
         else:
             logger.warning("CUDA is not available. Ollama LLM may have limited performance on CPU-only systems.")
             # TODO: Consider setting default max length of CPU based systems or not allowing for usage 
@@ -106,6 +140,9 @@ class OllamaLLM(LLMBase):
     def tokenize(self, text: str) -> list[str]:
         """
         Tokenize the input text using the Ollama tokenizer and return list of tokens.
+
+        Note: This function should be used by check to see if we are exceeding maximum context 
+        length with our current input
         """
 
         # TODO: Implement me
