@@ -51,17 +51,20 @@ class OllamaLLM(LLMBase):
 
         """
         TODO: 
-            1) Calculate model size (num params * quantization bytes)
-            2) Get remaining VRAM 
-            3) Account for overhead (15 - 20%)
-            4) Calcualte KV Budget (remaining - overehead)
+            4) Calcualte KV Budget 
             5) Calcualte hardware max tokens 
             7) Determine pratical max (min between hardware max tokens and model max tokens)
             8) Determine expected response length (how many tokens will model generate)
             9) Determine usable input budget (pratical max - response buffer)
         """
 
-        model_size = 
+        # calcualte reamining system VRAM after account for parameters / quantization level
+        model_size = model_stats["parameter_count"] * quantization_bytes[model_stats['quantization_level']]
+        remaining_vram = total_vram - model_size 
+        
+        # dedicate 15% reamining VRAM for inference overhead for GPU 
+        inference_overhead = 0.15 * remaining_vram         
+        remaining_vram -= inference_overhead 
 
         return self._calculate_max_context_length()
 
