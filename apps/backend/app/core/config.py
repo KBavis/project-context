@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     VECTOR_DB_PORT: int = 8000
 
     OLLAMA_LOCAL_HOST_URL: str = "http://localhost:11434"
+    OLLAMA_KV_CACHE_TYPE: str = "f16"
+    LLM_EXPECTED_RESPONSE_SIZE: int = 500 
 
     LL_MODEL_PROVIDER: str = "Ollama"
     LL_MODEL: str = "gpt-oss:latest"
