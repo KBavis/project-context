@@ -106,7 +106,7 @@ class QueryService:
             # configure LlamaIndex to use the selected LLM 
             Settings.llm = llm.get_llama_idx_instance()
 
-            response = Settings.llm.complete(prompt)
+            response = Settings.llm.complete(prompt) # TODO: Use LLM_EXPECTED_RESPONSE_SIZE and pass to model to ensure that we don't got over max context length 
 
             logger.debug(f"LLM Response: {response}")
 
