@@ -10,8 +10,8 @@ from app.core import settings
 
 logger = logging.getLogger(__name__)
 
-# mapping of quantization level to corresponding 
-quantization_bytes = {
+# mapping of quantization level to corresponding bytes (for model params)
+model_params_quantization_bytes = {
     'Q2_K': 0.25,
     'Q3_K_S': 0.375,
     'Q3_K_M': 0.375,
@@ -31,6 +31,13 @@ quantization_bytes = {
     'MXFP4': 0.5,
     'MXFP6': 0.75,
     'MXFP8': 1.0,
+}
+
+# mapping of quantization level to corresponding bytes (for kv cache)
+kv_cache_quantization_bytes = {
+    "f16": 2,
+    "q8_0": 1,
+    "q4_0": 0.5
 }
 
 class OllamaLLM(LLMBase):
@@ -59,14 +66,28 @@ class OllamaLLM(LLMBase):
         """
 
         # calcualte reamining system VRAM after account for parameters / quantization level
-        model_size = model_stats["parameter_count"] * quantization_bytes[model_stats['quantization_level']]
+        model_size = model_stats["parameter_count"] * model_params_quantization_bytes[model_stats['quantization_level']]
         remaining_vram = total_vram - model_size 
         
         # dedicate 15% reamining VRAM for inference overhead for GPU 
         inference_overhead = 0.15 * remaining_vram         
         remaining_vram -= inference_overhead 
 
-        return self._calculate_max_context_length()
+        # calculate KV-cache budget (including hardware limiations)
+        hardware_max_tokens = remaining_vram / (
+            2 * 
+            model_stats['num_layers'] * 
+            model_stats['hidden_dimensions'] * 
+            kv_cache_quantization_bytes[settings.OLLAMA_KV_CACHE_TYPE] # kv cache bytes
+        )
+
+        # determine max token (min between model maximum and hardware limitation)
+        pratical_max = min(hardware_max_tokens, model_stats['model_context_length'])
+
+        # account for response buffer (output tokens from LLM)
+        return pratical_max - settings.LLM_EXPECTED_RESPONSE_SIZE
+
+
 
 
     
