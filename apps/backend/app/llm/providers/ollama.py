@@ -181,8 +181,8 @@ class OllamaLLM(LLMBase):
                 "model_context_length": model_info[f"{model_architecture_name}.context_length"],
                 "parameter_count": model_info[f"general.parameter_count"], 
                 "quantization_level": response_data['details']['quantization_level'], 
-                "num_layers": model_info['block_count'], 
-                "hidden_dimensions": model_info['embedding_length'] 
+                "num_layers": model_info[f"{model_architecture_name}.block_count"], 
+                "hidden_dimensions": model_info[f'{model_architecture_name}.embedding_length'] 
             }
         except requests.exceptions.RequestException as e:
             logger.error(f"Failure occurred while attempting to retrieve model stats", exc_info=True)
