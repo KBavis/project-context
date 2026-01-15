@@ -85,7 +85,7 @@ class OllamaLLM(LLMBase):
         pratical_max = min(hardware_max_tokens, model_stats['model_context_length'])
 
         # account for response buffer (output tokens from LLM)
-        return pratical_max - settings.LLM_EXPECTED_RESPONSE_SIZE
+        return round(pratical_max - settings.LLM_EXPECTED_RESPONSE_SIZE)
 
 
 
