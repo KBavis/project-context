@@ -49,6 +49,10 @@ class OllamaLLM(LLMBase):
     def get_max_context_length(self) -> int:
         """
         Return the maximum context length for the Ollama LLM.
+
+        Note: This function will utilize the current systems hardware limitations 
+        and the corresponding model configured context lenght to determine 
+        what the max input is that we send to a particular model
         """
 
         total_vram = self._get_total_vram()
