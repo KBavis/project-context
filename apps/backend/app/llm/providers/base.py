@@ -4,6 +4,21 @@ from abc import ABC, abstractmethod
 class LLMBase(ABC):
 
     @abstractmethod
+    def get_model_name(self) -> str:
+        """
+        Return the model name of the current configured LLM 
+        """
+        raise NotImplementedError("Subclasses must implement get_model_name method")
+    
+    @abstractmethod
+    def get_provider(self) -> str:
+        """
+        Return the provider name of the current configured LLM 
+        """
+        raise NotImplementedError("Subclasses must implement get_provider method")
+
+
+    @abstractmethod
     def get_max_context_length(self) -> int:
         """
         Return the maximum context length for the LLM (taking into considerations potential hardware limitations if applicable).
