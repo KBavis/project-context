@@ -3,13 +3,15 @@ from abc import ABC, abstractmethod
 
 class LLMBase(ABC):
 
+    @property
     @abstractmethod
     def get_model_name(self) -> str:
         """
         Return the model name of the current configured LLM 
         """
         raise NotImplementedError("Subclasses must implement get_model_name method")
-    
+
+    @property 
     @abstractmethod
     def get_provider(self) -> str:
         """
