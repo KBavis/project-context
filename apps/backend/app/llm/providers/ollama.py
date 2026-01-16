@@ -55,32 +55,35 @@ class OllamaLLM(LLMBase):
         what the max input is that we send to a particular model
         """
 
-        total_vram = self._get_total_vram()
+        machine_total_vram_bytes = self._get_total_vram()
 
         model_stats = self._get_model_stats()
         logger.debug(f"{self.model_name} Statistics: {model_stats}")
 
-        # calcualte reamining system VRAM after account for parameters / quantization level
-        model_size = model_stats["parameter_count"] * model_params_quantization_bytes[model_stats['quantization_level']]
-        remaining_vram = total_vram - model_size 
+        # calcualte the total size of the model (account for params being quantized)
+        bytes_per_parameter = model_params_quantization_bytes[model_stats['quantization_level']]
+        model_size_bytes = model_stats["parameter_count"] * bytes_per_parameter
+
+        # remaining vram of current machine, accounting for model size being loaded into memory
+        total_vram_bytes_remaining = machine_total_vram_bytes - model_size_bytes
         
         # dedicate 15% reamining VRAM for inference overhead for GPU 
-        inference_overhead = 0.15 * remaining_vram         
-        remaining_vram -= inference_overhead 
+        inference_overhead = 0.15 * total_vram_bytes_remaining
+        total_vram_bytes_remaining -= inference_overhead 
 
         # calculate KV-cache budget (including hardware limiations)
-        hardware_max_tokens = remaining_vram / (
+        hardware_max_tokens = total_vram_bytes_remaining / (
             2 * 
             model_stats['num_layers'] * 
             model_stats['hidden_dimensions'] * 
-            kv_cache_quantization_bytes[settings.OLLAMA_KV_CACHE_TYPE] # kv cache bytes
+            kv_cache_quantization_bytes[settings.OLLAMA_KV_CACHE_TYPE] # kv cache number of bytes
         )
 
-        # determine max token (min between model maximum and hardware limitation)
-        pratical_max = min(hardware_max_tokens, model_stats['model_context_length'])
+        # determine max token (min between model maximum and hardware limitation maximum)
+        pratical_max_tokens = min(hardware_max_tokens, model_stats['model_context_length'])
 
         # account for response buffer (output tokens from LLM)
-        return round(pratical_max - settings.LLM_EXPECTED_RESPONSE_SIZE)
+        return round(pratical_max_tokens - settings.LLM_EXPECTED_RESPONSE_SIZE)
 
 
 
@@ -182,6 +185,9 @@ class OllamaLLM(LLMBase):
         except requests.exceptions.RequestException as e:
             logger.error(f"Failure occurred while attempting to retrieve model stats", exc_info=True)
             raise e
+        except Exception as ex:
+            logger.error(f"An unexpected error occurred while retrieving model stats for model: {self.model_name}", exc_info=True)
+            raise ex
 
 
     def _get_total_vram(self): 
