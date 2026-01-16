@@ -118,6 +118,7 @@ class QueryService:
             response = Settings.llm.complete(prompt) # TODO: Use LLM_EXPECTED_RESPONSE_SIZE and pass to model to ensure that we don't got over max context length 
 
             logger.debug(f"LLM Response: {response}")
+            logger.debug(f"LLM Response Meta Data (Including Token Usage): {response.additional_kwargs}")
 
             # TODO: Update Q&A record with final answer and mark as COMPLETED in DB
 
