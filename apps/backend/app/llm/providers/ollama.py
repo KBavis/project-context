@@ -56,15 +56,6 @@ class OllamaLLM(LLMBase):
         model_stats = self._get_model_stats()
         logger.debug(f"{self.model_name} Statistics: {model_stats}")
 
-        """
-        TODO: 
-            4) Calcualte KV Budget 
-            5) Calcualte hardware max tokens 
-            7) Determine pratical max (min between hardware max tokens and model max tokens)
-            8) Determine expected response length (how many tokens will model generate)
-            9) Determine usable input budget (pratical max - response buffer)
-        """
-
         # calcualte reamining system VRAM after account for parameters / quantization level
         model_size = model_stats["parameter_count"] * model_params_quantization_bytes[model_stats['quantization_level']]
         remaining_vram = total_vram - model_size 
