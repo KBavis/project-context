@@ -148,8 +148,8 @@ class OllamaLLM(LLMBase):
 
         Information retrieved:
             a) model_context_length: the maximum number of tokens LLM can process in single conversation 
-            b) parameter count: number of parameters utilzied in model
-            c) quantization_level: the level this models parameters are quantized (requried for determing how many bytes required per parameter)
+            b) parameter count: number of parameters utilized in model
+            c) quantization_level: the level this models parameters are quantized (required for determing how many bytes required per parameter)
             d) num_layers: number of layers in the model
             e) hidden_dimensions: size of internal representations at each layer (length of vectors)
         """
