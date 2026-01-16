@@ -25,7 +25,6 @@ class LLMManager:
                 llm = OllamaLLM(model_name=self.model_name)
                 if not llm.is_available(): # TODO: Check if Ollaam from llama index has built in functionality to check this already 
                     raise ValueError(f"Ollama LLM with model '{self.model_name}' is not available. Please ensure Ollama is installed and the model is pulled locally.")
-                logger.debug(f"LLM Max Context Length (Input Only): {llm.get_max_context_length()}") 
                 return llm
             case _:
                 raise ValueError(f"Unsupported LLM provider: {self.provider}")
