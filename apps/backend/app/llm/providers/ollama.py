@@ -86,8 +86,18 @@ class OllamaLLM(LLMBase):
         return round(pratical_max_tokens - settings.LLM_EXPECTED_RESPONSE_SIZE)
 
 
-
-
+    def get_model_name(self):
+        """
+        Return the currently configured Model for the Ollama LLM
+        """
+        return self.model_name
+    
+    def get_provider(self):
+        
+        """
+        Return the currently configured Provider (i.e Ollama)
+        """
+        return "Ollama" #TODO: Move this to constants 
     
     
     def tokenize(self, text: str) -> list[str]:
