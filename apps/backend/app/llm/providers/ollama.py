@@ -44,6 +44,20 @@ class OllamaLLM(LLMBase):
 
     def __init__(self, model_name: str):
         self.model_name = model_name
+
+    @property
+    def get_model_name(self):
+        """
+        Return the currently configured Model for the Ollama LLM
+        """
+        return self.model_name
+    @property 
+    def get_provider(self):
+        
+        """
+        Return the currently configured Provider (i.e Ollama)
+        """
+        return "Ollama" #TODO: Move this to constants 
     
 
     def get_max_context_length(self) -> int:
@@ -84,20 +98,6 @@ class OllamaLLM(LLMBase):
 
         # account for response buffer (output tokens from LLM)
         return round(pratical_max_tokens - settings.LLM_EXPECTED_RESPONSE_SIZE)
-
-
-    def get_model_name(self):
-        """
-        Return the currently configured Model for the Ollama LLM
-        """
-        return self.model_name
-    
-    def get_provider(self):
-        
-        """
-        Return the currently configured Provider (i.e Ollama)
-        """
-        return "Ollama" #TODO: Move this to constants 
     
     
     def tokenize(self, text: str) -> list[str]:
