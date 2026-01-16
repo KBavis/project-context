@@ -109,6 +109,7 @@ class OllamaLLM(LLMBase):
         """
 
         # TODO: Implement me
+        return []
     
 
     def decompose_query(self, query: str) -> list[str]:
