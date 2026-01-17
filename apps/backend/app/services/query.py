@@ -107,7 +107,7 @@ class QueryService:
             Settings.llm = llm.get_llama_idx_instance()
 
             max_tokens = llm.get_max_context_length()
-            logger.debug(f"Max Context Length for Provider={llm.get_provider()} and Model={llm.get_model_name()}: {max_tokens} Tokens")
+            logger.debug(f"Max Context Length for Provider={llm.provider} and Model={llm.model_name}: {max_tokens} Tokens")
 
             # TODO: Implement tokenzie function and handle gracefully
             total_input_tokens = llm.tokenize()
