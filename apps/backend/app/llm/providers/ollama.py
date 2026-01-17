@@ -5,6 +5,7 @@ import requests
 import os
 import logging
 import torch
+import tiktoken
 
 from app.core import settings
 
@@ -109,8 +110,11 @@ class OllamaLLM(LLMBase):
         length with our current input
         """
 
-        # TODO: Implement me
-        return []
+        encoding = tiktoken.encoding_for_model(self.model_name)
+
+        encodings = encoding.encode(text)
+
+        return encodings
     
 
     def decompose_query(self, query: str) -> list[str]:
