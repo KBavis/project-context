@@ -108,8 +108,9 @@ class OllamaLLM(LLMBase):
 
         Note: This function should be used by check to see if we are exceeding maximum context 
         length with our current input
-        """
+        """ 
 
+        # TODO: This will only work for OpenAI related tokenizers, need to setup mapping from Ollama model name to corresponding HuggingFace tokenizer and use AutoTokenizer
         encoding = tiktoken.encoding_for_model(self.model_name)
 
         encodings = encoding.encode(text)
