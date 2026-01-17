@@ -110,7 +110,7 @@ class QueryService:
             logger.debug(f"Max Context Length for Provider={llm.provider} and Model={llm.model_name}: {max_tokens} Tokens")
 
             # TODO: Implement tokenzie function and handle gracefully
-            total_input_tokens = llm.tokenize()
+            total_input_tokens = llm.tokenize(prompt)
             if len(total_input_tokens) > max_tokens:
                 # TODO: Reduce number of chunks present in order to send and handle this gracefully
                 raise Exception(f"Total Input Tokens ={len(total_input_tokens)}, but the the Max Tokens allowed ={max_tokens}")
