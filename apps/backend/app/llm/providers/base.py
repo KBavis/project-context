@@ -5,19 +5,19 @@ class LLMBase(ABC):
 
     @property
     @abstractmethod
-    def get_model_name(self) -> str:
+    def model_name(self) -> str:
         """
         Return the model name of the current configured LLM 
         """
-        raise NotImplementedError("Subclasses must implement get_model_name method")
+        raise NotImplementedError("Subclasses must implement model_name property")
 
     @property 
     @abstractmethod
-    def get_provider(self) -> str:
+    def provider(self) -> str:
         """
         Return the provider name of the current configured LLM 
         """
-        raise NotImplementedError("Subclasses must implement get_provider method")
+        raise NotImplementedError("Subclasses must implement provider property")
 
 
     @abstractmethod

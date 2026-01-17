@@ -43,16 +43,17 @@ kv_cache_quantization_bytes = {
 class OllamaLLM(LLMBase):
 
     def __init__(self, model_name: str):
-        self.model_name = model_name
+        self._model_name = model_name
 
     @property
-    def get_model_name(self):
+    def model_name(self) -> str:
         """
         Return the currently configured Model for the Ollama LLM
         """
-        return self.model_name
+        return self._model_name
+    
     @property 
-    def get_provider(self):
+    def provider(self):
         
         """
         Return the currently configured Provider (i.e Ollama)
