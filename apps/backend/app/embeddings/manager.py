@@ -2,10 +2,8 @@ from app.core import settings
 from app.models.collection import ChromaCollection
 
 from transformers import AutoTokenizer
-
 import logging
 from typing import Dict
-
 import asyncio
 
 
@@ -20,6 +18,7 @@ class EmbeddingManager:
         # Docs Embedding Specific Values
         self._docs_provider = chroma_collections["DOCS"].embedding_provider
         self._docs_model = chroma_collections["DOCS"].embedding_model
+
 
     def get_embedding_model(self, source_type: str):
         """
@@ -110,6 +109,7 @@ class EmbeddingManager:
                 raise Exception(
                     f"Invalid embedding provider specified: {self._docs_provider}"
                 )
+
 
     def get_code_embedding_model(self):
 
