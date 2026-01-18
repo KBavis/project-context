@@ -1,11 +1,12 @@
 from .base import LLMBase
 from llama_index.llms.ollama import Ollama
 
+from transformers import AutoTokenizer
+
 import requests
 import os
 import logging
 import torch
-import tiktoken
 
 from app.core import settings
 
@@ -110,13 +111,10 @@ class OllamaLLM(LLMBase):
         length with our current input
         """ 
 
-        # TODO: This will only work for OpenAI related tokenizers, need to setup mapping from Ollama model name to corresponding HuggingFace tokenizer and use AutoTokenizer
-        encoding = tiktoken.encoding_for_model(self.model_name)
+        # TODO: Figure out better way to nicely calculate LLM HuggingFace tokenizer ID than making user configure it 
+        tokenizer = AutoTokenizer.from_pretrained(settings.OLLAMA_MODEL_TOKENIZER) 
+        return tokenizer.encode(text)
 
-        encodings = encoding.encode(text)
-
-        return encodings
-    
 
     def decompose_query(self, query: str) -> list[str]:
         """
