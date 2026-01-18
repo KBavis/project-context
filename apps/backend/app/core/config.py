@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     OLLAMA_LOCAL_HOST_URL: str = "http://localhost:11434"
     OLLAMA_KV_CACHE_TYPE: str = "f16"
+    OLLAMA_MODEL_TOKENIZER: str = "openai/gpt-oss-20b" # TODO: Find nice way to map Ollama model name to corresponding HuggingFace tokenizer based on model name (similar to tiktoken for openai)
     LLM_EXPECTED_RESPONSE_SIZE: int = 500 
 
     LL_MODEL_PROVIDER: str = "Ollama"
