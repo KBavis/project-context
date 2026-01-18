@@ -160,7 +160,8 @@ class OllamaLLM(LLMBase):
 
         return Ollama(
             model=self.model_name, 
-            base_url=os.getenv("OLLAMA_BASE_URL", settings.OLLAMA_LOCAL_HOST_URL)
+            base_url=os.getenv("OLLAMA_BASE_URL", settings.OLLAMA_LOCAL_HOST_URL),
+            request_timeout=300
         ) # TODO: Add additional configuration options as needed and move URL to configs 
     
 
