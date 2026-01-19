@@ -3,6 +3,7 @@ from llama_index.llms.ollama import Ollama
 
 from transformers import AutoTokenizer
 
+import httpx
 import requests
 import os
 import logging
@@ -74,7 +75,7 @@ class OllamaLLM(LLMBase):
 
         machine_total_vram_bytes = self._get_total_vram()
 
-        model_stats = self._get_model_stats()
+        model_stats = await self._get_model_stats()
         logger.debug(f"{self.model_name} Statistics: {model_stats}")
 
         # calcualte the total size of the model (account for params being quantized)
@@ -130,6 +131,7 @@ class OllamaLLM(LLMBase):
 
         try:
             # check ollama server is running and get pulled model info
+
             response = requests.get(os.getenv("OLLAMA_BASE_URL", settings.OLLAMA_LOCAL_HOST_URL) + "/api/tags")
             response.raise_for_status()
 
@@ -165,7 +167,7 @@ class OllamaLLM(LLMBase):
         ) # TODO: Add additional configuration options as needed and move URL to configs 
     
 
-    def _get_model_stats(self):
+    async def _get_model_stats(self):
         """
         Retrieve relevant model stats for Ollama model 
 
@@ -182,8 +184,9 @@ class OllamaLLM(LLMBase):
                 "model": self.model_name
             }
 
-            response = requests.post(os.getenv("OLLAMA_BASE_URL", settings.OLLAMA_LOCAL_HOST_URL) + "/api/show", json=data)
-            response.raise_for_status()
+            async with httpx.AsyncClient() as client:
+                response = await client.post(os.getenv("OLLAMA_BASE_URL", settings.OLLAMA_LOCAL_HOST_URL) + "/api/show", json=data)
+                response.raise_for_status()
 
             response_data = response.json()
             model_info = response_data["model_info"]
