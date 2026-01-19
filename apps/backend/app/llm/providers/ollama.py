@@ -63,7 +63,7 @@ class OllamaLLM(LLMBase):
         return "Ollama" #TODO: Move this to constants 
     
 
-    def get_max_context_length(self) -> int:
+    async def get_max_context_length(self) -> int:
         """
         Return the maximum context length for the Ollama LLM.
 
@@ -103,7 +103,7 @@ class OllamaLLM(LLMBase):
         return round(pratical_max_tokens - settings.LLM_EXPECTED_RESPONSE_SIZE)
     
     
-    def tokenize(self, text: str) -> list[str]:
+    async def tokenize(self, text: str) -> list[str]:
         """
         Tokenize the input text using the Ollama tokenizer and return list of tokens.
 

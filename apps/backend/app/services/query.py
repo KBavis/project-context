@@ -106,17 +106,17 @@ class QueryService:
             # configure LlamaIndex to use the selected LLM 
             Settings.llm = llm.get_llama_idx_instance()
 
-            max_tokens = llm.get_max_context_length()
+            max_tokens = await llm.get_max_context_length()
             logger.debug(f"Max Context Length for Provider={llm.provider} and Model={llm.model_name}: {max_tokens} Tokens")
 
-            total_input_tokens = llm.tokenize(prompt)
+            total_input_tokens = await llm.tokenize(prompt)
             logger.debug(f"Total Input Tokens: {len(total_input_tokens)}")
 
             if len(total_input_tokens) > max_tokens:
                 # TODO: Reduce number of chunks present in order to send and handle this gracefully
                 raise Exception(f"Total Input Tokens ={len(total_input_tokens)}, but the the Max Tokens allowed ={max_tokens}")
 
-            response = Settings.llm.complete(prompt) # TODO: Use LLM_EXPECTED_RESPONSE_SIZE and pass to model to ensure that we don't got over max context length 
+            response = await Settings.llm.acomplete(prompt) # TODO: Use LLM_EXPECTED_RESPONSE_SIZE and pass to model to ensure that we don't got over max context length 
 
             logger.debug(f"LLM Response: {response}")
             logger.debug(f"LLM Response Meta Data (Including Token Usage): {response.additional_kwargs}")
