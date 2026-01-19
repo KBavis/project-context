@@ -5,6 +5,7 @@ from typing import List
 from collections import defaultdict
 
 from llama_index.core.schema import NodeWithScore
+import asyncio
 
 from app.core.config import settings
 
@@ -16,6 +17,7 @@ class RankingService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+    
 
     async def get_rankings(self, chunks: defaultdict[str, List[NodeWithScore]], query: str, top_k: int = 5) -> List[NodeWithScore]:
         """
@@ -31,7 +33,7 @@ class RankingService:
         logger.debug(f"Ranking top {top_k} chunks for query: {query}")
 
         # initialize cross encoder model 
-        cross_encoder = CrossEncoder(settings.CROSS_ENCODING_MODEL)
+        cross_encoder = await asyncio.to_thread(self._get_cross_encoder, settings.CROSS_ENCODING_MODEL)
 
         # construct pairs for cross encoder scoring
         all_chunks = chunks['CODE'] + chunks['DOCS']
@@ -45,7 +47,20 @@ class RankingService:
         return [node for node, score in scored_nodes[:top_k]]
 
 
+    def _get_cross_encoder(self, model_name: str) -> CrossEncoder:
+        """
+        Retrieve CrossEncoder configured in configurations in a seperate worker thread 
+        in order to no block main thread with long I/O process
+
+        Args:
+            modeL_name (str): the name of the cross encoding model 
+        """
+        try:
+
+            return CrossEncoder(model_name)
         
-        
+        except Exception as e:
+            logger.error(f"Failure occurred while downloading the following CrossEncoder: {model_name}", exc_info=True) 
+            raise e
 
 
