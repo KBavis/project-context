@@ -26,11 +26,25 @@ class Conversation(Base):
     # TODO: Add user relationship (as a Conversation will only pertain to single user)
 
     total_tokens: Mapped[int] = mapped_column(
-        nullable=True,
+        nullable=False,
+        default=text("0"),
         comment="The total number of tokens (both input & output) this Conversation contains"
     )
 
+    max_tokens: Mapped[int] = mapped_column(
+        nullable=False,
+        comment="The maximum number of tokens that can be sent in this Conversation"
+    )
 
+    ll_model_name: Mapped[str] = mapped_column(
+        nullable=False,
+        comment="The name of the LL Model this Conversation was setup to use"
+    )
+
+    ll_model_provider: Mapped[str] = mapped_column(
+        nullable=False,
+        comment="The LL Model provider configured for this Conversation"
+    )
 
     # many to one relationship with Project 
     project_id: Mapped[UUID] = mapped_column(
