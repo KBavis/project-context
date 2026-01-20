@@ -38,18 +38,6 @@ class Message(Base):
         comment="Total number of tokens used in this message"
     )
 
-    model: Mapped[str] = mapped_column(
-        String(50),
-        nullable=True,
-        comment="The LLM model utilzied when generating this particular message, will be null if user sent this message"
-    )
-
-    provider: Mapped[str] = mapped_column(
-        String(50),
-        nullable=True,
-        comment="The LLM provider utilized when generating this particular message, will be null if user sent this message"
-    )
-
     content: Mapped[str] = mapped_column(
         Text,
         nullable=False,
