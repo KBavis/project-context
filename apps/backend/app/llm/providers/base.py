@@ -18,6 +18,14 @@ class LLMBase(ABC):
         Return the provider name of the current configured LLM 
         """
         raise NotImplementedError("Subclasses must implement provider property")
+    
+    @property
+    @abstractmethod
+    def tokenizer(self):
+        """
+        Return tokenizer for the current configured LLM
+        """
+        raise NotImplementedError("Subclasses must implement tokenizer property")
 
 
     @abstractmethod
