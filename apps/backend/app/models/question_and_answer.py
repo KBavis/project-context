@@ -46,7 +46,7 @@ class QuestionAndAnswer(Base):
     )
 
     # LLM relevant fields
-    total_token_count: Mapped[int] = mapped_column(
+    total_output_token_count: Mapped[int] = mapped_column(
         nullable=True,
         comment="Total number of tokens used in generating the answer"
     )
