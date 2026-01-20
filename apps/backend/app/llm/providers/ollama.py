@@ -61,7 +61,16 @@ class OllamaLLM(LLMBase):
         """
         Return the currently configured Provider (i.e Ollama)
         """
-        return "Ollama" #TODO: Move this to constants 
+        return "Ollama" #TODO: Move this to constants
+    
+    @property
+    def tokenizer(self):
+
+        """
+        Return currently configured Tokenizer
+        """
+        return AutoTokenizer.from_pretrained(settings.OLLAMA_MODEL_TOKENIZER) 
+
     
 
     async def get_max_context_length(self) -> int:
@@ -113,8 +122,7 @@ class OllamaLLM(LLMBase):
         """ 
 
         # TODO: Figure out better way to nicely calculate LLM HuggingFace tokenizer ID than making user configure it 
-        tokenizer = AutoTokenizer.from_pretrained(settings.OLLAMA_MODEL_TOKENIZER) 
-        return tokenizer.encode(text)
+        return self.tokenizer.encode(text)
 
 
     def decompose_query(self, query: str) -> list[str]:
