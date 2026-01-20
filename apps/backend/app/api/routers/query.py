@@ -28,7 +28,7 @@ async def query(
         # create inital query record 
         q_and_a_record = await svc.init_q_and_a_record(request.project_id, request.query, start_time)
 
-        background_tasks.add_task(svc.execute_simple_query, request.query, request.project_id)
+        background_tasks.add_task(svc.execute_simple_query, request.query, request.project_id, q_and_a_record.id)
 
         return {
             "id": q_and_a_record.id,

@@ -68,7 +68,7 @@ class QueryService:
 
 
 
-    async def execute_simple_query(self, query: str, project_id: str) -> None:
+    async def execute_simple_query(self, query: str, project_id: str, q_and_a_record_id: UUID) -> None:
         """
         Execute a one-time query against the ingested documentation and code for a specified Project
 
