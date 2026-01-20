@@ -86,7 +86,7 @@ class QueryService:
             # get initalized LLM instance
             llm =  self.llm_manager.get_llm() 
 
-            # TODO: Setup async task for initalizing EmbeddingManager in order to avoid blocking main thread when first loading model weights (lazily loaded at runtime currently)
+            # TODO: In the future, we should setup a "recent projects" logic, and pre-emptively load these Embeddings into memory to speed up this call
             chunks = await self.get_relevant_chunks(query, project_id)
 
             # re-rank retrieved chunks
