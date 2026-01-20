@@ -25,6 +25,11 @@ class Conversation(Base):
 
     # TODO: Add user relationship (as a Conversation will only pertain to single user)
 
+    total_tokens: Mapped[int] = mapped_column(
+        nullable=True,
+        comment="The total number of tokens (both input & output) this Conversation contains"
+    )
+
 
 
     # many to one relationship with Project 
