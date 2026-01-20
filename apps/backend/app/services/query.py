@@ -8,17 +8,20 @@ from app.pydantic import ProcessingStatus
 from app.llm import LLMManager
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from typing import List
 import logging
 from datetime import datetime
 from uuid import uuid4
 import asyncio
+from uuid import UUID
 
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import VectorStoreIndex, Settings
 from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core.schema import NodeWithScore
+from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
 
 from collections import defaultdict
 
@@ -115,8 +118,6 @@ class QueryService:
         NOTE: This is a placeholder implementation. Down the line, relevant logic will be setup 
         to create a Converation and have multiple interactions with the LLM in one singular session.
 
-        TODO: Add Context Length checks for LLM as timeouts will occurr if we provide too much context!
-
         Args:
             query (str): The query string to execute.
             project_id (str): The ID of the Project to query against.
@@ -146,6 +147,7 @@ class QueryService:
             # configure LlamaIndex to use the selected LLM 
             Settings.llm = llm.get_llama_idx_instance()
 
+            # ensure LLM limits are not being reached
             max_tokens = await llm.get_max_context_length()
             logger.debug(f"Max Context Length for Provider={llm.provider} and Model={llm.model_name}: {max_tokens} Tokens")
 
@@ -154,7 +156,13 @@ class QueryService:
 
             if len(total_input_tokens) > max_tokens:
                 # TODO: Reduce number of chunks present in order to send and handle this gracefully
-                raise Exception(f"Total Input Tokens ={len(total_input_tokens)}, but the the Max Tokens allowed ={max_tokens}")
+                raise Exception(f"Total LLM Prompt Input Tokens ={len(total_input_tokens)}, but the the Max Tokens allowed ={max_tokens}")
+            
+            # define call backs 
+            token_counter = TokenCountingHandler(
+                tokenizer=llm.tokenizer
+            )
+            Settings.callback_manager = CallbackManager([token_counter])
 
             response = await Settings.llm.acomplete(prompt) # TODO: Use LLM_EXPECTED_RESPONSE_SIZE and pass to model to ensure that we don't got over max context length 
 
