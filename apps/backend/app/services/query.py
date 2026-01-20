@@ -159,14 +159,35 @@ class QueryService:
             response = await Settings.llm.acomplete(prompt) # TODO: Use LLM_EXPECTED_RESPONSE_SIZE and pass to model to ensure that we don't got over max context length 
 
             logger.debug(f"LLM Response: {response}")
+            logger.debug(f"Total LLM Prompt Output Tokens={token_counter.completion_llm_token_count}")
 
-            # TODO: Update Q&A record with final answer and mark as COMPLETED in DB
+            end_time = datetime.now() 
+
+            await self.update_q_and_a_record(
+                id=q_and_a_record_id,
+                output_tokens=token_counter.completion_llm_token_count,
+                end_time=end_time,
+                status=ProcessingStatus.SUCCESS, 
+                answer=response.text, 
+                total_processing_time_ms=(end_time - start_time).microseconds
+            )
 
 
-
+            token_counter.reset_counts()
 
         except Exception as e:
             logger.error(f"Error executing query for project_id={project_id} with query='{query}': {str(e)}")
+
+            end_time = datetime.now() 
+
+            await self.update_q_and_a_record(
+                id=q_and_a_record_id,
+                output_tokens=0,
+                end_time=end_time,
+                status=ProcessingStatus.FAILED,
+                answer="",
+                total_processing_time_ms=(end_time - start_time).microseconds
+            )
 
             # TODO: Update Q&A record status to FAILED in DB
             raise e
