@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from typing import List
+
 
 from app.pydantic import DataSourceRequest
 from app.models import DataSource, Project, ProjectData
@@ -14,10 +14,11 @@ logger = logging.getLogger(__name__)
 
 
 class DataSourceService:
+    
     def __init__(self, db: Session):
-        self.db = db
+        self.db: Session = db
 
-    def create_data_source(self, request: DataSourceRequest) -> dict:
+    def create_data_source(self, request: DataSourceRequest) -> dict[str, object]:
         """
         Functionality to persist new DataSource based on specified request
         """
@@ -57,7 +58,7 @@ class DataSourceService:
             "linked_projects": project_ids,
         }
 
-    def get_project_data_sources(self, project_id: UUID) -> List[dict]:
+    def get_project_data_sources(self, project_id: UUID) -> list[dict[str, object]]:
         """
         Functionality to retreive persisted data_sourcs that correspond to particular Project ID
         """
@@ -77,12 +78,12 @@ class DataSourceService:
             for data_source in data_sources
         ]
 
-    def _validate_data_source_request(self, request):
+    def _validate_data_source_request(self, request: DataSourceRequest):
         """
         Ensure the specified request is valid
         """
 
         if request.provider not in settings.VALID_DATA_PROVIDERS:
             raise Exception(
-                f"Invalid provider specified when attempting to create Data Source. Valid Providers: {settings.VALID_PROIVDERS}"
+                f"Invalid provider specified when attempting to create Data Source. Valid Providers: {settings.VALID_DATA_PROVIDERS}"
             )

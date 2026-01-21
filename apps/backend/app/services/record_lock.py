@@ -1,12 +1,12 @@
 from app.models import RecordLock, RecordType
 from app.core import get_async_session_maker
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from uuid import UUID
 import logging
 
-from sqlalchemy import select, update
+from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class RecordLockService:
             record_id (UUID): ID of record that is being locked
             record_type (RecordType): the type of record being locked
         """
-        session_maker = get_async_session_maker()
+        session_maker: async_sessionmaker[AsyncSession] = get_async_session_maker()
         async with session_maker() as session:
 
             # Step 1. Ensure record already exists 
@@ -44,7 +44,7 @@ class RecordLockService:
             on_conflict_stmt = insert_stmt.on_conflict_do_nothing(
                 index_elements=[RecordLock.record_id, RecordLock.record_type],
             )
-            await session.execute(on_conflict_stmt)
+            _ = await session.execute(on_conflict_stmt)
             await session.flush() 
 
             # Step 2. Acquire the lock 
@@ -80,7 +80,7 @@ class RecordLockService:
             record_type (RecordType): the type of record being locked
         """
         # create seperate session to ensure DB changes are persisted  
-        session_maker = get_async_session_maker() 
+        session_maker: async_sessionmaker[AsyncSession] = get_async_session_maker() 
         
         async with session_maker() as session: 
 

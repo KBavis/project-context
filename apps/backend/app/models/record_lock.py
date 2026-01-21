@@ -1,7 +1,7 @@
 from .base import Base 
 
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import text, UniqueConstraint, Enum as SQLEnum
+from sqlalchemy import Enum as SQLEnum
 
 from uuid import UUID
 from enum import Enum
@@ -12,7 +12,7 @@ class RecordType(Enum):
 
 class RecordLock(Base):
 
-    __tablename__ = "record_lock"
+    __tablename__: str = "record_lock"
 
     record_id: Mapped[UUID] = mapped_column(
         primary_key=True,

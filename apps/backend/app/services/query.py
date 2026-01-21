@@ -10,14 +10,13 @@ from app.llm import LLMManager
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from typing import List
 import logging
 from datetime import datetime
 from uuid import uuid4
 import asyncio
 from uuid import UUID
 
-from llama_index.vector_stores.chroma import ChromaVectorStore
+from llama_index.vector_stores.chroma import ChromaVectorStore # type: ignore
 from llama_index.core import VectorStoreIndex, Settings
 from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core.schema import NodeWithScore
@@ -36,10 +35,10 @@ class QueryService:
         ranking_svc: RankingService,
         llm_manager: LLMManager
     ):
-        self.db = db
-        self.chroma_svc = chroma_svc
-        self.ranking_svc = ranking_svc
-        self.llm_manager = llm_manager
+        self.db: AsyncSession = db
+        self.chroma_svc: ChromaService = chroma_svc
+        self.ranking_svc: RankingService = ranking_svc
+        self.llm_manager: LLMManager = llm_manager
     
 
     async def init_q_and_a_record(self, project_id: str, query: str, start_time: datetime) -> QuestionAndAnswer:
@@ -111,7 +110,7 @@ class QueryService:
         logger.debug(f"Successfully updated QuestionAndAnswer={id} with ProcessingStatus={status}")
 
 
-    async def execute_simple_query(self, query: str, project_id: str, q_and_a_record_id: UUID, start_time: datetime) -> None:
+    async def execute_simple_query(self, query: str, project_id: UUID, q_and_a_record_id: UUID, start_time: datetime) -> None:
         """
         Execute a one-time query against the ingested documentation and code for a specified Project
 
@@ -203,7 +202,7 @@ class QueryService:
         # TODO: Integrate with LLM to generate final response 
 
     
-    def get_prompt(self, query: str, nodes: List[NodeWithScore]) -> str:
+    def get_prompt(self, query: str, nodes: list[NodeWithScore]) -> str:
         """
         Get the prompt template to use for querying the LLM.
 
@@ -225,7 +224,7 @@ class QueryService:
 
         return full_prompt
 
-    async def get_relevant_chunks(self, query, project_id) -> defaultdict[str, List[NodeWithScore]]: 
+    async def get_relevant_chunks(self, query: str, project_id: UUID) -> defaultdict[str, list[NodeWithScore]]: 
         """
         Retrieve relevant code and documentation chunks from Chroma based on the query and project ID.
 
@@ -275,7 +274,7 @@ class QueryService:
 
     
 
-    async def _get_chunks(self, query: str, collection: ChromaCollection, embedding: BaseEmbedding) -> List[NodeWithScore]:
+    async def _get_chunks(self, query: str, collection: ChromaCollection, embedding: BaseEmbedding) -> list[NodeWithScore]:
         """
         Retrieve relevant documentation chunks from Chroma based on the query.
 

@@ -1,14 +1,15 @@
 import logging
 from uuid import UUID
 
-from typing import Dict, Optional, List
+from chromadb.api import ClientAPI
+from chromadb.api.models.Collection import Collection
 
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 
 from app.services.util import get_normalized_project_name
 from app.core import ChromaClientManager
-from app.pydantic import DeleteCollectionDocsRequest
+from app.pydantic import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse
 from app.models import ChromaCollection
 
 
@@ -22,11 +23,11 @@ class ChromaService:
             db: Session, 
             chroma_manager: ChromaClientManager,
     ):
-        self.db = db
-        self.client = chroma_manager.get_sync_client() # NOTE: LlamaIndex doesn't support working with Async Client when creating VectorStore/Index
+        self.db: Session = db
+        self.client: ClientAPI = chroma_manager.get_sync_client() # NOTE: LlamaIndex doesn't support working with Async Client when creating VectorStore/Index
 
     
-    def get_real_chroma_collection(self, collection_name): 
+    def get_real_chroma_collection(self, collection_name: str) -> Collection: 
         """
         Functionality to retreive the "real" ChromaCollection by its name (i.e not our relational DB record)
 
@@ -40,7 +41,7 @@ class ChromaService:
             raise e
 
 
-    def get_collections_by_project(self, project_id: UUID) -> List["ChromaCollection"]:
+    def get_collections_by_project(self, project_id: UUID) -> list["ChromaCollection"]:
         """
         Get all collections corresponding to a particular Project 
 
@@ -52,7 +53,8 @@ class ChromaService:
             .options(selectinload(ChromaCollection.project))
             .where(ChromaCollection.project_id == project_id)
         )
-        return self.db.execute(stmt).scalars().all() 
+
+        return list(self.db.execute(stmt).scalars().all())
 
 
     def get_collection_by_project_and_type(self, project_id: UUID, content_type: str) -> ChromaCollection:
@@ -71,7 +73,7 @@ class ChromaService:
         return self.db.execute(stmt).scalars().one()
 
 
-    def get_total_number_of_collections(self) -> Dict:
+    def get_total_number_of_collections(self) -> dict[str, int]:
         """
         Get the total number of collections in Chroma DB
         """
@@ -106,10 +108,10 @@ class ChromaService:
 
         try:
             # create collections in ChromaDB
-            self.client.create_collection(
+            _ = self.client.create_collection(
                 name=f"{PROJECT}_CODE",
             )
-            self.client.create_collection(
+            _ = self.client.create_collection(
                 name=f"{PROJECT}_DOCS"
             )
 
@@ -154,14 +156,14 @@ class ChromaService:
 
         # attempt to retrieve docs chroma db collection
         try:
-            self.client.get_collection(f"{project_name}_DOCS")
+            _ = self.client.get_collection(f"{project_name}_DOCS")
             project_dne = False
         except Exception as e:
             pass
 
         # attempt to retrieve code chromadb collection
         try:
-            self.client.get_collection(f"{project_name}_CODE")
+            _ = self.client.get_collection(f"{project_name}_CODE")
             project_dne = False
         except Exception as e:
             pass
@@ -171,7 +173,7 @@ class ChromaService:
             raise Exception(f"Project with the name {original_name} already exists")
 
 
-    def delete_collection(self, project_id: UUID, source_type: Optional[str] = "N/A"):
+    def delete_collection(self, project_id: UUID, source_type: str | None = "N/A"):
         """
         Delete collection(s) associated with particular project
 
@@ -207,7 +209,7 @@ class ChromaService:
             self, 
             delete_collections: DeleteCollectionDocsRequest,
             project_id: UUID, 
-            source_type: Optional[str] = "N/A"
+            source_type: str | None = "N/A"
         ):
         """
         Delete documents from a particular collection 
@@ -242,7 +244,7 @@ class ChromaService:
 
         return {"message": f"Successfully deleted documents from collections for Project={project_id}"}
 
-    def get_all_files(self, project_id: UUID, source_type: Optional[str] = "N/A"):
+    def get_all_files(self, project_id: UUID, source_type: str | None = "N/A") -> CollectionFilesResponse | MessageResponse | dict[str, CollectionFilesResponse] | None:
         """
         Retrieve all files stored within collections corresponding to a particular Project
 
@@ -269,32 +271,32 @@ class ChromaService:
                 return res if res else {"message": f"No Documents found in collection {project_name}_CODE"}
             case "N/A":
                 collections = ["CODE", "DOCS"]
-                all_files = {} 
+                all_files: dict[str, CollectionFilesResponse] = {} 
 
                 for c in collections:
                     files = self._get_files_from_collection(project_name, c)
-                    if files:
+                    # Only add if it's actual file data (CollectionFilesResponse), not a message
+                    if files and "doc_ids" in files:
                         all_files[c] = files
                     
                 if not all_files:
                     return {"message": f"No Documents found in CODE or DOCS collection for Project={project_name}"}
 
+                return all_files
+
             case _:
                 raise Exception("Unknown source_type specified")
-        
-
-        return all_files
             
     
 
-    def _delete_documents(self, project_name: str, source_type: str, doc_ids: List):
+    def _delete_documents(self, project_name: str, source_type: str, doc_ids: list[str]):
         """
         Delete Documents from ChromaDB collection
 
         Args:
             project_name (str): normalized project name corresponding to collection
             source_type (str): relevant source type to delete documents for 
-            doc_ids (list): list of document ids to delete from DB
+            doc_ids (list[str]): list of document ids to delete from DB
         """
 
         collection = self.client.get_collection(f"{project_name}_{source_type}")
@@ -304,7 +306,7 @@ class ChromaService:
 
         
     
-    def _get_files_from_collection(self, project_name: str, source_type: str):
+    def _get_files_from_collection(self, project_name: str, source_type: str) -> CollectionFilesResponse | MessageResponse | None:
         """
         Get Documents ffrom ChromaDB collection
 
@@ -331,12 +333,14 @@ class ChromaService:
 
         logger.info(f"Successfully retrieved {len(document_ids)} documents from collection {project_name}_{source_type}")
 
-        return {
+        # Explicitly construct the response to match our TypedDict
+        response: CollectionFilesResponse = {
             "doc_ids": document_ids,
             "documents": documents,
             "meta_datas": metadatas,
             "embeddings": embeddings
-        } 
+        }
+        return response 
 
 
     def _delete_collection(self, project_name: str, source_type: str):

@@ -1,6 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
-from typing import Optional, Set, Dict
 import logging
 import sys
 
@@ -31,29 +30,29 @@ class Settings(BaseSettings):
     DOCS_EMBEDDING_PROVIDER: str = "HuggingFace"
     DOCS_EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
 
-    CODE_EMBEDDING_PROVIDER: Optional[str] = "HuggingFace"
-    CODE_EMBEDDING_MODEL: Optional[str] = "microsoft/codebert-base"
+    CODE_EMBEDDING_PROVIDER: str | None = "HuggingFace"
+    CODE_EMBEDDING_MODEL: str | None = "microsoft/codebert-base"
 
-    CROSS_ENCODING_MODEL: Optional[str] = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    CROSS_ENCODING_MODEL: str | None = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
-    GITHUB_SECRET_TOKEN: Optional[str] = None
-    HUGGING_FACE_API_KEY: Optional[str] = None
-    OPEN_AI_API_KEY: Optional[str] = None
+    GITHUB_SECRET_TOKEN: str | None = None
+    HUGGING_FACE_API_KEY: str | None = None
+    OPEN_AI_API_KEY: str | None = None
 
-    VALID_MODEL_PROIVDERS: list = ["OpenAI", "HuggingFace"]
+    VALID_MODEL_PROVIDERS: list[str] = ["OpenAI", "HuggingFace"]
 
-    TMP: Optional[str] = "tmp"
-    PROCESSED_DIR: Optional[str] = "/processed"
-    TMP_DOCS: Optional[str] = f"{TMP}/docs"
-    TMP_CODE: Optional[str] = f"{TMP}/code"
+    TMP: str | None = "tmp"
+    PROCESSED_DIR: str | None = "/processed"
+    TMP_DOCS: str | None = f"{TMP}/docs"
+    TMP_CODE: str | None = f"{TMP}/code"
 
-    ENV: Optional[str] = "dev"
+    ENV: str | None = "dev"
 
-    DOCLING_ACCELERATOR_DEVICE: Optional[str] = "cpu"
+    DOCLING_ACCELERATOR_DEVICE: str | None = "cpu"
 
-    VALID_DATA_PROVIDERS: Set[str] = {"GitHub", "BitBucket", "Confluence"}
+    VALID_DATA_PROVIDERS: set[str] = {"GitHub", "BitBucket", "Confluence"}
 
-    CODE_FILE_EXTENSIONS: Set[str] = {
+    CODE_FILE_EXTENSIONS: set[str] = {
         "c",
         "cpp",
         "cs",
@@ -77,7 +76,7 @@ class Settings(BaseSettings):
         "yml",
     }
 
-    EXTENSION_TO_LANGUAGE: Dict[str, str] = {
+    EXTENSION_TO_LANGUAGE: dict[str, str] = {
         "py": "python",
         "js": "javascript",
         "jsx": "javascript",
@@ -101,7 +100,7 @@ class Settings(BaseSettings):
         "xml": "xml",
     }
 
-    DOCS_FILE_EXTENSIONS: Set[str] = {"docx", "pdf", "md"}
+    DOCS_FILE_EXTENSIONS: set[str] = {"docx", "pdf", "md"}
 
     model_config = SettingsConfigDict(
         extra='ignore',
@@ -111,7 +110,7 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-_LEVEL_BY_ENV: dict = {"prod": logging.INFO, "dev": logging.DEBUG}
+_LEVEL_BY_ENV: dict[str, int] = {"prod": logging.INFO, "dev": logging.DEBUG}
 
 
 def setup_logging():
@@ -123,7 +122,7 @@ def setup_logging():
 
     root.handlers.clear()  # clear existing handlers
 
-    env = settings.ENV.lower() if hasattr(settings, "ENV") else "prod"
+    env = settings.ENV.lower() if settings.ENV else "prod"
     level = _LEVEL_BY_ENV.get(env, logging.INFO)
 
     formatter = logging.Formatter(

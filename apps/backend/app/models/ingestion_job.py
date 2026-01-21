@@ -5,17 +5,17 @@ from uuid import UUID
 from typing import TYPE_CHECKING
 from datetime import datetime
 
-from app.pydantic import ProcessingStatus
+from app.pydantic.status import ProcessingStatus
 
 # avoid warning
 if TYPE_CHECKING:
     from .data_source import DataSource
 
 class IngestionJob(Base):
-    __tablename__ = "ingestion_job"
+    __tablename__: str = "ingestion_job"
 
     # ensure data_source is leading column in index, to mitigate blocking of IngestionJobs
-    __table_args__ = (
+    __table_args__: tuple[Index, ...] = (
         Index("ix_ingestion_job_data_source_status", "data_source_id", "processing_status"),
     )
 

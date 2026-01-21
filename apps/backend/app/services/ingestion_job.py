@@ -2,13 +2,14 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from uuid import UUID, uuid4
-from typing import Tuple, Iterator, Dict, List, TYPE_CHECKING
+from collections.abc import Iterator
+from typing import Any
 import asyncio
 import threading
 from collections import defaultdict
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType, ProjectData, Project
@@ -26,11 +27,11 @@ from docling.exceptions import ConversionError
 from docling.pipeline.threaded_standard_pdf_pipeline import ThreadedStandardPdfPipeline
 from docling.datamodel.pipeline_options import ThreadedPdfPipelineOptions
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
-from docling.chunking import HybridChunker
+from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
 from docling.datamodel.document import ConversionResult
-from docling_core.transforms.chunker.hybrid_chunker import DocChunk
+from docling_core.transforms.chunker.doc_chunk import DocChunk
 
-from llama_index.vector_stores.chroma import ChromaVectorStore
+from llama_index.vector_stores.chroma import ChromaVectorStore # type: ignore
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.schema import TextNode
 from llama_index.core.node_parser import CodeSplitter
@@ -43,13 +44,13 @@ logger = logging.getLogger(__name__)
 class IngestionJobService:
     def __init__(
             self, 
-            db: Session | AsyncSession, 
+            db: AsyncSession, 
             chroma_svc: ChromaService,
             record_lock_svc: RecordLockService
     ):
-        self.db = db
-        self.chroma_svc = chroma_svc
-        self.record_lock_svc = record_lock_svc
+        self.db: AsyncSession = db
+        self.chroma_svc: ChromaService = chroma_svc
+        self.record_lock_svc: RecordLockService = record_lock_svc
 
     
     async def init_ingestion_job(self, data_source_id: UUID, job_start_time: datetime): 
@@ -97,7 +98,7 @@ class IngestionJobService:
             job_pk: UUID, 
             job_start_time: datetime, 
             data_source: DataSource, 
-            project_id: UUID = None
+            project_id: UUID | None = None
         ):
         """
         Kick off ingestion job for specified data source and store relevant ingested data into ChromaDB
@@ -114,8 +115,9 @@ class IngestionJobService:
         """
 
         # begin processing for current IngestionJob
+        data_source_id = data_source.id
+
         try:
-            data_source_id = data_source.id
 
             # use data source information to fetch relevant data & store in temp directory
             # TODO: Add configuration possibility to only retrieve data specific to the Jira Tickets provided in Project
@@ -204,8 +206,8 @@ class IngestionJobService:
     def code_chunk_and_store(
             self, 
             data_source: DataSource, 
-            project_id: UUID, 
-            job_pk
+            project_id: UUID | None, 
+            job_pk: UUID
     ):
         """
         TODO: Combine this function with docs convert chunk and store 
@@ -232,7 +234,7 @@ class IngestionJobService:
     def docs_convert_chunk_and_store(
             self,
             data_source: DataSource, 
-            project_id: UUID,
+            project_id: UUID | None,
             job_pk: UUID
         ):
         """
@@ -251,6 +253,9 @@ class IngestionJobService:
 
         # convert docs to docling files 
         converted_files = self._convert_docs_files_to_docling(job_pk)
+        if not converted_files:
+            logger.warning("No documentation files were converted, skipping ingestion")
+            return
 
         # chunk ingested documentation based on configured project embedding model
         project_chunks = self._chunk_docs(data_source, project_id, converted_files)
@@ -318,8 +323,8 @@ class IngestionJobService:
     
 
     async def _retrieve_data(
-        self, data_source: DataSource, project_id: UUID, job_pk: UUID,
-    ) -> Tuple[Path, Path]:
+        self, data_source: DataSource, project_id: UUID | None, job_pk: UUID,
+    ) -> tuple[Path, Path]:
         """
         Retrieve relevant data from specified Data Source and store within temporary /data directory
         in order to be ingested into Chroma DB
@@ -355,12 +360,12 @@ class IngestionJobService:
         return code_path, docs_path
     
 
-    def _convert_to_text_nodes(self, chunks: Dict) -> Dict[str, List[TextNode]]:
+    def _convert_to_text_nodes(self, chunks: dict[str, list[dict[str, Any]]]) -> dict[str, list[TextNode]]:
         """
         Convert Docling chunks to TextNodes in order to store within ChromaDB 
 
         Args:
-            chunks (Dict): mapping of a Project to a list of Docling chunks for relevant ingested Documents 
+            chunks (dict): mapping of a Project to a list of Docling chunks for relevant ingested Documents 
         """
         project_nodes = {}
 
@@ -385,7 +390,7 @@ class IngestionJobService:
         return project_nodes
 
 
-    def _get_chunk_meta_data(self, chunk: DocChunk, i: int, project: str) -> Dict:
+    def _get_chunk_meta_data(self, chunk: DocChunk, i: int, project: str) -> dict[str, str]:
             """
             Helper function to extract relevant metadata for a particular Document Chunk 
 
@@ -424,14 +429,14 @@ class IngestionJobService:
             job_pk (UUID): unique ID for current job (used to ensure files downloaded for ingestion job stored in unique dir)
         """
 
-        docs_path = Path(f"{settings.TMP_DOCS}/{job_pk}")
+        docs_path = Path(f"{settings.TMP_DOCS or 'tmp/docs'}/{job_pk}")
         docs_path.mkdir(exist_ok=True, parents=True)
-        code_path = Path(f"{settings.TMP_CODE}/{job_pk}")
+        code_path = Path(f"{settings.TMP_CODE or 'tmp/code'}/{job_pk}")
         code_path.mkdir(exist_ok=True, parents=True)
 
         return code_path, docs_path
 
-    def _convert_docs_files_to_docling(self, job_pk: UUID) -> Iterator[ConversionResult]:
+    def _convert_docs_files_to_docling(self, job_pk: UUID) -> Iterator[ConversionResult] | None:
         """
         Convert each temporary document downloaded to a markdown file
 
@@ -482,7 +487,7 @@ class IngestionJobService:
             logger.debug(
                 f"No new Documentation files downloaded; skipping Docling conversion"
             )
-            return
+            return None
 
         # convert all docs files to Docling Docs
         try:
@@ -496,7 +501,7 @@ class IngestionJobService:
         return conv_results
 
 
-    def _save_to_chroma(self, project_chunks: dict, source_type: str, data_source: DataSource): 
+    def _save_to_chroma(self, project_chunks: dict[str, list[TextNode]], source_type: str, data_source: DataSource) -> None: 
         """
         Save context-rich ingested documentation and code to our relevant Chroma collections based on Projects 
         this ingested job is being ran for 
@@ -549,9 +554,9 @@ class IngestionJobService:
         logger.info(f"Cleaning up temporary directories for IngestionJob={job_pk}")
 
         # base dirs to remove
-        tmp_dir = Path(settings.TMP)
-        code_dir = Path(settings.TMP_CODE)
-        docs_dir = Path(settings.TMP_DOCS)
+        tmp_dir = Path(settings.TMP or "tmp")
+        code_dir = Path(settings.TMP_CODE or "tmp/code")
+        docs_dir = Path(settings.TMP_DOCS or "tmp/docs")
 
         # ingestion specific dirs to fully clean 
         job_code_path = code_dir / str(job_pk)
@@ -602,7 +607,7 @@ class IngestionJobService:
         return any(path.iterdir())
 
 
-    def _chunk_code(self, data_source: DataSource, project_id: UUID, job_pk: UUID) -> Dict[str, List]:
+    def _chunk_code(self, data_source: DataSource, project_id: UUID | None, job_pk: UUID) -> dict[str | UUID, list[TextNode]]:
         """
         Functionality to chunk code files via LlamaIndex (using CodeSplitter)
 
@@ -614,30 +619,9 @@ class IngestionJobService:
             job_pk (UUID): unique ID of current ingestion job
         """    
 
-        """
-            TODO: 
-                1. Read from temporary directory
-                2. Use CodeSplitter from LlamaIndex 
-                    - NOTE: We don't necesasrily need to split out chunks by project like we did for documentation, but we do need to account for 
-                    - varying token limits by embeddings 
-
-                    Option 1)
-                        - We should configure our CodeSplitter 'maxchars' attribute correspond to 'most conversative embedding model'
-                                Steps:
-                                    1) Get all projects
-                                    2) Get embedding models configured for projects 
-                                    3) Get MINIMUM "token limits" for each embedding model 
-                                    4) Using "minimum" tokens, multiply this by around 4 (i.e 4 characters is around 1 token)
-                                    5) max_chars = min_token_limit * 4 * SAFETY_FACTOR (like .80-.90 to account for variance )
-                    Option 2) 
-                        - Instead of limiting all of them, we can just let CodeSplitter confiugre max chars for us
-                        - Prior to saving, we should check that the length of the chunk DOESN'T exceed the max token limit for the embedding confiugred for this collection
-                        - If it does, we likely will need to "break down chunk further intellignelty" 
-        """
-
         # read files from temporary directory 
         reader = SimpleDirectoryReader( # TODO: Look into leveraging "num_workers" attribute if we choose to utilize multi-threading & 
-            input_dir=f"{settings.TMP_CODE}/{job_pk}", 
+            input_dir=f"{settings.TMP_CODE or 'tmp/code'}/{job_pk}", 
             raise_on_error=True
         )
 
@@ -669,17 +653,14 @@ class IngestionJobService:
         
 
         # setup mapping for project to corresponding nodes 
-        project_nodes = {record.project.project_name: nodes for record in data_source.project_data} if not project_id else {project_id: nodes}
-
-        # TODO: Check that nodes don't exceed max token limit for embedding model configured for project collection (if so, break down chunk further intelligently)
-        # TODO: We may be able to leverage the "max length" field for this 
+        project_nodes: dict[str | UUID, list[TextNode]] = {record.project.project_name: nodes for record in data_source.project_data} if not project_id else {project_id: nodes}
         return project_nodes
 
         
 
 
 
-    def _chunk_docs(self, data_source: DataSource, project_id: UUID, conversion_results: Iterator[ConversionResult]) -> Dict[str, List]: 
+    def _chunk_docs(self, data_source: DataSource, project_id: UUID | None, conversion_results: Iterator[ConversionResult]) -> dict[str, list[dict[str, Any]]]: 
         """
         Functionality to chunk docs via Dockling 
 
@@ -690,7 +671,7 @@ class IngestionJobService:
         """
 
         # retrieve projects corresponding to data soruce 
-        projects = [record.project for record in data_source.project_data] if not project_id else [project_id] # TODO: Fix me for single project
+        projects: list[Project] = [record.project for record in data_source.project_data] # TODO: Account for single Projecto nly
 
         # generate mapping of project to relevant ingested documentation chunks 
         chunked_docs = {project.project_name: [] for project in projects}

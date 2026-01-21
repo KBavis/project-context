@@ -8,14 +8,14 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import ForeignKey, text, Text
 from sqlalchemy import Enum as SQLEnum
 
-from app.pydantic import ProcessingStatus
+from app.pydantic.status import ProcessingStatus
 
 
 if TYPE_CHECKING:
     from .project import Project
 
 class QuestionAndAnswer(Base):
-    __tablename__ = "question_and_answer"
+    __tablename__: str = "question_and_answer"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, index=True, server_default=text("gen_random_uuid()"))
 

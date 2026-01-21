@@ -202,7 +202,7 @@ class FileService:
             .values(last_ingestion_job_id = ingestion_job_id)
         )
 
-        await session.execute(stmt)
+        _ = await session.execute(stmt)
         await session.flush()
 
     
@@ -222,7 +222,7 @@ class FileService:
             .where(File.data_source_id == data_source_id, File.last_ingestion_job_id != ingestion_job_id)
         )
 
-        await session.execute(stmt)
+        _ = await session.execute(stmt)
 
         logger.debug(f"Successfully removed files associated with DataSource={data_source_id}, but were not processed by IngestionJob={ingestion_job_id}")
     
