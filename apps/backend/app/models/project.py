@@ -22,7 +22,7 @@ project_dependencies = Table(
 
 
 class Project(Base):
-    __tablename__ = "project"
+    __tablename__: str = "project"
 
     id: Mapped[UUID] = mapped_column(
         primary_key=True, server_default=text("gen_random_uuid()")

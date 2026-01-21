@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 class Conversation(Base):
-    __tablename__ = "conversation"
+    __tablename__: str = "conversation"
 
 
     id: Mapped[UUID] = mapped_column(

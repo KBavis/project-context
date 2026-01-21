@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 class DataSource(Base):
-    __tablename__ = "data_source"
+    __tablename__: str = "data_source"
 
     id: Mapped[UUID] = mapped_column(
         primary_key=True, index=True, server_default=text("gen_random_uuid()")

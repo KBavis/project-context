@@ -18,7 +18,7 @@ class Sender(Enum):
 
 
 class Message(Base):
-    __tablename__ = "message"
+    __tablename__: str = "message"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, index=True, server_default=text("gen_random_uuid()"))
 

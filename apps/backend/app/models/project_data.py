@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 class ProjectData(Base):
-    __tablename__ = "project_data"
+    __tablename__: str = "project_data"
 
     project_id: Mapped[UUID] = mapped_column(ForeignKey("project.id"), primary_key=True)
     data_source_id: Mapped[UUID] = mapped_column(

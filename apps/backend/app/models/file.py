@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 class File(Base):
 
-    __tablename__ = "file"
+    __tablename__: str = "file"
 
     # ensure data_source is leading column in index, to mitigate blocking of IngestionJobs
     __table_args__ = (

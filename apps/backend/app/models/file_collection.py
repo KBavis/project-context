@@ -18,7 +18,7 @@ class FileCollection(Base):
     chunked and stored for a given Chroma collection
     """
 
-    __tablename__ = "file_collection"
+    __tablename__: str = "file_collection"
 
     # ensure data_source is leading column in index, to mitigate blocking of IngestionJobs
     __table_args__ = (

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 class ChromaCollection(Base):
 
-    __tablename__ = "chroma_collection"
+    __tablename__: str = "chroma_collection"
 
     id: Mapped[UUID] = mapped_column(
         primary_key=True,
