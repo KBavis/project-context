@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from transformers import AutoTokenizer
 
 
 class LLMBase(ABC):
@@ -21,7 +22,7 @@ class LLMBase(ABC):
     
     @property
     @abstractmethod
-    def tokenizer(self):
+    def tokenizer(self) -> AutoTokenizer:
         """
         Return tokenizer for the current configured LLM
         """
@@ -52,7 +53,7 @@ class LLMBase(ABC):
     
 
     @abstractmethod
-    def get_llama_idx_instance(self):
+    def get_llama_idx_instance(self) -> object:
         """
         Get the underlying LlamaIndex LLM instance.
         """
