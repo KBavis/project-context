@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from transformers import AutoTokenizer
+import tiktoken
 
 
 class LLMBase(ABC):
@@ -22,7 +23,7 @@ class LLMBase(ABC):
     
     @property
     @abstractmethod
-    def tokenizer(self) -> AutoTokenizer:
+    def tokenizer(self) -> AutoTokenizer | tiktoken.Encoding:
         """
         Return tokenizer for the current configured LLM
         """
@@ -37,7 +38,7 @@ class LLMBase(ABC):
         raise NotImplementedError("Subclasses must implement get_max_context_length method.")
 
     @abstractmethod
-    async def tokenize(self, text: str) -> list[str]:
+    async def tokenize(self, text: str) -> list[int]:
         """
         Tokenize the input text using the tokenizer corresponding to the LLM and return list of tokens.
         """

@@ -113,7 +113,7 @@ class OllamaLLM(LLMBase):
         return round(pratical_max_tokens - settings.LLM_EXPECTED_RESPONSE_SIZE)
     
     
-    async def tokenize(self, text: str) -> list[str]:
+    async def tokenize(self, text: str) -> list[int]:
         """
         Tokenize the input text using the Ollama tokenizer and return list of tokens.
 
@@ -130,6 +130,7 @@ class OllamaLLM(LLMBase):
         Decompose a complex query into simpler sub-queries that can be answered individually.
         """
         # TODO: Implement me
+        return [query]
 
 
     def is_available(self) -> bool:
