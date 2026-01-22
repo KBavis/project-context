@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
-from transformers import AutoTokenizer
-import tiktoken
+from typing import Callable
 
 
 class LLMBase(ABC):
@@ -23,7 +22,7 @@ class LLMBase(ABC):
     
     @property
     @abstractmethod
-    def tokenizer(self) -> AutoTokenizer | tiktoken.Encoding:
+    def tokenizer(self) -> Callable[[str], list[int]]:
         """
         Return tokenizer for the current configured LLM
         """

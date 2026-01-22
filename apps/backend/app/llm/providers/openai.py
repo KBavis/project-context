@@ -2,6 +2,7 @@ from app.llm.providers.base import LLMBase
 import tiktoken
 from llama_index.llms.openai import OpenAI
 # import openai
+from typing import Callable
 
 
 class OpenAIProvider(LLMBase):
@@ -31,11 +32,11 @@ class OpenAIProvider(LLMBase):
 
     
     @property
-    def tokenizer(self) -> tiktoken.Encoding:
+    def tokenizer(self) -> Callable[[str], list[int]]:
         """
         Returns the tokenizer to be used for the LLM.
         """
-        return tiktoken.get_encoding(self.model_name)
+        return tiktoken.get_encoding(self.model_name).encode
 
 
     async def tokenize(self, text: str) -> list[int]:
@@ -43,7 +44,7 @@ class OpenAIProvider(LLMBase):
         Returns the token IDs for the given text.
         """
 
-        return self.tokenizer.encode(text)
+        return self.tokenizer(text)
     
 
     async def get_max_context_length(self) -> int:

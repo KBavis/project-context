@@ -8,6 +8,7 @@ import requests
 import os
 import logging
 import torch
+from typing import Callable
 
 from app.core import settings
 
@@ -64,12 +65,12 @@ class OllamaLLM(LLMBase):
         return "Ollama" #TODO: Move this to constants
     
     @property
-    def tokenizer(self):
+    def tokenizer(self) -> Callable[[str], list[int]]:
 
         """
         Return currently configured Tokenizer
         """
-        return AutoTokenizer.from_pretrained(settings.OLLAMA_MODEL_TOKENIZER) 
+        return AutoTokenizer.from_pretrained(settings.OLLAMA_MODEL_TOKENIZER).encode
 
     
 
@@ -122,7 +123,7 @@ class OllamaLLM(LLMBase):
         """ 
 
         # TODO: Figure out better way to nicely calculate LLM HuggingFace tokenizer ID than making user configure it 
-        return self.tokenizer.encode(text)
+        return self.tokenizer(text)
 
 
     def decompose_query(self, query: str) -> list[str]:
