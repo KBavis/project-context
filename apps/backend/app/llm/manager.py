@@ -26,6 +26,10 @@ class LLMManager:
                 if not llm.is_available(): # TODO: Check if Ollaam from llama index has built in functionality to check this already 
                     raise ValueError(f"Ollama LLM with model '{self.model_name}' is not available. Please ensure Ollama is installed and the model is pulled locally.")
                 return llm
+            case "openai":
+                from app.llm.providers.openai import OpenAIProvider
+                llm = OpenAIProvider(model_name=self.model_name)
+                return llm
             case _:
                 raise ValueError(f"Unsupported LLM provider: {self.provider}")
     
