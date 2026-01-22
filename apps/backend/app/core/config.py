@@ -1,4 +1,4 @@
-from typing import final
+from typing import ClassVar
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 import logging
@@ -7,8 +7,6 @@ import sys
 # TODO: There may be a better way to handle the excess configs we have here, maybe having "generic" settings VS "llm" settings
 
 # TODO: Move constants to constants.py and leave configurable values in herer 
-
-@final
 class Settings(BaseSettings):
 
     PROJECT_NAME: str = "Contextualized"
@@ -104,7 +102,7 @@ class Settings(BaseSettings):
 
     DOCS_FILE_EXTENSIONS: set[str] = {"docx", "pdf", "md"}
 
-    model_config: SettingsConfigDict = SettingsConfigDict(
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         extra='ignore',
         env_file=Path(__file__).resolve().parents[2] / ".env", env_file_encoding="utf-8"
     )
