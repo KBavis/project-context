@@ -12,21 +12,37 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Contextualized"
 
     PYTHONDONTWRITEBYTECODE: int = 1
-
+    
+    ###########################
+    # Database Configurations 
+    ###########################
     SYNC_REL_DB_URL: str = ""
     ASYNC_REL_DB_URL: str = ""
 
+    ###########################
+    # Vector Database Configurations 
+    ###########################
     VECTOR_DB_HOST: str = "localhost"
     VECTOR_DB_PORT: int = 8000
 
+    ###########################
+    # Ollama Specifications 
+    ###########################
     OLLAMA_LOCAL_HOST_URL: str = "http://localhost:11434"
     OLLAMA_KV_CACHE_TYPE: str = "f16"
     OLLAMA_MODEL_TOKENIZER: str = "openai/gpt-oss-20b" # TODO: Find nice way to map Ollama model name to corresponding HuggingFace tokenizer based on model name (similar to tiktoken for openai)
-    LLM_EXPECTED_RESPONSE_SIZE: int = 500 
 
+    ###########################
+    # LLM Specifications 
+    ###########################
     LL_MODEL_PROVIDER: str = "Ollama"
     LL_MODEL: str = "gpt-oss:latest"
+    LLM_EXPECTED_RESPONSE_SIZE: int = 500 
+    
 
+    ###########################
+    # Embedding Specifications 
+    ###########################
     DOCS_EMBEDDING_PROVIDER: str = "HuggingFace"
     DOCS_EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
 
@@ -35,23 +51,43 @@ class Settings(BaseSettings):
 
     CROSS_ENCODING_MODEL: str | None = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
+    ###########################
+    # API & Secret Keys 
+    ###########################
     GITHUB_SECRET_TOKEN: str | None = None
     HUGGING_FACE_API_KEY: str | None = None
     OPEN_AI_API_KEY: str | None = None
 
-    VALID_MODEL_PROVIDERS: list[str] = ["OpenAI", "HuggingFace"]
-
+    ###########################
+    # File Paths 
+    ###########################
     TMP: str | None = "tmp"
     PROCESSED_DIR: str | None = "/processed"
     TMP_DOCS: str | None = f"{TMP}/docs"
     TMP_CODE: str | None = f"{TMP}/code"
 
+    ###########################
+    # Environment 
+    ###########################
     ENV: str | None = "dev"
 
+
+    ###########################
+    # Docling Configurations 
+    ###########################
     DOCLING_ACCELERATOR_DEVICE: str | None = "cpu"
 
+    ###########################
+    # Validation Constants 
+    ###########################
     VALID_DATA_PROVIDERS: set[str] = {"GitHub", "BitBucket", "Confluence"}
 
+    VALID_LL_MODEL_PROVIDERS: set[str] = {"OpenAI", "Ollama"} # TODO: Add additional providers for configured LLM's 
+
+
+    ###########################
+    # File Extensions 
+    ###########################
     CODE_FILE_EXTENSIONS: set[str] = {
         "c",
         "cpp",
