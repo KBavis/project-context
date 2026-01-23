@@ -4,6 +4,7 @@ from .project import ProjectRequest
 from .file import File, CodeFileExtension, DocsFileExtension, FileProcesingStatus
 from .chroma import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse
 from .status import ProcessingStatus
+from .conversation import CreateConversationRequest, UpdateConversationRequest
 
 __all__ = [
     "ChatRequest", 
@@ -17,4 +18,6 @@ __all__ = [
     "MessageResponse",
     "FileProcesingStatus",
     "ProcessingStatus",
+    "CreateConversationRequest",
+    "UpdateConversationRequest",
 ]

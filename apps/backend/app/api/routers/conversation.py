@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from uuid import UUID
 
-from app.pydantic import ChatRequest
+from app.pydantic import CreateConversationRequest, UpdateConversationRequest
 from app.services import ConversationService
 from ..svc_deps import get_conversation_svc
 
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/conversation")
 
 @router.post("/", summary="Start a new conversation with LLM regarding a project")
 def create_new_conversation(
-    chat: ChatRequest,
+    conversation: CreateConversationRequest,
     svc: ConversationService = Depends(get_conversation_svc)
 ):
     """
@@ -20,7 +20,7 @@ def create_new_conversation(
     """
 
     try:
-        return svc.create_conversation(chat)
+        return svc.create_conversation(conversation)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -30,14 +30,14 @@ def create_new_conversation(
 
 @router.post("/{conversation_id}", summary="Continue existing conversation with LLM regarding a project")
 def update_conversation(
-    chat: ChatRequest,
+    conversation: UpdateConversationRequest,
     svc: ConversationService = Depends(get_conversation_svc)
 ):
     """
     Continue existing conversation with LLM regarding a particular project
     """
     try:
-        return svc.update_conversation(chat)
+        return svc.update_conversation(conversation)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
