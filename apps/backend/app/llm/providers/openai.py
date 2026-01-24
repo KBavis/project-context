@@ -1,8 +1,8 @@
 from app.llm.providers.base import LLMBase
-import tiktoken
 from llama_index.llms.openai import OpenAI
-# import openai
+
 from typing import Callable
+from app.core import settings
 
 
 class OpenAIProvider(LLMBase):
@@ -36,7 +36,8 @@ class OpenAIProvider(LLMBase):
         """
         Returns the tokenizer to be used for the LLM.
         """
-        return tiktoken.get_encoding(self.model_name).encode
+        tokenizer = self.get_llama_idx_instance()._tokenizer
+        return tokenizer.encode if tokenizer else lambda x: []
 
     
     def is_available(self) -> bool:
@@ -88,7 +89,7 @@ class OpenAIProvider(LLMBase):
         Returns the LlamaIndex instance for the OpenAI model.
         """
 
-        return OpenAI(model=self.model_name) # TODO: Setup additional configurations 
+        return OpenAI(model=self.model_name, api_key=settings.OPEN_AI_API_KEY) # TODO: Setup additional configurations 
     
 
 
