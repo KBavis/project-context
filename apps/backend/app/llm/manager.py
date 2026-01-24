@@ -1,3 +1,4 @@
+from openai import api_key
 from app.core.config import settings
 
 import logging
@@ -30,7 +31,7 @@ class LLMManager:
                 from app.llm.providers.openai import OpenAIProvider
                 llm = OpenAIProvider(model_name=self.model_name)
                 if not llm.is_available(): 
-                    raise ValueError(f"OpenAI LLM with model '{self.model_name}' is not available.")
+                    raise ValueError(f"OpenAI LLM with model '{self.model_name}' is not available. Please ensure the OPENAI_API_KEY environment variable is set and the model name is valid.")
                 return llm
             case _:
                 raise ValueError(f"Unsupported LLM provider: {self.provider}")
