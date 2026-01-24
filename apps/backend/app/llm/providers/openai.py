@@ -38,6 +38,16 @@ class OpenAIProvider(LLMBase):
         """
         return tiktoken.get_encoding(self.model_name).encode
 
+    
+    def is_available(self) -> bool:
+        """
+        Check if the Open AI LLM is available
+        """
+
+        return True # TODO: Implement me
+
+
+
 
     async def tokenize(self, text: str) -> list[int]:
         """
