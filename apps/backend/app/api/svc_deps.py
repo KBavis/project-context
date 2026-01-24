@@ -1,3 +1,4 @@
+from app.pydantic import CreateConversationRequest
 from app.services import (
     ChromaService,
     ConversationService,
@@ -102,7 +103,9 @@ def get_data_source_svc(
     return DataSourceService(db=db)
 
 def get_conversation_svc(
-        db: Session = Depends(get_sync_db_session)
+        request_data: CreateConversationRequest, # Fast API is able to correctly infer this dependency
+        db: Session = Depends(get_sync_db_session),
+        llm_manager: LLMManager = Depends(get_configured_llm_manager)
 ):
     """
     Setup ConversationService dependency
@@ -111,7 +114,7 @@ def get_conversation_svc(
         db (Session): current DB session
     """
 
-    return ConversationService(db=db)
+    return ConversationService(db=db, llm_manager=llm_manager)
 
 
 
