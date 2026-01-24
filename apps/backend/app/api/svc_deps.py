@@ -149,16 +149,18 @@ def get_async_query_svc(
     return QueryService(db=db, chroma_svc=chroma_svc, ranking_svc=ranking_svc, llm_manager=llm_manager)
 
 def get_async_file_svc(
-        db: AsyncSession = Depends(get_async_db_session)
+        db: AsyncSession = Depends(get_async_db_session),
+        chroma_svc: ChromaService = Depends(get_chroma_svc)
 ):
     """
     Setup async FileService dependency
 
     Args:
         db (AsyncSession): async DB session
+        chroma_svc (ChromaService): async chroma service dependency
     """
 
-    return FileService(db=db, chroma_svc=get_chroma_svc)
+    return FileService(db_session=db, chroma_svc=chroma_svc)
 
 def get_async_record_lock_svc():
     """
