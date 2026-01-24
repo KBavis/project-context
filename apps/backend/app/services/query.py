@@ -245,10 +245,8 @@ class QueryService:
         embedding_manager = EmbeddingManager(collections_by_type) # TODO: Consider injecting as dependency
 
         # load embedding models in parallel
-        embedding_docs, embedding_code = await asyncio.gather(
-            embedding_manager.aget_embedding_model(DOCS),
-            embedding_manager.aget_embedding_model(CODE)
-        )
+        embedding_docs = await embedding_manager.aget_embedding_model(DOCS)
+        embedding_code = await embedding_manager.aget_embedding_model(CODE)
 
         # fetch chunks in parallel
         chunks_docs, chunks_code = await asyncio.gather(
