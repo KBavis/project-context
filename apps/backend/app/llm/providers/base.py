@@ -30,6 +30,14 @@ class LLMBase(ABC):
 
 
     @abstractmethod
+    def is_available(self) -> bool:
+        """
+        Check if the LLM is available
+        """
+        raise NotImplementedError("Subclasses must implement is_available method.")
+
+
+    @abstractmethod
     async def get_max_context_length(self) -> int:
         """
         Return the maximum context length for the LLM (taking into considerations potential hardware limitations if applicable).
