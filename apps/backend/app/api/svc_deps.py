@@ -35,11 +35,24 @@ def get_chroma_manager() -> ChromaClientManager:
     return ChromaClientManager()
 
 @lru_cache()
-def get_llm_manager() -> LLMManager:
+def get_singleton_llm_manager() -> LLMManager:
     """
     Setup singleton dependency for LLMManager 
     """
     return LLMManager()
+
+
+def get_configured_llm_manager(
+    request_data: CreateConversationRequest,
+):
+    """
+    Setup LLMManager dependency based on the specified model name and provider 
+    """
+
+    return LLMManager(
+        model_name=request_data.ll_model_name,
+        provider=request_data.ll_model_provider
+    )
 
 ##########################
 # Sync Service Dependencies 
@@ -123,7 +136,7 @@ def get_async_query_svc(
         db: AsyncSession = Depends(get_async_db_session),
         chroma_svc: ChromaService = Depends(get_chroma_svc),
         ranking_svc: RankingService = Depends(get_async_ranking_svc),
-        llm_manager: LLMManager = Depends(get_llm_manager)
+        llm_manager: LLMManager = Depends(get_singleton_llm_manager)
 ):
     """
     Setup async QueryService dependency 
