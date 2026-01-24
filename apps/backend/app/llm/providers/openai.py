@@ -62,8 +62,9 @@ class OpenAIProvider(LLMBase):
         Returns the maximum context length for the OpenAI model.
         """
 
-        # TODO: Implement a scraping of https://platform.openai.com/docs/models to get the max context length for each model
-        return self.context_lengths.get(self.model_name, 8192)
+        openai_instance = self.get_llama_idx_instance() 
+        return openai_instance.metadata.context_window
+
 
     
     async def _get_model_stats(self):
@@ -82,7 +83,7 @@ class OpenAIProvider(LLMBase):
         return [query]
 
 
-    def get_llama_idx_instance(self) -> object:
+    def get_llama_idx_instance(self) -> OpenAI:
         """
         Returns the LlamaIndex instance for the OpenAI model.
         """
