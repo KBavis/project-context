@@ -81,6 +81,8 @@ class OllamaLLM(LLMBase):
         Note: This function will utilize the current systems hardware limitations 
         and the corresponding model configured context lenght to determine 
         what the max input is that we send to a particular model
+
+        TODO: This currently accounts for user input, but should potentially be refactored to just be the max context length of both input and output tokens (i.e max tokens)
         """
 
         machine_total_vram_bytes = self._get_total_vram()
