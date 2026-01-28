@@ -16,7 +16,7 @@ class QuestionAndAnswerService:
         self.db = db
 
 
-    async def init_q_and_a_record(self, project_id: str, query: str, start_time: datetime) -> QuestionAndAnswer:
+    async def init_q_and_a_record(self, project_id: UUID, query: str, start_time: datetime) -> QuestionAndAnswer:
         """
         Initialize a Question & Answer record in the database.
 
