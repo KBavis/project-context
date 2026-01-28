@@ -9,10 +9,10 @@ class ProjectRequest(BaseModel):
     name: str
 
     # allow for model configuration during project creation
-    code_embedding_provider: Optional[str] = settings.CODE_EMBEDDING_PROVIDER
-    code_embedding_model: Optional[str] = settings.CODE_EMBEDDING_MODEL
-    docs_embedding_provider: Optional[str] = settings.DOCS_EMBEDDING_PROVIDER
-    docs_embedding_model: Optional[str] = settings.DOCS_EMBEDDING_MODEL
+    code_embedding_provider: str = settings.CODE_EMBEDDING_PROVIDER
+    code_embedding_model: str = settings.CODE_EMBEDDING_MODEL
+    docs_embedding_provider: str = settings.DOCS_EMBEDDING_PROVIDER
+    docs_embedding_model: str = settings.DOCS_EMBEDDING_MODEL
     
     lob: Optional[str] = "N/A"
     meta_data: Optional[List[str]] = []
