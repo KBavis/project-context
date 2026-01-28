@@ -1,12 +1,13 @@
 
 from app.pydantic import CreateConversationRequest, UpdateConversationRequest
 from app.models import Conversation
+from app.llm.providers.base import LLMBase
 from app.base import settings
 from app.llm import LLMManager
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from uuid import UUID
+from uuid import UUID, uuid4
 import logging
 
 
@@ -16,16 +17,18 @@ class ConversationService:
 
     def __init__(
         self, 
-        db: Session,
+        db: AsyncSession,
         llm_manager: LLMManager
     ):
         self.db = db 
         self.llm_manager = llm_manager
     
 
-    def create_conversation(self, conversation: CreateConversationRequest):
+    async def create_conversation(self, conversation: CreateConversationRequest):
         """
         Create a new conversation with the current configured LLM 
+
+        NOTE: We do not validate the LLM model name and provider here as we expect the LLMManager to handle this 
 
         Args:
             conversation (CreateConversationRequest): content of user sent Message and specified Project it relates to 
@@ -33,40 +36,31 @@ class ConversationService:
 
         logger.info(f"Creating Conversation for project {conversation.project_id} with LLM {conversation.ll_model_name} and provider {conversation.ll_model_provider}")
 
-        # validate llm model name and provider if passed 
-        self._validate_llm_model(conversation.ll_model_name, conversation.ll_model_provider)
 
+        # Use settings defaults if not provided
+        model_name = conversation.ll_model_name or settings.LL_MODEL
+        model_provider = conversation.ll_model_provider or settings.LL_MODEL_PROVIDER
 
+        # retrieve the max tokens for the specified model 
+        llm: LLMBase = self.llm_manager.get_llm()
+        max_tokens = await llm.get_max_context_length() 
 
-        # self.db.add(Conversation(
-        #     project_id=conversation.project_id,
-        #     ll_model_name=conversation.ll_model_name,
-        #     ll_model_provider=conversation.ll_model_provider
-        # ))
+        conversation_id = uuid4()
 
+        self.db.add(Conversation(
+            id=conversation_id,
+            project_id=conversation.project_id,
+            ll_model_name=model_name,
+            ll_model_provider=model_provider,
+            total_tokens=0,
+            max_tokens=max_tokens,
+        ))
+        await self.db.flush() 
 
-    def _validate_llm_model(self, model_name: str, model_provider: str):
-        """
-        Validate the specified LLM model name and provider OR return 
-        the currently configured LLM model name and provider
+        #TODO: Pre-emptively load ChromaDB collection and cache for specified project to speed up response time 
 
-        Args:
-            model_name (str): name of LLM model 
-            model_provider (str): provider of LLM model 
-        """
-        
+        return {"id": conversation_id, "ll_model_name": model_name, "ll_model_provider": model_provider, "total_tokens": 0, "max_tokens": max_tokens}
 
-        if model_provider not in settings.VALID_LL_MODEL_PROVIDERS:
-            raise ValueError(f"Invalid LLM model provider: {model_provider}")
-
-        
-        # attempt to create LLM instance to validate model name 
-        try:
-            llm = self.llm_manager.get_llm()
-        except ValueError as e:
-            raise ValueError(f"Invalid LLM model name: {model_name}")
-
-    
         
 
 
@@ -77,7 +71,7 @@ class ConversationService:
     
 
 
-    def delete_conversation(self, conversation_id: UUID):
+    async def delete_conversation(self, conversation_id: UUID):
         """
         Delete an existing conversation 
 
@@ -86,7 +80,7 @@ class ConversationService:
         """
     
 
-    def update_conversation(self, conversation: UpdateConversationRequest):
+    async def update_conversation(self, conversation: UpdateConversationRequest):
         """
         Continue existing conversation with specified LLM
 
