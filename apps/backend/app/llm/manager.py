@@ -1,5 +1,6 @@
-from openai import api_key
+
 from app.core.config import settings
+from app.llm.providers.base import LLMBase
 
 import logging
 
@@ -38,7 +39,7 @@ class LLMManager:
     
 
 
-    def get_llm(self):
+    def get_llm(self) -> LLMBase:
         """
         Get the currently initalized LLM instance 
         """
