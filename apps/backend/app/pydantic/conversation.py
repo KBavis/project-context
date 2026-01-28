@@ -10,7 +10,7 @@ class CreateConversationRequest(BaseModel):
     
     project_id: UUID
 
-    # default to use configured LL model
-    ll_model_name: str = settings.LL_MODEL
-    ll_model_provider: str = settings.LL_MODEL_PROVIDER
+    # default to use configured LL model (set in service layer)
+    ll_model_name: str | None = None
+    ll_model_provider: str | None = None
     

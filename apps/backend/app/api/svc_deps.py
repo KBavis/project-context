@@ -50,10 +50,11 @@ def get_configured_llm_manager(
     """
     Setup LLMManager dependency based on the specified model name and provider 
     """
-
+    from app.core import settings
+    
     return LLMManager(
-        model_name=request_data.ll_model_name,
-        provider=request_data.ll_model_provider
+        model_name=request_data.ll_model_name or settings.LL_MODEL,
+        provider=request_data.ll_model_provider or settings.LL_MODEL_PROVIDER
     )
 
 ##########################
@@ -103,25 +104,13 @@ def get_data_source_svc(
     
     return DataSourceService(db=db)
 
-def get_conversation_svc(
-        request_data: CreateConversationRequest, # Fast API is able to correctly infer this dependency
-        db: Session = Depends(get_sync_db_session),
-        llm_manager: LLMManager = Depends(get_configured_llm_manager)
-):
-    """
-    Setup ConversationService dependency
-
-    Args:
-        db (Session): current DB session
-    """
-
-    return ConversationService(db=db, llm_manager=llm_manager)
 
 
 
 ##########################
 # Async Service Dependencies 
 ###########################
+
 
 def get_async_q_and_a_svc(
         db: AsyncSession = Depends(get_async_db_session)
