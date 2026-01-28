@@ -29,7 +29,7 @@ from docling.datamodel.pipeline_options import ThreadedPdfPipelineOptions
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
 from docling.datamodel.document import ConversionResult
-from docling_core.transforms.chunker.doc_chunk import DocChunk
+from docling_core.transforms.chunker.doc_chunk import DocChunk, DocMeta
 
 from llama_index.vector_stores.chroma import ChromaVectorStore # type: ignore
 from llama_index.core import StorageContext, VectorStoreIndex
@@ -399,12 +399,12 @@ class IngestionJobService:
                 i (int): current position 
                 project (str): relevant project this chunk belongs to
             """
-            chunks_meta_data = chunk.meta 
+            chunks_meta_data: DocMeta = chunk.meta 
 
-            origin_file = chunks_meta_data.origin.filename
-            mimetype = chunks_meta_data.origin.mimetype
-            headings = chunks_meta_data.headings
-            document_hash = chunks_meta_data.origin.binary_hash
+            origin_file = chunks_meta_data.origin.filename if chunks_meta_data.origin else ""
+            mimetype = chunks_meta_data.origin.mimetype if chunks_meta_data.origin else ""
+            headings = chunks_meta_data.headings 
+            document_hash = str(chunks_meta_data.origin.binary_hash) if chunks_meta_data.origin else ""
 
             content_types = ",".join(list(set([
                 str(item.label)
@@ -501,7 +501,7 @@ class IngestionJobService:
         return conv_results
 
 
-    def _save_to_chroma(self, project_chunks: dict[str, list[TextNode]], source_type: str, data_source: DataSource) -> None: 
+    def _save_to_chroma(self, project_chunks: dict[str | UUID, list[TextNode]], source_type: str, data_source: DataSource) -> None: 
         """
         Save context-rich ingested documentation and code to our relevant Chroma collections based on Projects 
         this ingested job is being ran for 
