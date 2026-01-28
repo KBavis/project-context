@@ -8,7 +8,8 @@ from app.services import (
     FileService,
     RecordLockService, 
     QueryService, 
-    RankingService
+    RankingService,
+    QuestionAndAnswerService
 )
 
 from app.core import (
@@ -122,6 +123,19 @@ def get_conversation_svc(
 # Async Service Dependencies 
 ###########################
 
+def get_async_q_and_a_svc(
+        db: AsyncSession = Depends(get_async_db_session)
+):
+    """
+    Setup QAndAService dependency
+
+    Args:
+        db (AsyncSession): current DB session
+    """
+
+    return QuestionAndAnswerService(db=db)
+
+
 def get_async_ranking_svc(
         db: AsyncSession = Depends(get_async_db_session)
 ):
@@ -139,6 +153,7 @@ def get_async_query_svc(
         db: AsyncSession = Depends(get_async_db_session),
         chroma_svc: ChromaService = Depends(get_chroma_svc),
         ranking_svc: RankingService = Depends(get_async_ranking_svc),
+        q_and_a_svc: QuestionAndAnswerService = Depends(get_async_q_and_a_svc),
         llm_manager: LLMManager = Depends(get_singleton_llm_manager)
 ):
     """
@@ -149,7 +164,7 @@ def get_async_query_svc(
         chroma_svc (ChromaService): async chroma service dependency
     """
 
-    return QueryService(db=db, chroma_svc=chroma_svc, ranking_svc=ranking_svc, llm_manager=llm_manager)
+    return QueryService(db=db, chroma_svc=chroma_svc, ranking_svc=ranking_svc, q_and_a_svc=q_and_a_svc, llm_manager=llm_manager)
 
 def get_async_file_svc(
         db: AsyncSession = Depends(get_async_db_session),

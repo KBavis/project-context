@@ -7,6 +7,7 @@ from .file import FileService
 from .record_lock import RecordLockService
 from .query import QueryService
 from .ranking import RankingService
+from .q_and_a import QuestionAndAnswerService
 
 __all__ = [
     "DataSourceService", 
@@ -18,4 +19,5 @@ __all__ = [
     "RecordLockService",
     "QueryService",
     "RankingService",
+    "QuestionAndAnswerService"
 ]
