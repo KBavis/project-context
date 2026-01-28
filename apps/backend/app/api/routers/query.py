@@ -26,7 +26,7 @@ async def query(
         logger.info(f"Received query request for project_id={request.project_id} with query='{request.query}' at {start_time}")
 
         # create inital query record 
-        q_and_a_record = await svc.init_q_and_a_record(request.project_id, request.query, start_time)
+        q_and_a_record = await svc.q_and_a_svc.init_q_and_a_record(request.project_id, request.query, start_time)
 
         background_tasks.add_task(svc.execute_simple_query, request.query, request.project_id, q_and_a_record.id, q_and_a_record.start_time)
 
