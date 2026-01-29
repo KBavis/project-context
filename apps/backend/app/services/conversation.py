@@ -4,6 +4,7 @@ from app.models import Conversation
 from app.llm.providers.base import LLMBase
 from app.base import settings
 from app.llm import LLMManager
+from app.services.query import QueryService
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,7 @@ class ConversationService:
         llm_manager: LLMManager
     ):
         self.db = db 
+        self.query_svc = query_svc
         self.llm_manager = llm_manager
     
 
@@ -45,8 +47,8 @@ class ConversationService:
         llm: LLMBase = self.llm_manager.get_llm()
         max_tokens = await llm.get_max_context_length() 
 
+        # create conversation record 
         conversation_id = uuid4()
-
         self.db.add(Conversation(
             id=conversation_id,
             project_id=conversation.project_id,
