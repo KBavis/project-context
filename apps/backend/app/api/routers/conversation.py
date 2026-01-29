@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from uuid import UUID
 
 from app.pydantic import CreateConversationRequest, UpdateConversationRequest
@@ -16,6 +16,7 @@ router = APIRouter(prefix="/conversation")
 @router.post("/", summary="Start a new conversation with LLM regarding a project")
 async def create_new_conversation(
     conversation: CreateConversationRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_async_db_session),
     query_svc: QueryService = Depends(get_async_query_svc)
 ):
@@ -34,6 +35,9 @@ async def create_new_conversation(
         svc = ConversationService(db=db, query_svc=query_svc, llm_manager=llm_manager)
         
         created_conversation = await svc.create_conversation(conversation)
+
+        # download and cache embeddings in background
+        background_tasks.add_task(query_svc.download_and_cache_embeddings, conversation.project_id)
 
         return created_conversation
     except Exception as e:
