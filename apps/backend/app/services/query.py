@@ -120,10 +120,7 @@ class QueryService:
                 total_processing_time_ms=(end_time - start_time).microseconds
             )
 
-            # TODO: Update Q&A record status to FAILED in DB
             raise e
-
-        # TODO: Integrate with LLM to generate final response 
 
     
     def get_prompt(self, query: str, nodes: list[NodeWithScore]) -> str:
