@@ -33,6 +33,8 @@ def get_cached_embedding(cache_key: str) -> BaseEmbedding | None:
 async def cache_embedding(cache_key: str, embedding_model: BaseEmbedding) -> None:
     """
     Cache an embedding model.
+
+    TODO: Consider having fixed number of embeddings cached at any given time to reduce memory usage
     
     Args:
         cache_key (str): Cache key (e.g., "project_id:DOCS" or "project_id:CODE")
