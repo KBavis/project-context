@@ -122,6 +122,44 @@ class QueryService:
 
             raise e
 
+    async def download_and_cache_embeddings(self, project_id: UUID) -> None:
+        """
+        Download and cache embeddings for a specified project.
+        
+        This preloads embedding models into memory cache to improve 
+        response time for subsequent queries on this project.
+        
+        Args:
+            project_id (UUID): The project ID to cache embeddings for
+        """
+        try:
+            # retreive relevant Chroma Collections corresponding to Project 
+            collections = self.chroma_svc.get_collections_by_project(project_id)
+            if not collections:
+                logger.warning(f"No ingested data found for Project ID: {project_id}")
+                return
+
+            collections_by_type = {collection.content_type: collection for collection in collections}
+            if CODE not in collections_by_type or DOCS not in collections_by_type:
+                logger.warning(f"Both Code and Documentation collections must be present for Project ID: {project_id}")
+                return
+            
+            # Create embedding manager with project_id for caching
+            embedding_manager = EmbeddingManager(collections_by_type, project_id=project_id)
+
+            # Pre-load and cache both embedding models in parallel
+            logger.info(f"Pre-loading and caching embeddings for project {project_id}...")
+            await asyncio.gather(
+                embedding_manager.aget_embedding_model_cached(DOCS),
+                embedding_manager.aget_embedding_model_cached(CODE)
+            )
+            logger.info(f"Successfully cached embeddings for project {project_id}")
+            
+        except Exception as e:
+            logger.error(f"Error caching embeddings for project {project_id}: {str(e)}")
+            # Don't raise - caching is a performance optimization, not critical
+
+        
     
     def get_prompt(self, query: str, nodes: list[NodeWithScore]) -> str:
         """
@@ -163,11 +201,12 @@ class QueryService:
         if CODE not in collections_by_type or DOCS not in collections_by_type:
             raise Exception(f"Both Code and Documentation collections must be present for Project ID: {project_id}")
         
-        embedding_manager = EmbeddingManager(collections_by_type) # TODO: Consider injecting as dependency
+        # Create embedding manager with project_id for caching
+        embedding_manager = EmbeddingManager(collections_by_type, project_id=project_id)
 
-        # load embedding models in parallel
-        embedding_docs = await embedding_manager.aget_embedding_model(DOCS)
-        embedding_code = await embedding_manager.aget_embedding_model(CODE)
+        # load embedding models in parallel (with caching)
+        embedding_docs = await embedding_manager.aget_embedding_model_cached(DOCS)
+        embedding_code = await embedding_manager.aget_embedding_model_cached(CODE)
 
         # fetch chunks in parallel
         chunks_docs, chunks_code = await asyncio.gather(
