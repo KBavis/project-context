@@ -19,6 +19,7 @@ class ConversationService:
     def __init__(
         self, 
         db: AsyncSession,
+        query_svc: QueryService,
         llm_manager: LLMManager
     ):
         self.db = db 
@@ -59,9 +60,11 @@ class ConversationService:
         ))
         await self.db.flush() 
 
-        #TODO: Pre-emptively load ChromaDB collection and cache for specified project to speed up response time 
+        # download & cache embeddings for specified project 
+        await self.query_svc.download_and_cache_embeddings(conversation.project_id)
 
         return {"id": conversation_id, "ll_model_name": model_name, "ll_model_provider": model_provider, "total_tokens": 0, "max_tokens": max_tokens}
+    
 
         
 
