@@ -1,7 +1,6 @@
 from app.pydantic import CreateConversationRequest
 from app.services import (
     ChromaService,
-    ConversationService,
     DataSourceService,
     IngestionJobService,
     ProjectService, 
