@@ -128,6 +128,8 @@ class QueryService:
         
         This preloads embedding models into memory cache to improve 
         response time for subsequent queries on this project.
+
+        TODO: Conisder if this belongs in ChromaService or EmbeddingManager 
         
         Args:
             project_id (UUID): The project ID to cache embeddings for
