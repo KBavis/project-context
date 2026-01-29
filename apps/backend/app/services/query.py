@@ -80,15 +80,9 @@ class QueryService:
             Settings.llm = llm.get_llama_idx_instance()
 
             # ensure LLM limits are not being reached
-            max_tokens = await llm.get_max_context_length()
-            logger.debug(f"Max Context Length for Provider={llm.provider} and Model={llm.model_name}: {max_tokens} Tokens")
-
-            total_input_tokens = await llm.tokenize(prompt)
-            logger.debug(f"Total Input Tokens: {len(total_input_tokens)}")
-
-            if len(total_input_tokens) > max_tokens:
+            if not await llm.validate_context_length(prompt, current_token_count=0):
                 # TODO: Reduce number of chunks present in order to send and handle this gracefully
-                raise Exception(f"Total LLM Prompt Input Tokens ={len(total_input_tokens)}, but the the Max Tokens allowed ={max_tokens}")
+                raise Exception(f"Total Context Length Exceeded for Provider={llm.provider} and Model={llm.model_name}")
             
             # define call backs 
             token_counter = TokenCountingHandler(
@@ -111,9 +105,6 @@ class QueryService:
                 answer=response.text, 
                 total_processing_time_ms=(end_time - start_time).microseconds
             )
-
-
-            token_counter.reset_counts()
 
         except Exception as e:
             logger.error(f"Error executing query for project_id={project_id} with query='{query}': {str(e)}")

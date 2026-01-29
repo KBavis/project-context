@@ -35,6 +35,22 @@ class LLMBase(ABC):
         Check if the LLM is available
         """
         raise NotImplementedError("Subclasses must implement is_available method.")
+    
+
+    async def validate_context_length(self, prompt: str, current_token_count: int = 0) -> bool:
+        """
+        Validate that the current token count does not exceed the maximum context length.
+
+        Args:
+            prompt (str): The prompt to validate.
+            current_token_count (int): The current token count (i.e if conversation history maintained)
+        """
+        # get max context length of model
+        max_tokens = await self.get_max_context_length() #TODO: This accounts for strictly user input tokens, but should account for both
+
+        total_input_tokens = await self.tokenize(prompt)
+        
+        return len(total_input_tokens) + current_token_count <= max_tokens
 
 
     @abstractmethod
