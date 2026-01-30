@@ -1,6 +1,6 @@
 from app.core import settings
 from app.models.collection import ChromaCollection
-from app.embeddings.cache import get_cached_embedding, cache_embedding
+from app.embeddings.lru_cache import get_cached_embedding, cache_embedding
 
 from transformers import AutoTokenizer
 import logging
@@ -62,7 +62,7 @@ class EmbeddingManager:
             cache_key = f"{self._project_id}:{source_type}"
             
             # Try to get from cache first
-            cached_model = get_cached_embedding(cache_key)
+            cached_model = await get_cached_embedding(cache_key)
             if cached_model:
                 return cached_model
         

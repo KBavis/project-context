@@ -1,5 +1,5 @@
 from .manager import EmbeddingManager
-from .cache import (
+from .lru_cache import (
     get_cached_embedding,
     cache_embedding,
     invalidate_cache_key,
