@@ -6,6 +6,7 @@ from app.base import settings
 from app.llm import LLMManager
 from app.services.query import QueryService
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from uuid import UUID, uuid4
@@ -63,14 +64,19 @@ class ConversationService:
         return {"id": conversation_id, "ll_model_name": model_name, "ll_model_provider": model_provider, "total_tokens": 0, "max_tokens": max_tokens}
     
 
-        
+    async def get_conversation(self, conversation_id: UUID):
+        """
+        Retrieve an existing conversation 
 
-
-
-
-    
-
-    
+        Args:
+            conversation_id (UUID): id of specified conversation to retrieve 
+        """
+        stmt = (
+            select(Conversation)
+            .where(Conversation.id == conversation_id)
+        )
+        conversation = await self.db.execute(stmt)
+        return conversation.scalar_one_or_none()
 
 
     async def delete_conversation(self, conversation_id: UUID):
