@@ -51,6 +51,8 @@ class Settings(BaseSettings):
 
     CROSS_ENCODING_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
+    EMBEDDING_CACHE_CAPACITY: int = 5
+
     ###########################
     # API & Secret Keys 
     ###########################
