@@ -1,8 +1,49 @@
 from abc import ABC, abstractmethod
 from typing import Callable
 
+from llama_index.core.llms.function_calling import FunctionCallingLLM
+
 
 class LLMBase(ABC):
+
+    ###############
+    # Generic functionality that can be used by all LLM providers
+    ###############
+
+    async def send_message(self, prompt: str):
+        """
+        Send a message to the LLM and return the response
+        """
+
+        # validate context length 
+        if not await self.validate_context_length(prompt):
+            raise ValueError("Prompt exceeds maximum context length")
+
+        
+        llm_instance = self.get_llama_idx_instance()
+        return llm_instance.complete(prompt)
+
+
+    
+    async def validate_context_length(self, prompt: str, current_token_count: int = 0) -> bool:
+        """
+        Validate that the current token count does not exceed the maximum context length.
+
+        Args:
+            prompt (str): The prompt to validate.
+            current_token_count (int): The current token count (i.e if conversation history maintained)
+        """
+        # get max context length of model
+        max_tokens = await self.get_max_context_length() #TODO: This accounts for strictly user input tokens, but should account for both
+
+        total_input_tokens = await self.tokenize(prompt)
+        
+        return len(total_input_tokens) + current_token_count <= max_tokens
+
+
+    ###############
+    # Abstract methods that must be implemented by all LLM providers
+    ###############
 
     @property
     @abstractmethod
@@ -35,23 +76,6 @@ class LLMBase(ABC):
         Check if the LLM is available
         """
         raise NotImplementedError("Subclasses must implement is_available method.")
-    
-
-    async def validate_context_length(self, prompt: str, current_token_count: int = 0) -> bool:
-        """
-        Validate that the current token count does not exceed the maximum context length.
-
-        Args:
-            prompt (str): The prompt to validate.
-            current_token_count (int): The current token count (i.e if conversation history maintained)
-        """
-        # get max context length of model
-        max_tokens = await self.get_max_context_length() #TODO: This accounts for strictly user input tokens, but should account for both
-
-        total_input_tokens = await self.tokenize(prompt)
-        
-        return len(total_input_tokens) + current_token_count <= max_tokens
-
 
     @abstractmethod
     async def get_max_context_length(self) -> int:
@@ -77,7 +101,7 @@ class LLMBase(ABC):
     
 
     @abstractmethod
-    def get_llama_idx_instance(self) -> object:
+    def get_llama_idx_instance(self) -> FunctionCallingLLM:
         """
         Get the underlying LlamaIndex LLM instance.
         """
