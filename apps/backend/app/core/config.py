@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     LL_MODEL_PROVIDER: str = "Ollama"
     LL_MODEL: str = "gpt-oss:latest"
     LLM_EXPECTED_RESPONSE_SIZE: int = 500 
+    LL_MODEL_CHAT_SUMMARY_SYSTEM_PROMPT: str = """
+    Your goal is to take the following prompt from the user, along with some basic context such as the Project Name, and construct a high 
+    quality, concise, and informative summary of the user's intent. These summary should be no more than 8 words and should clearly convery 
+    what the user is attempting to achieve in the particular conversation
+    """
     
 
     ###########################
