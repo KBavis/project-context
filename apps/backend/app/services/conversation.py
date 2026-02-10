@@ -8,6 +8,7 @@ from app.services.query import QueryService
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from uuid import UUID, uuid4
 import logging
@@ -26,6 +27,38 @@ class ConversationService:
         self.db = db 
         self.query_svc = query_svc
         self.llm_manager = llm_manager
+
+    
+    async def create_conversation_summary(self, conversation: Conversation, message: str) -> str:
+        """
+        Create a summary of the conversation
+
+        Args:
+            conversation (Conversation): conversation to create summary for
+            message (str): message to create summary for
+        """
+
+        logger.info(f"Creating summary for conversation {conversation.id} with message {message}")
+
+        # prompt LLM to create new summary based on users first message in conversation
+        prompt = settings.LL_MODEL_CHAT_SUMMARY_SYSTEM_PROMPT + f"\n\nProject Name: {conversation.project.project_name}\n\nMessage: {message}"
+        logger.debug(f"Prompt for conversation summary creation for Conversation={conversation.id}: {prompt}")
+
+        llm = self.llm_manager.get_llm() 
+        llm_response = await llm.send_message(prompt)
+
+        logger.debug(f"Response from LLM for conversation summary creation for Conversation={conversation.id}: {llm_response}")
+
+        # update Conversation record with summary 
+        conversation.summary = llm_response.text
+
+        self.db.add(conversation)
+        await self.db.flush()
+
+        return conversation.summary
+        
+
+
     
 
     async def create_conversation(self, conversation: CreateConversationRequest):
@@ -73,6 +106,9 @@ class ConversationService:
         """
         stmt = (
             select(Conversation)
+            .options(
+                selectinload(Conversation.messages)
+            )
             .where(Conversation.id == conversation_id)
         )
         conversation = await self.db.execute(stmt)
