@@ -63,5 +63,6 @@ class DataProvider(ABC):
         pass
 
     @abstractmethod
-    def _get_request_headers(self):
+    def _get_request_headers(self) -> dict[str, str] | None:
+        """Get request headers for API calls. Returns None if no auth is needed."""
         pass

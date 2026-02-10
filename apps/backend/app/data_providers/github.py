@@ -12,7 +12,7 @@ from app.services.chroma import ChromaService
 
 logger = logging.getLogger(__name__)
 
-
+ 
 class GithubDataProvider(DataProvider):
 
     def __init__(self, data_source, job_pk, db_session: AsyncSession, chroma_svc: ChromaService, url: str = "", branch: str = "main"):
@@ -42,7 +42,7 @@ class GithubDataProvider(DataProvider):
         # TODO: Along with cleaning up stale files from relational DB, we should also cleanup stale files from Chroma DB.
         #           - This can be done by first querying for files not seen, and then removing textnodes associated from Chroma based on meta data 
 
-    def _get_request_headers(self):
+    def _get_request_headers(self) -> dict[str, str] | None:
         """
         Get headers for current Data Provider
         """
@@ -50,8 +50,9 @@ class GithubDataProvider(DataProvider):
         return (
             {"Authorization": f"token {settings.GITHUB_SECRET_TOKEN}"}
             if settings.GITHUB_SECRET_TOKEN
-            else {}
+            else None
         )
+
 
     def _validate_url(self):
         """
