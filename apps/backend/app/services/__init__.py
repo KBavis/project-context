@@ -8,6 +8,7 @@ from .record_lock import RecordLockService
 from .query import QueryService
 from .ranking import RankingService
 from .q_and_a import QuestionAndAnswerService
+from .message import MessageService
 
 __all__ = [
     "DataSourceService", 
@@ -19,5 +20,6 @@ __all__ = [
     "RecordLockService",
     "QueryService",
     "RankingService",
-    "QuestionAndAnswerService"
+    "QuestionAndAnswerService",
+    "MessageService"
 ]
