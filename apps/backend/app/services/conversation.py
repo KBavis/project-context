@@ -111,7 +111,8 @@ class ConversationService:
         stmt = (
             select(Conversation)
             .options(
-                selectinload(Conversation.messages)
+                selectinload(Conversation.messages),
+                selectinload(Conversation.project)
             )
             .where(Conversation.id == conversation_id)
         )
