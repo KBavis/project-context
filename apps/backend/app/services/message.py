@@ -3,28 +3,22 @@ from app.pydantic import MessageRequest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.conversation import ConversationService
+from app.llm import LLMManager
 
 from uuid import UUID
+import logging
+
+logger = logging.getLogger(__name__)
 
 class MessageService:
     def __init__(
         self, 
         db: AsyncSession,
+        conversation_svc: ConversationService
     ):
         self.db = db
+        self.conversation_svc = conversation_svc
 
-        # initalize the Conversation Service 
-        self.conversation_svc = self.init_conversation_svc()
-
-
-    def init_conversation_svc(self):
-        """
-        Initialize the Conversation Service
-        """
-        return ConversationService(
-            db=self.db,
-            llm_manager=self.llm_manager
-        )
 
     async def send_message(self, message: MessageRequest, conversation_id: UUID):
         """
@@ -36,9 +30,12 @@ class MessageService:
         if not conversation:
             raise Exception(f"Conversation with id {conversation_id} not found")
 
+        # configure LLM Manager based on Conversation -- TODO: Consider caching this LLM Manager by Conversation ID for repetetive usages (and no need to continiously reinitalize)
+        llm_manager = LLMManager(model_name=conversation.ll_model_name, provider=conversation.ll_model_provider)
+
         # add summary to conversation if this is the first sent message 
         if conversation.summary is None:
-            await self.conversation_svc.create_conversation_summary(conversation, message.content)
+            await self.conversation_svc.create_conversation_summary(conversation, message.content, llm_manager)
 
         # gather existing context from previously sent messages 
 
