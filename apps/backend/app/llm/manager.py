@@ -9,10 +9,10 @@ logger = logging.getLogger(__name__)
 class LLMManager:
 
 
-    def __init__(self, provider: str = settings.LL_MODEL_PROVIDER, model_name: str = settings.LL_MODEL):
+    def __init__(self, provider: str = settings.LL_MODEL_PROVIDER, model_name: str = settings.LL_MODEL, lazy_init: bool = False):
         self.provider = provider
         self.model_name = model_name
-        self.llm = self._initialize_llm()
+        self.llm = self._initialize_llm() if not lazy_init else None
     
 
     def _initialize_llm(self):
@@ -39,10 +39,26 @@ class LLMManager:
     
 
 
-    def get_llm(self) -> LLMBase:
+    def get_llm(self, provider: str | None = None, model_name: str | None = None) -> LLMBase:
         """
         Get the currently initalized LLM instance 
+        Initalize the LLM if not already initalized 
+
+        Args:
+            provider (str): provider to use for LLM
+            model_name (str): model name to use for LLM
         """
+
+        # update provider and model name if specified and re-initialize LLM
+        if provider is not None and model_name is not None:
+            self.provider = provider
+            self.model_name = model_name
+            self.llm = self._initialize_llm()
+
+        # ensure LLM is initialized
+        if self.llm is None:
+            self.llm = self._initialize_llm()
+
         return self.llm
     
     
