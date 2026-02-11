@@ -1,4 +1,3 @@
-from app.pydantic import CreateConversationRequest
 from app.services import (
     ChromaService,
     DataSourceService,
@@ -177,3 +176,33 @@ def get_async_ingestion_job_svc(
         chroma_svc=chroma_svc,
         record_lock_svc=record_lock_svc
     )
+
+
+def get_async_conversation_svc(
+        db: AsyncSession = Depends(get_async_db_session),
+        query_svc: QueryService = Depends(get_async_query_svc)
+):
+    """
+    Setup async ConversationService dependency 
+
+    Args:
+        db (AsyncSession): async DB session
+        query_svc (QueryService): async query service dependency
+    """
+
+    return ConversationService(db=db, query_svc=query_svc)
+
+
+def get_async_message_svc(
+        db: AsyncSession = Depends(get_async_db_session),
+        conversation_svc: ConversationService = Depends(get_async_conversation_svc)
+):
+    """
+    Setup async MessageService dependency 
+
+    Args:
+        db (AsyncSession): async DB session
+        conversation_svc (ConversationService): async conversation service dependency
+    """
+
+    return MessageService(db=db, conversation_svc=conversation_svc)
