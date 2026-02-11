@@ -34,16 +34,14 @@ class QueryService:
         chroma_svc: ChromaService,
         ranking_svc: RankingService,
         q_and_a_svc: QuestionAndAnswerService,
-        llm_manager: LLMManager
     ):
         self.db: AsyncSession = db
         self.chroma_svc: ChromaService = chroma_svc
         self.ranking_svc: RankingService = ranking_svc
         self.q_and_a_svc: QuestionAndAnswerService = q_and_a_svc
-        self.llm_manager: LLMManager = llm_manager
     
 
-    async def execute_simple_query(self, query: str, project_id: UUID, q_and_a_record_id: UUID, start_time: datetime) -> None:
+    async def execute_simple_query(self, query: str, project_id: UUID, q_and_a_record_id: UUID, start_time: datetime, llm_manager: LLMManager) -> None:
         """
         Execute a one-time query against the ingested documentation and code for a specified Project
 
@@ -57,7 +55,7 @@ class QueryService:
 
         try:
             # get initalized LLM instance
-            llm =  self.llm_manager.get_llm() 
+            llm =  llm_manager.get_llm() 
 
             # TODO: In the future, we should setup a "recent projects" logic, and pre-emptively load these Embeddings into memory to speed up this call
             chunks = await self.get_relevant_chunks(query, project_id)

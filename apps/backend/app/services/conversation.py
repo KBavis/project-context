@@ -22,14 +22,12 @@ class ConversationService:
         self, 
         db: AsyncSession,
         query_svc: QueryService,
-        llm_manager: LLMManager
     ):
         self.db = db 
         self.query_svc = query_svc
-        self.llm_manager = llm_manager
 
     
-    async def create_conversation_summary(self, conversation: Conversation, message: str) -> str:
+    async def create_conversation_summary(self, conversation: Conversation, message: str, llm_manager: LLMManager) -> str:
         """
         Create a summary of the conversation
 
@@ -44,7 +42,7 @@ class ConversationService:
         prompt = settings.LL_MODEL_CHAT_SUMMARY_SYSTEM_PROMPT + f"\n\nProject Name: {conversation.project.project_name}\n\nMessage: {message}"
         logger.debug(f"Prompt for conversation summary creation for Conversation={conversation.id}: {prompt}")
 
-        llm = self.llm_manager.get_llm() 
+        llm = llm_manager.get_llm() 
         llm_response = await llm.send_message(prompt)
 
         logger.debug(f"Response from LLM for conversation summary creation for Conversation={conversation.id}: {llm_response}")
@@ -73,13 +71,19 @@ class ConversationService:
 
         logger.info(f"Creating Conversation for project {conversation.project_id} with LLM {conversation.ll_model_name} and provider {conversation.ll_model_provider}")
 
+        # Configure LLM Manager based on request parameters (or use defaults)
+        llm_manager = LLMManager(
+            model_name=conversation.ll_model_name or settings.LL_MODEL,
+            provider=conversation.ll_model_provider or settings.LL_MODEL_PROVIDER
+        )
+
 
         # Use settings defaults if not provided
         model_name = conversation.ll_model_name or settings.LL_MODEL
         model_provider = conversation.ll_model_provider or settings.LL_MODEL_PROVIDER
 
         # retrieve the max tokens for the specified model 
-        llm: LLMBase = self.llm_manager.get_llm()
+        llm: LLMBase = llm_manager.get_llm()
         max_tokens = await llm.get_max_context_length() 
 
         # create conversation record 
