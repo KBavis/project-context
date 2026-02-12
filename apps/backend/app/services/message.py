@@ -1,3 +1,4 @@
+from ast import List
 from app.models import Conversation
 from app.pydantic import MessageRequest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +39,7 @@ class MessageService:
             await self.conversation_svc.create_conversation_summary(conversation, message.content, llm_manager)
 
         # gather existing context from previously sent messages 
+        existing_messages = self.get_previous_messages(conversation)
 
         # determine if this question requires new chunks to be retrieved (or if its a follow up question that can be answered using existing context)
 
@@ -50,7 +52,7 @@ class MessageService:
         # stream response from LLM back to user 
     
 
-    def get_previous_messages(self, conversation: Conversation):
+    def get_previous_messages(self, conversation: Conversation) -> dict[str, List]:
         """
         Functionality to retrieve all previous messages for a specific Conversation
 
@@ -58,10 +60,18 @@ class MessageService:
             conversation (Conversation): Conversation to retrieve previous messages for
         """ 
 
+        # ensure messages exist 
         messages = conversation.messages
+        if not messages:
+            return {}
 
-        # TODO: Filter messages by user and LLM 
-        return None
+        # seperate messages by sender 
+        messages_by_sender = {}
+        for message in messages:
+            messages_by_sender[message.sender] = messages_by_sender.get(message.sender, []).append(message)
+
+        return messages_by_sender
+
 
         
 
