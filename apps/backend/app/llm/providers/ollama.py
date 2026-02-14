@@ -91,7 +91,8 @@ class OllamaLLM(LLMBase):
         logger.debug(f"{self.model_name} Statistics: {model_stats}")
 
         # calcualte the total size of the model (account for params being quantized)
-        bytes_per_parameter = model_params_quantization_bytes[model_stats['quantization_level']]
+        quantization_level = model_stats['quantization_level'].upper()
+        bytes_per_parameter = model_params_quantization_bytes.get(quantization_level, 4.0) 
         model_size_bytes = model_stats["parameter_count"] * bytes_per_parameter
 
         # remaining vram of current machine, accounting for model size being loaded into memory
@@ -102,11 +103,14 @@ class OllamaLLM(LLMBase):
         total_vram_bytes_remaining -= inference_overhead 
 
         # calculate KV-cache budget (including hardware limiations)
+        kv_cache_type = settings.OLLAMA_KV_CACHE_TYPE.lower()
+        kv_cache_bytes = kv_cache_quantization_bytes.get(kv_cache_type, 2) # default to f16 (2 bytes)
+
         hardware_max_tokens = total_vram_bytes_remaining / (
             2 * 
             model_stats['num_layers'] * 
             model_stats['hidden_dimensions'] * 
-            kv_cache_quantization_bytes[settings.OLLAMA_KV_CACHE_TYPE] # kv cache number of bytes
+            kv_cache_bytes
         )
 
         # determine max token (min between model maximum and hardware limitation maximum)
