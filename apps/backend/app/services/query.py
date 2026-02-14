@@ -48,62 +48,35 @@ class QueryService:
         NOTE: This is a placeholder implementation. Down the line, relevant logic will be setup 
         to create a Converation and have multiple interactions with the LLM in one singular session.
 
-        TODO: Refactor this logic to leverage execute_query and remove duplicate code 
-
         Args:
             query (str): The query string to execute.
-            project_id (str): The ID of the Project to query against.
+            project_id (UUID): The ID of the Project to query against.
+            q_and_a_record_id (UUID): The ID of the Q&A record to update.
+            start_time (datetime): The start time of the query.
+            llm_manager (LLMManager): The LLM Manager to use for the query.
         """
 
         try:
-            # get initalized LLM instance
-            llm =  llm_manager.get_llm() 
-
-            # TODO: In the future, we should setup a "recent projects" logic, and pre-emptively load these Embeddings into memory to speed up this call
-            chunks = await self.get_relevant_chunks(query, project_id)
-
-            # re-rank retrieved chunks
-            re_ranked_nodes = await self.ranking_svc.get_rankings(
-                chunks=chunks,
+            # Execute query using the generic implementation (no existing messages or tokens for simple query)
+            answer, total_token_count = await self.execute_query(
                 query=query,
-                top_k=5 # TODO: Make this a configuration 
+                project_id=project_id,
+                llm_manager=llm_manager,
+                existing_messages="",  # No conversation history for simple queries
+                total_tokens=0  # Starting from zero tokens
             )
 
-            # log re-ranked nodes for debugging
-            logger.debug(f"Top ranked chunks after re-ranking: \n")
-            for i, chunk in enumerate(re_ranked_nodes):
-                logger.debug(f"\tRanked Chunk {i+1}: Score={chunk.score}, Text={chunk.node.get_content()}")
-            
-            prompt = self.get_prompt(query, re_ranked_nodes)
-
-            # configure LlamaIndex to use the selected LLM 
-            Settings.llm = llm.get_llama_idx_instance()
-
-            # ensure LLM limits are not being reached
-            valid, _ = await llm.validate_context_length(prompt, current_token_count=0)
-            if not valid:
-                # TODO: Reduce number of chunks present in order to send and handle this gracefully
-                raise Exception(f"Total Context Length Exceeded for Provider={llm.provider} and Model={llm.model_name}")
-            
-            # define call backs 
-            token_counter = TokenCountingHandler(
-                tokenizer=llm.tokenizer
-            )
-            Settings.callback_manager = CallbackManager([token_counter])
-
-            response = await Settings.llm.acomplete(prompt) # TODO: Use LLM_EXPECTED_RESPONSE_SIZE and pass to model to ensure that we don't got over max context length 
-
-            logger.debug(f"LLM Response: {response}")
-            logger.debug(f"Total LLM Prompt Output Tokens={token_counter.completion_llm_token_count}")
+            logger.debug(f"LLM Response: {answer}")
+            logger.debug(f"Total Token Count: {total_token_count}")
 
             end_time = datetime.now() 
 
             await self.q_and_a_svc.update_q_and_a_record(
                 id=q_and_a_record_id,
-                output_tokens=token_counter.completion_llm_token_count,
+                output_tokens=total_token_count,
                 end_time=end_time,
                 status=ProcessingStatus.SUCCESS, 
-                answer=response.text, 
+                answer=answer, 
                 total_processing_time_ms=(end_time - start_time).microseconds
             )
 
