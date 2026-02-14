@@ -4,7 +4,7 @@ from .ingestion_job import IngestionJob, ProcessingStatus
 from .project import Project
 from .project_data import ProjectData
 from .conversation import Conversation
-from .message import Message
+from .message import Message, Sender
 from .file import File
 from .file_collection import FileCollection
 from .record_lock import RecordLock, RecordType
@@ -27,4 +27,5 @@ __all__ = [
     "RecordType",
     "ChromaCollection",
     "QuestionAndAnswer",
+    "Sender"
 ]
