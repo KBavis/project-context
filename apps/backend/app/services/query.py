@@ -80,7 +80,8 @@ class QueryService:
             Settings.llm = llm.get_llama_idx_instance()
 
             # ensure LLM limits are not being reached
-            if not await llm.validate_context_length(prompt, current_token_count=0):
+            valid, _ = await llm.validate_context_length(prompt, current_token_count=0)
+            if not valid:
                 # TODO: Reduce number of chunks present in order to send and handle this gracefully
                 raise Exception(f"Total Context Length Exceeded for Provider={llm.provider} and Model={llm.model_name}")
             
