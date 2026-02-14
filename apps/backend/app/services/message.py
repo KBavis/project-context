@@ -133,20 +133,33 @@ class MessageService:
 
         Args:
             conversation (Conversation): Conversation to retrieve previous messages for
+            k (int): Number of previous messages to retrieve
         """ 
 
         # ensure messages exist 
         messages = conversation.messages
         if not messages:
-            return {}
+            return ""
 
-        # seperate messages by sender 
-        messages_by_sender = {}
+        # retrieve converastion history and filter out older messages 
+        min_heap  = [] 
         for message in messages:
-            messages_by_sender[message.sender] = messages_by_sender.get(message.sender, []).append(message)
+            heapq.heappush(
+                min_heap, 
+                (message.sequence_number, f"{message.sender.value}:{message.content}")
+            )
 
-        return messages_by_sender
+            if len(min_heap) > k:
+                heapq.heappop(min_heap)
+        
+        # filter out message content & token count 
+        k_messages = [message[1] for message in min_heap]
 
+        # transform into a string 
+        return "\n".join(k_messages)
+
+
+    
 
         
 
