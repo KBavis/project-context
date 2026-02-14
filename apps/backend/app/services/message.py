@@ -1,9 +1,11 @@
-from ast import List
-from app.models import Conversation
+from enum import Enum
+from app.models import Conversation, Sender
 from app.pydantic import MessageRequest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.conversation import ConversationService
+from app.services.query import QueryService
+from app.models import Message
 from app.llm import LLMManager
 
 from uuid import UUID
