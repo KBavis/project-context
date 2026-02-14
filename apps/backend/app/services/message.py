@@ -7,23 +7,35 @@ from app.services.conversation import ConversationService
 from app.llm import LLMManager
 
 from uuid import UUID
+import heapq
 import logging
 
 logger = logging.getLogger(__name__)
+
+class QuestionType(Enum):
+    NEW_CHUNKS = "new_chunks"
+    FOLLOW_UP = "follow_up"
+    UNKNOWN = "unknown"
 
 class MessageService:
     def __init__(
         self, 
         db: AsyncSession,
-        conversation_svc: ConversationService
+        conversation_svc: ConversationService,
+        query_svc: QueryService
     ):
         self.db = db
         self.conversation_svc = conversation_svc
+        self.query_svc = query_svc
 
 
     async def send_message(self, message: MessageRequest, conversation_id: UUID):
         """
         Functionality to send a message to a previously created Conversation
+
+        Args:
+            message (MessageRequest): Message to be sent
+            conversation_id (UUID): ID of the conversation to send the message to
         """
 
         # retrieve conversation 
@@ -39,16 +51,32 @@ class MessageService:
             await self.conversation_svc.create_conversation_summary(conversation, message.content, llm_manager)
 
         # gather existing context from previously sent messages 
-        existing_messages = self.get_previous_messages(conversation)
+        existing_messages = self.get_previous_k_messages(conversation)
+        if not existing_messages:
+            logger.warning(f"No existing messages found for conversation {conversation_id}")
+
 
         # determine if this question requires new chunks to be retrieved (or if its a follow up question that can be answered using existing context)
+        question_type = await self.determine_question_type(message.content, existing_messages, llm_manager)
+        if question_type == QuestionType.UNKNOWN:
+            logger.error(f"Could not determine question type for conversation {conversation_id}")
+            raise Exception("Could not determine question type")
 
-        # retrieve relevant chunks via query service 
 
-        # generate prompt for LLM leveraging query service 
+        logger.debug(f"QuestionType for the Conversation={conversation_id} and Message={message.content}: {question_type.value}")        
 
-        # send new prompt / chunks along with existing context to LLM 
+        if question_type == QuestionType.NEW_CHUNKS:
+            query_result, output_token_count = await self.query_svc.execute_query(message.content, conversation.project_id, llm_manager, existing_messages, conversation.total_tokens)
 
+            logger.debug(f"Query Result for the Conversation={conversation_id} and Message={message.content}: {query_result}")
+            logger.debug(f"Total Token Count for the Conversation={conversation_id} and Message={message.content}: {output_token_count}")
+
+            # TODO: Update conversation total tokens 
+        elif question_type == QuestionType.FOLLOW_UP:  
+
+            # TODO: Configure logic to handle follow up questions 
+            logger.debug(f"Follow up question for the Conversation={conversation_id} and Message={message.content}") 
+            
         # stream response from LLM back to user 
 
         
