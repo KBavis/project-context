@@ -195,7 +195,8 @@ def get_async_conversation_svc(
 
 def get_async_message_svc(
         db: AsyncSession = Depends(get_async_db_session),
-        conversation_svc: ConversationService = Depends(get_async_conversation_svc)
+        conversation_svc: ConversationService = Depends(get_async_conversation_svc),
+        query_svc: QueryService = Depends(get_async_query_svc)
 ):
     """
     Setup async MessageService dependency 
@@ -203,6 +204,7 @@ def get_async_message_svc(
     Args:
         db (AsyncSession): async DB session
         conversation_svc (ConversationService): async conversation service dependency
+        query_svc (QueryService): async query service dependency
     """
 
-    return MessageService(db=db, conversation_svc=conversation_svc)
+    return MessageService(db=db, conversation_svc=conversation_svc, query_svc=query_svc)
