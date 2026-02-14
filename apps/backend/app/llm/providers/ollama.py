@@ -241,5 +241,13 @@ class OllamaLLM(LLMBase):
             logger.debug(f"Total VRAM available for Ollama LLM: {total_vram_bytes} Bytes")
             return total_vram_bytes
         else:
-            logger.warning("CUDA is not available. Ollama LLM may have limited performance on CPU-only systems.")
-            # TODO: Consider setting default max length of CPU based systems or not allowing for usage 
+            logger.warning("CUDA is not available. Using system RAM for Ollama context calculation.")
+            try:
+                # Fallback to system RAM (Linux specific, safe given user OS)
+                total_ram_bytes = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
+                logger.debug(f"Total System RAM available for Ollama LLM: {total_ram_bytes} Bytes")
+                return total_ram_bytes
+            except (ValueError, AttributeError):
+                # Absolute fallback if os.sysconf fails (e.g. non-Linux or error)
+                logger.error("Could not determine system RAM. Returning strict default (8GB).")
+                return 8 * 1024 * 1024 * 1024 
