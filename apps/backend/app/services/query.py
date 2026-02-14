@@ -48,6 +48,8 @@ class QueryService:
         NOTE: This is a placeholder implementation. Down the line, relevant logic will be setup 
         to create a Converation and have multiple interactions with the LLM in one singular session.
 
+        TODO: Refactor this logic to leverage execute_query and remove duplicate code 
+
         Args:
             query (str): The query string to execute.
             project_id (str): The ID of the Project to query against.
@@ -119,6 +121,69 @@ class QueryService:
             )
 
             raise e
+
+    async def execute_query(self, query: str, project_id: UUID, llm_manager: LLMManager, existing_messages: str, total_tokens: int) -> tuple[str, int]: 
+        """
+        Execute a query against the ingested documentation and code for a specified Project
+
+        Args:
+            query (str): The query string to execute.
+            project_id (UUID): The ID of the Project to query against.
+            llm_manager (LLMManager): The LLM Manager to use for the query.
+            previous_messages (str): The previous messages in the conversation.
+            total_tokens (int): The total number of tokens in the conversation.
+        """
+
+        llm = llm_manager.get_llm()
+
+        # retrieve relevant chunks & re-rank 
+        chunks = await self.get_relevant_chunks(query, project_id)
+        re_ranked_nodes = await self.ranking_svc.get_rankings(
+            chunks=chunks,
+            query=query,
+            top_k=5 # TODO: Make this a configuration 
+        )
+
+        # get relevant prompt 
+        prompt = self.get_prompt(query, re_ranked_nodes, existing_messages)
+
+        # configure LLM and validate 
+        token_counting_handler = await self.configure_llm(llm, prompt)
+
+
+        # ensure LLM limits are not being reached
+        valid, total_token_count = await llm.validate_context_length(prompt, current_token_count=total_tokens)
+        if not valid:
+            # TODO: Reduce number of chunks present in order to send and handle this gracefully
+            raise Exception(f"Total Context Length Exceeded for Provider={llm.provider} and Model={llm.model_name}")
+
+        response = await Settings.llm.acomplete(prompt)
+
+        return response.text, total_token_count + token_counting_handler.completion_llm_token_count
+
+
+    async def configure_llm(self, llm: LLMBase, prompt: str) -> TokenCountingHandler:
+        """
+        Configure the LLM with the relevant prompt.
+
+        Args:
+            llm (LLM): The LLM to configure.
+            prompt (str): The prompt to configure the LLM with.
+        """
+
+        # configure LlamaIndex to use the selected LLM 
+        Settings.llm = llm.get_llama_idx_instance()
+        
+        # define call backs 
+        token_counter = TokenCountingHandler(
+            tokenizer=llm.tokenizer
+        )
+        Settings.callback_manager = CallbackManager([token_counter])
+
+        return token_counter
+    
+        
+
 
     async def download_and_cache_embeddings(self, project_id: UUID) -> None:
         """
