@@ -122,7 +122,7 @@ class QueryService:
         prompt = self.get_prompt(query, re_ranked_nodes, existing_messages)
 
         # configure LLM and validate 
-        token_counting_handler = await self.configure_llm(llm, prompt)
+        token_counting_handler = await self._configure_llm(llm, prompt)
 
 
         # ensure LLM limits are not being reached
@@ -136,7 +136,7 @@ class QueryService:
         return response.text, total_token_count + token_counting_handler.completion_llm_token_count
 
 
-    async def configure_llm(self, llm: LLMBase, prompt: str) -> TokenCountingHandler:
+    async def _configure_llm(self, llm: LLMBase, prompt: str) -> TokenCountingHandler:
         """
         Configure the LLM with the relevant prompt.
 
