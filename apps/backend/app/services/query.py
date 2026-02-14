@@ -5,7 +5,7 @@ from app.core.constants import DOCS, CODE
 from app.embeddings import EmbeddingManager
 from app.models.collection import ChromaCollection
 from app.pydantic import ProcessingStatus
-from app.llm import LLMManager
+from app.llm import LLMManager, LLMBase
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -227,7 +227,7 @@ class QueryService:
 
         
     
-    def get_prompt(self, query: str, nodes: list[NodeWithScore]) -> str:
+    def get_prompt(self, query: str, nodes: list[NodeWithScore], previous_messages: str = "") -> str:
         """
         Get the prompt template to use for querying the LLM.
 
@@ -238,7 +238,11 @@ class QueryService:
             You are an AI assistant that helps developers understand and work with codebases. 
             You will be provided with relevant code snippets and documentation to help answer user queries.
             Provide clear, concise, and accurate answers based on the provided code and documentation snippets.
+            If the answer is not in the provided code and documentation snippets, say so and do not make up an answer.
         """
+
+        if previous_messages:
+            system_prompt += f"\n\n<context>\nPrevious Messages in this Conversation (in format user:<message> and model:<message> and sorted in oldest to latest order):\n{previous_messages}\n</context>"
 
         context = "\n\n---\n\n".join([
             f"Source: {node.metadata.get('source', 'Unknown')}\n{node.get_text()}" 
