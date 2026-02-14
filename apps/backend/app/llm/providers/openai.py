@@ -64,7 +64,7 @@ class OpenAIProvider(LLMBase):
         """
 
         openai_instance = self.get_llama_idx_instance() 
-        return openai_instance.metadata.context_window
+        return openai_instance.metadata.context_window - settings.LLM_EXPECTED_RESPONSE_SIZE
 
 
     
