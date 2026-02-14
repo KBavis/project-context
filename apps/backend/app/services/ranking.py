@@ -44,6 +44,11 @@ class RankingService:
         scored_nodes = list(zip(all_chunks, scores))
         scored_nodes.sort(key=lambda x: x[1], reverse=True)
 
+        # log re-ranked nodes for debugging
+        logger.debug(f"Top ranked chunks after re-ranking: \n")
+        for i, chunk in enumerate(scored_nodes):
+            logger.debug(f"\tRanked Chunk {i+1}: Score={chunk[1]}, Text={chunk[0].node.get_content()}")
+
         return [node for node, score in scored_nodes[:top_k]]
 
 
