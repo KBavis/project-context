@@ -127,8 +127,8 @@ class QueryService:
         # get relevant prompt 
         prompt = self.get_prompt(query, re_ranked_nodes, existing_messages)
 
-        # configure LLM and validate 
-        token_counting_handler = await self._configure_llm(llm)
+        # configure LLM 
+        await self._configure_llm(llm)
 
 
         # NOTE: Leverage 'prompt' instead of 'query' for validation (in order to account for conversation history bloat)
@@ -139,16 +139,19 @@ class QueryService:
 
         response = await Settings.llm.acomplete(prompt)
 
+        # calculate exact output tokens from the response text
+        model_output_tokens = len(await llm.tokenize(response.text))
+
         return QueryResponse(
             user_prompt=query,
             model_response=response.text,
             user_input_tokens=user_prompt_tokens,
-            model_output_tokens=token_counting_handler.completion_llm_token_count,
-            total_tokens = existing_tokens + user_prompt_tokens + token_counting_handler.completion_llm_token_count
+            model_output_tokens=model_output_tokens,
+            total_tokens = existing_tokens + user_prompt_tokens + model_output_tokens
         )
 
 
-    async def _configure_llm(self, llm: LLMBase) -> TokenCountingHandler:
+    async def _configure_llm(self, llm: LLMBase) -> None:
         """
         Configure the LLM with the relevant prompt.
 
@@ -159,14 +162,8 @@ class QueryService:
 
         # configure LlamaIndex to use the selected LLM 
         Settings.llm = llm.get_llama_idx_instance()
-        
-        # define call backs 
-        token_counter = TokenCountingHandler(
-            tokenizer=llm.tokenizer
-        )
-        Settings.callback_manager = CallbackManager([token_counter])
 
-        return token_counter
+        # TODO: configure any callbacks, limits, etc 
     
         
 
