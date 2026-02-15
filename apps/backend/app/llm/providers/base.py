@@ -15,7 +15,7 @@ class LLMBase(ABC):
         Send a message to the LLM and return the response
         """
 
-        valid, _ = await self.validate_context_length(prompt)
+        valid = await self.validate_context_length(prompt)
 
         # validate context length 
         if not valid:
@@ -27,12 +27,12 @@ class LLMBase(ABC):
 
 
     
-    async def validate_context_length(self, prompt: str, current_token_count: int = 0) -> tuple[bool, int]:
+    async def validate_context_length(self, prompt: str, current_token_count: int = 0) -> bool:
         """
         Validate that the current token count does not exceed the maximum context length.
 
         Returns:
-            tuple[bool, int]: A tuple containing a boolean indicating if the prompt is valid and an integer representing the total token count.
+            bool: A boolean indicating if the prompt is valid.
 
         Args:
             prompt (str): The prompt to validate.
@@ -43,7 +43,7 @@ class LLMBase(ABC):
 
         total_input_tokens = await self.tokenize(prompt)
         
-        return len(total_input_tokens) + current_token_count <= max_tokens, len(total_input_tokens) + current_token_count
+        return len(total_input_tokens) + current_token_count <= max_tokens
 
 
     ###############
