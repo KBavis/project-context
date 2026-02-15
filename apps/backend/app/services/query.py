@@ -4,7 +4,7 @@ from app.services.q_and_a import QuestionAndAnswerService
 from app.core.constants import DOCS, CODE
 from app.embeddings import EmbeddingManager
 from app.models.collection import ChromaCollection
-from app.pydantic import ProcessingStatus
+from app.pydantic import ProcessingStatus, QueryResponse
 from app.llm import LLMManager, LLMBase
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,25 +58,25 @@ class QueryService:
 
         try:
             # Execute query using the generic implementation (no existing messages or tokens for simple query)
-            answer, total_token_count = await self.execute_query(
+            response: QueryResponse = await self.execute_query(
                 query=query,
                 project_id=project_id,
                 llm_manager=llm_manager,
                 existing_messages="",  # No conversation history for simple queries
-                total_tokens=0  # Starting from zero tokens
+                existing_tokens=0  # Starting from zero tokens
             )
 
-            logger.debug(f"LLM Response: {answer}")
-            logger.debug(f"Total Token Count: {total_token_count}")
+            logger.debug(f"LLM Response: {response.model_response}")
+            logger.debug(f"Total Token Count: {response.total_tokens}")
 
             end_time = datetime.now() 
 
             await self.q_and_a_svc.update_q_and_a_record(
                 id=q_and_a_record_id,
-                output_tokens=total_token_count,
+                output_tokens=response.model_output_tokens,
                 end_time=end_time,
                 status=ProcessingStatus.SUCCESS, 
-                answer=answer, 
+                answer=response.model_response, 
                 total_processing_time_ms=(end_time - start_time).microseconds
             )
 
@@ -96,7 +96,7 @@ class QueryService:
 
             raise e
 
-    async def execute_query(self, query: str, project_id: UUID, llm_manager: LLMManager, existing_messages: str, total_tokens: int) -> tuple[str, int]: 
+    async def execute_query(self, query: str, project_id: UUID, llm_manager: LLMManager, existing_messages: str, existing_tokens: int) -> QueryResponse: 
         """
         Execute a query against the ingested documentation and code for a specified Project
 
@@ -109,6 +109,9 @@ class QueryService:
         """
 
         llm = llm_manager.get_llm()
+
+        # tokenize user prompt (excluding message history & system prompt)
+        user_prompt_tokens = len(await llm.tokenize(query))
 
         # retrieve relevant chunks & re-rank 
         chunks = await self.get_relevant_chunks(query, project_id)
@@ -125,15 +128,21 @@ class QueryService:
         token_counting_handler = await self._configure_llm(llm)
 
 
-        # ensure LLM limits are not being reached
-        valid, total_token_count = await llm.validate_context_length(prompt, current_token_count=total_tokens)
+        # NOTE: Leverage 'prompt' instead of 'query' for validation (in order to account for conversation history bloat)
+        valid = await llm.validate_context_length(prompt, current_token_count=existing_tokens)
         if not valid:
             # TODO: Reduce number of chunks present in order to send and handle this gracefully
             raise Exception(f"Total Context Length Exceeded for Provider={llm.provider} and Model={llm.model_name}")
 
         response = await Settings.llm.acomplete(prompt)
 
-        return response.text, total_token_count + token_counting_handler.completion_llm_token_count
+        return QueryResponse(
+            user_prompt=query,
+            model_response=response.text,
+            user_input_tokens=user_prompt_tokens,
+            model_output_tokens=token_counting_handler.completion_llm_token_count,
+            total_tokens = existing_tokens + user_prompt_tokens + token_counting_handler.completion_llm_token_count
+        )
 
 
     async def _configure_llm(self, llm: LLMBase) -> TokenCountingHandler:
