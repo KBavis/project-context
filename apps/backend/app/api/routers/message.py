@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from uuid import UUID
 
-from app.pydantic import MessageRequest
+from app.pydantic import MessageRequest, PromptResponse
 from app.services.message import MessageService
 from app.api.svc_deps import get_async_message_svc
 
@@ -24,8 +24,32 @@ async def send_message(
     """
 
     try: 
-        message = await message_svc.send_message(message, conversation_id)
-        return message
+        response: PromptResponse = await message_svc.send_message(message, conversation_id)
+        return response
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"{str(e)}"
+        )
+
+
+@router.get("/{conversation_id}", summary="Get all messages for a conversation")
+async def get_messages(
+    conversation_id: UUID,
+    message_svc: MessageService = Depends(get_async_message_svc)
+):
+    """
+    Get all messages for a conversation
+
+    Args:
+        conversation_id (UUID): ID of the conversation to get messages for
+        message_svc (MessageService): Message service
+    """
+
+    try: 
+        messages = await message_svc.get_messages(conversation_id)
+        return messages
 
     except Exception as e:
         raise HTTPException(
