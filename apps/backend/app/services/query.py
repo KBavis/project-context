@@ -100,6 +100,9 @@ class QueryService:
         """
         Execute a query against the ingested documentation and code for a specified Project
 
+        TODO: Fix issues with RAG retrieval and code. Seemingly not finding relevant code files when I prompt 
+        things like 'What code files deal with authentication?'
+
         Args:
             query (str): The query string to execute.
             project_id (UUID): The ID of the Project to query against.
