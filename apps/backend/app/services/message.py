@@ -1,6 +1,9 @@
+from datetime import datetime
 from enum import Enum
 from app.models import Conversation, Sender
+
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.services.conversation import ConversationService
 from app.services.query import QueryService
@@ -30,8 +33,22 @@ class MessageService:
         self.conversation_svc = conversation_svc
         self.query_svc = query_svc
 
+    
+    async def get_messages(self, conversation_id: UUID):
+        """
+        Functionality to get all messages for a conversation
 
-    async def send_message(self, message: MessageRequest, conversation_id: UUID):
+        Args:
+            conversation_id (UUID): ID of the conversation to get messages for
+        """
+
+        messages = await self.db.execute(
+            select(Message).where(Message.conversation_id == conversation_id).order_by(Message.sequence_number)
+        )
+        return messages.scalars().all()
+
+
+    async def send_message(self, message: MessageRequest, conversation_id: UUID) -> PromptResponse:
         """
         Functionality to send a message to a previously created Conversation
 
@@ -60,48 +77,69 @@ class MessageService:
 
         # determine if this question requires new chunks to be retrieved (or if its a follow up question that can be answered using existing context)
         question_type = await self.determine_question_type(message.content, existing_messages, llm_manager)
-
-        # TODO: Make this switch statement 
-        if question_type == QuestionType.UNKNOWN:
-            logger.error(f"Could not determine question type for conversation {conversation_id}")
-            raise Exception("Could not determine question type")
-
-
         logger.debug(f"QuestionType for the Conversation={conversation_id} and Message={message.content}: {question_type.value}")        
 
-        if question_type == QuestionType.NEW_CHUNKS:
-            """
-            Retrieve relevant chunks from project's Vector DB, and perform query previous K messages 
-            and the retreived chunks that are semantically similar to users prompt
-            """
+        # perform relevant flows based on the type of question posed 
+        match question_type:
+            case QuestionType.NEW_CHUNKS:
+                """
+                Retrieve relevant chunks from project's Vector DB, and perform query previous K messages 
+                and the retreived chunks that are semantically similar to users prompt
+                """
 
-            query_result: QueryResponse = await self.query_svc.execute_query(message.content, conversation.project_id, llm_manager, existing_messages, conversation.total_tokens)
-            logger.debug(f"Query Result for the Conversation={conversation_id} and Message={message.content}: {query_result.model_response}")
-            logger.debug(f"Total Token Count for the Conversation={conversation_id} and Message={message.content}: {query_result.total_tokens}")
+                query_result: QueryResponse = await self.query_svc.execute_query(message.content, conversation.project_id, llm_manager, existing_messages, conversation.total_tokens)
+                logger.debug(f"Query Result for the Conversation={conversation_id} and Message={message.content}: {query_result.model_response}")
+                logger.debug(f"Total Token Count for the Conversation={conversation_id} and Message={message.content}: {query_result.total_tokens}")
 
-            # persist updates to Message & Conversation
-            user_msg, model_msg = await self.save_messages(
-                query_result, 
-                conversation_id, 
-                message.content_type, 
-                len(existing_messages)
-            )
-            await self.conversation_svc.update_total_tokens(conversation_id, query_result.total_tokens)
 
-            return PromptResponse(
-                user_message=self._get_message_dto(user_msg),
-                model_message=self._get_message_dto(model_msg),
-                conversation_id=conversation_id
-            )
+            case QuestionType.FOLLOW_UP:
+                """
+                Utilize the existing context from previous K messages to answer the user's question
+                """
+                logger.debug(f"Follow up question for the Conversation={conversation_id} and Message={message.content}") 
 
-        elif question_type == QuestionType.FOLLOW_UP:  
-            """
-            Utilize the existing context from previous K messages to answer the user's question
-            """
 
-            # TODO: Configure logic to handle follow up questions 
-            logger.debug(f"Follow up question for the Conversation={conversation_id} and Message={message.content}") 
-            
+                # TODO: Configure logic to handle follow up questions and remove the following stub 
+                return PromptResponse(
+                    user_message=MessageDto(
+                        content=message.content,
+                        content_type=message.content_type,
+                        token_count=0,
+                        sequence_number=len(existing_messages) + 1,
+                        created_at=datetime.now(),
+                        updated_at=datetime.now()
+                    ),
+                    model_message=MessageDto(
+                        content="",
+                        content_type=message.content_type,
+                        token_count=0,
+                        sequence_number=len(existing_messages) + 2,
+                        created_at=datetime.now(),
+                        updated_at=datetime.now()
+                    ),
+                    conversation_id=conversation_id
+                )
+            case QuestionType.UNKNOWN:
+                logger.error(f"Could not determine question type for conversation {conversation_id}")
+                raise Exception("Could not determine question type")
+
+
+        # persist updates to Message & Conversation
+        user_msg, model_msg = await self.save_messages(
+            query_result, 
+            conversation_id, 
+            message.content_type, 
+            len(existing_messages)
+        )
+        await self.conversation_svc.update_total_tokens(conversation_id, query_result.total_tokens)
+
+        return PromptResponse(
+            user_message=self._get_message_dto(user_msg),
+            model_message=self._get_message_dto(model_msg),
+            conversation_id=conversation_id
+        ) 
+
+
         # stream response from LLM back to user 
     
     def _get_message_dto(self, message: Message) -> MessageDto:
