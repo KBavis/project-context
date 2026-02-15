@@ -128,6 +128,22 @@ class ConversationService:
             conversation_id (UUID): id of specified conversation to remove 
         """
     
+    async def update_total_tokens(self, conversation_id: UUID, token_count: int):
+        """
+        Update the total token count for a conversation
+
+        Args:
+            conversation_id (UUID): id of specified conversation to update
+            token_count (int): token count to add to the conversation
+        """
+        conversation = await self.get_conversation(conversation_id)
+        if not conversation:
+            raise Exception(f"Conversation with id {conversation_id} not found")
+        conversation.total_tokens += token_count
+        self.db.add(conversation)
+        await self.db.flush()
+    
+
 
     async def update_conversation(self, conversation: UpdateConversationRequest):
         """
