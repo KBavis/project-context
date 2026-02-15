@@ -5,7 +5,8 @@ from .file import File, CodeFileExtension, DocsFileExtension, FileProcesingStatu
 from .chroma import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse
 from .status import ProcessingStatus
 from .conversation import CreateConversationRequest, UpdateConversationRequest
-from .message import MessageRequest
+from .message import MessageRequest, MessageResponse as PromptResponse, MessageDto
+from .query import QueryRequest, QueryResponse
 
 __all__ = [
     "ChatRequest", 
@@ -22,4 +23,8 @@ __all__ = [
     "CreateConversationRequest",
     "UpdateConversationRequest",
     "MessageRequest",
+    "QueryRequest",
+    "QueryResponse",
+    "PromptResponse",
+    "MessageDto"
 ]
