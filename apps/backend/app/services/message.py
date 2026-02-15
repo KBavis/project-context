@@ -1,12 +1,12 @@
 from enum import Enum
 from app.models import Conversation, Sender
-from app.pydantic import MessageRequest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.conversation import ConversationService
 from app.services.query import QueryService
 from app.models import Message
 from app.llm import LLMManager
+from app.pydantic import QueryResponse, PromptResponse, MessageDto, MessageRequest
 
 from uuid import UUID
 import heapq
@@ -60,6 +60,8 @@ class MessageService:
 
         # determine if this question requires new chunks to be retrieved (or if its a follow up question that can be answered using existing context)
         question_type = await self.determine_question_type(message.content, existing_messages, llm_manager)
+
+        # TODO: Make this switch statement 
         if question_type == QuestionType.UNKNOWN:
             logger.error(f"Could not determine question type for conversation {conversation_id}")
             raise Exception("Could not determine question type")
@@ -68,21 +70,93 @@ class MessageService:
         logger.debug(f"QuestionType for the Conversation={conversation_id} and Message={message.content}: {question_type.value}")        
 
         if question_type == QuestionType.NEW_CHUNKS:
-            query_result, output_token_count = await self.query_svc.execute_query(message.content, conversation.project_id, llm_manager, existing_messages, conversation.total_tokens)
+            """
+            Retrieve relevant chunks from project's Vector DB, and perform query previous K messages 
+            and the retreived chunks that are semantically similar to users prompt
+            """
 
-            logger.debug(f"Query Result for the Conversation={conversation_id} and Message={message.content}: {query_result}")
-            logger.debug(f"Total Token Count for the Conversation={conversation_id} and Message={message.content}: {output_token_count}")
+            query_result: QueryResponse = await self.query_svc.execute_query(message.content, conversation.project_id, llm_manager, existing_messages, conversation.total_tokens)
+            logger.debug(f"Query Result for the Conversation={conversation_id} and Message={message.content}: {query_result.model_response}")
+            logger.debug(f"Total Token Count for the Conversation={conversation_id} and Message={message.content}: {query_result.total_tokens}")
 
-            # TODO: Update conversation total tokens 
+            # persist updates to Message & Conversation
+            user_msg, model_msg = await self.save_messages(
+                query_result, 
+                conversation_id, 
+                message.content_type, 
+                len(existing_messages)
+            )
+            await self.conversation_svc.update_total_tokens(conversation_id, query_result.total_tokens)
+
+            return PromptResponse(
+                user_message=self._get_message_dto(user_msg),
+                model_message=self._get_message_dto(model_msg),
+                conversation_id=conversation_id
+            )
+
         elif question_type == QuestionType.FOLLOW_UP:  
+            """
+            Utilize the existing context from previous K messages to answer the user's question
+            """
 
             # TODO: Configure logic to handle follow up questions 
             logger.debug(f"Follow up question for the Conversation={conversation_id} and Message={message.content}") 
             
         # stream response from LLM back to user 
+    
+    def _get_message_dto(self, message: Message) -> MessageDto:
+        return MessageDto(
+            content=message.content,
+            content_type=message.content_type,
+            token_count=message.token_count,
+            sequence_number=message.sequence_number,
+            created_at=message.created_at,
+            updated_at=message.updated_at
+        )
 
         
-        
+    async def save_messages(
+        self, 
+        query_result: QueryResponse, 
+        conversation_id: UUID, 
+        message_content_type: str, 
+        existing_messages_length: int
+    ) :
+        """
+        Functionality to save a message to a previously created Conversation
+
+        Args:
+            query_result (QueryResponse): Query result from the conversation
+            conversation_id (UUID): ID of the conversation to save the message to
+            message_content_type (str): Content type of the message
+        """
+
+        # calculate sequence numbers (user ask, model respond)
+        user_sequence_number = existing_messages_length + 1 
+        model_sequence_number = user_sequence_number + 1
+
+        # save user and model messages
+        user_msg = await self.save_message(
+            message=query_result.user_prompt,
+            sender=Sender.USER,
+            sequence_number=user_sequence_number,
+            content_type=message_content_type,
+            token_count=query_result.user_input_tokens,
+            conversation_id=conversation_id
+        )
+        model_msg = await self.save_message(
+            message=query_result.model_response,
+            sender=Sender.MODEL,
+            sequence_number=model_sequence_number,
+            content_type="text", # TODO: Use enum and account for potential types 
+            token_count=query_result.model_output_tokens,
+            conversation_id=conversation_id
+        )
+
+        logger.debug(f"Saved User & Model Messages for Conversation={conversation_id} and User Prompt='{query_result.user_prompt}' and Model Response='{query_result.model_response}'")
+
+        return user_msg, model_msg
+
 
     async def save_message(
         self, 
@@ -105,7 +179,7 @@ class MessageService:
 
         # create message in database 
         msg_to_save = Message(
-            message=message,
+            content=message,
             sender=sender,
             sequence_number=sequence_number,
             content_type=content_type,
