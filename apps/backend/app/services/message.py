@@ -52,6 +52,9 @@ class MessageService:
         """
         Functionality to send a message to a previously created Conversation
 
+        TODO: Look into streaming this response back to the user and sending periodic updates so front-end 
+        knows the current state 
+
         Args:
             message (MessageRequest): Message to be sent
             conversation_id (UUID): ID of the conversation to send the message to
