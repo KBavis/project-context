@@ -10,6 +10,21 @@ from uuid import UUID
 router = APIRouter(prefix="/data/sources")
 
 
+@router.get("/", summary="Retrieve all data sources")
+def get_data_sources(
+    svc: DataSourceService = Depends(get_data_source_svc)
+):
+    """
+    Retrieve all data sources
+    """
+    try:
+        return svc.get_all_data_sources()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
+        )
+
+
 @router.post("/", summary="Connect to external data source")
 def create_datasource(
     data_source: DataSourceRequest, 

@@ -74,6 +74,27 @@ class DataSourceService:
             {
                 "id": data_source.id,
                 "provider": data_source.provider,
+                "type": data_source.provider,
+                "name": data_source.url,
+                "config": {"url": data_source.url}
+            }
+            for data_source in data_sources
+        ]
+
+    def get_all_data_sources(self) -> list[dict[str, object]]:
+        """
+        Functionality to retrieve all persisted data sources
+        """
+        stmt = select(DataSource)
+        data_sources = self.db.execute(stmt).scalars().all()
+
+        return [
+            {
+                "id": data_source.id,
+                "provider": data_source.provider,
+                "type": data_source.provider,
+                "name": data_source.url,
+                "config": {"url": data_source.url}
             }
             for data_source in data_sources
         ]
