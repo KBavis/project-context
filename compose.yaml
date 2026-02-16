@@ -17,13 +17,13 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"  # linux usage 
   
-  # frontend:
-  #   image: frontend-app
-  #   container_name: frontend
-  #   ports:
-  #     - "3000:3000"
-  #   depends_on:
-  #     - backend
+  frontend:
+    image: frontend-app
+    container_name: frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
 
   chromadb:
     image: chromadb/chroma:latest 
