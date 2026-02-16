@@ -120,6 +120,24 @@ class ConversationService:
         return conversation.scalar_one_or_none()
 
 
+    async def get_all_conversations(self) -> list[Conversation]:
+        """
+        Retrieve all conversations
+        """
+        stmt = (
+            select(Conversation)
+            .options(
+                selectinload(Conversation.messages),
+                selectinload(Conversation.project)
+            )
+            .order_by(Conversation.updated_at.desc()) 
+        )
+        conversations = await self.db.execute(stmt)
+        return conversations.scalars().all()
+
+    
+
+
     async def delete_conversation(self, conversation_id: UUID):
         """
         Delete an existing conversation 

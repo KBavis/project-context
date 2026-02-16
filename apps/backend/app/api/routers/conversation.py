@@ -9,6 +9,22 @@ from app.api.svc_deps import get_async_conversation_svc
 router = APIRouter(prefix="/conversation")
 
 
+@router.get("/", summary="Retrieve all conversations")
+async def get_conversations(
+    conversation_svc: ConversationService = Depends(get_async_conversation_svc)
+):
+    """
+    Retrieve all conversations
+    """
+    try:
+        return await conversation_svc.get_all_conversations()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"{str(e)}"
+        )
+
+
 @router.post("/", summary="Start a new conversation with LLM regarding a project")
 async def create_new_conversation(
     conversation: CreateConversationRequest,
