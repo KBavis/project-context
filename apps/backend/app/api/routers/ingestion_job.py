@@ -74,8 +74,17 @@ async def create_ingestion_job(
         )
 
 
+
 @router.get("/", summary="Retrieve all ingestion jobs")
-def get_ingestion_jobs():
+async def get_ingestion_jobs(
+    svc: IngestionJobService = Depends(get_async_ingestion_job_svc)
+):
     """
     Retrieve ingestion jobs for authenticated user
     """
+    try:
+        return await svc.get_all_ingestion_jobs()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
+        )

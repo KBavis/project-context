@@ -320,6 +320,17 @@ class IngestionJobService:
 
         self.db.add(ingestion_job)
         await self.db.flush()
+
+    async def get_all_ingestion_jobs(self) -> list[IngestionJob]:
+        """
+        Functionality to retrieve all persisted ingestion jobs
+        """
+        stmt = (
+            select(IngestionJob)
+            .order_by(IngestionJob.start_time.desc())
+        )
+        ingestion_jobs = await self.db.execute(stmt)
+        return ingestion_jobs.scalars().all()
     
 
     async def _retrieve_data(
