@@ -10,7 +10,6 @@ from .core import (
 )
 from contextlib import asynccontextmanager
 from .api.routers import app_router
-    
 
 
 @asynccontextmanager
@@ -56,4 +55,3 @@ def create_app() -> FastAPI:
     app.include_router(app_router)
 
     return app
-
