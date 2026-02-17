@@ -133,7 +133,7 @@ class ConversationService:
             .order_by(Conversation.updated_at.desc()) 
         )
         conversations = await self.db.execute(stmt)
-        return conversations.scalars().all()
+        return list(conversations.scalars().all())
 
     
 
