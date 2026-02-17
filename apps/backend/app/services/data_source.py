@@ -55,6 +55,8 @@ class DataSourceService:
         return {
             "id": data_source.id,
             "provider": data_source.provider,
+            "name": data_source.name,
+            "config": {"url": data_source.url},
             "linked_projects": project_ids,
         }
 
