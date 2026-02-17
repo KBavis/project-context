@@ -1,0 +1,36 @@
+.create-conversation-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.form-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.form-actions {
+    display: flex;
+    gap: var(--spacing-md);
+    justify-content: flex-end;
+    margin-top: var(--spacing-md);
+}
+
+.error-message {
+    padding: var(--spacing-md);
+    background: var(--color-danger-light);
+    border: 1px solid var(--color-danger);
+    border-radius: var(--radius-md);
+    color: var(--color-danger);
+    font-size: 0.875rem;
+}
+
+select.input {
+    cursor: pointer;
+}
+
+select.input option {
+    background: var(--color-bg-elevated);
+    color: var(--color-text-primary);
+}

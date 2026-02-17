@@ -1,0 +1,197 @@
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--color-bg-secondary);
+}
+
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.message {
+    display: flex;
+    gap: var(--spacing-md);
+    animation: fadeIn 0.3s ease-out;
+}
+
+.message-assistant {
+    flex-direction: row-reverse;
+}
+
+.message-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--gradient-surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    border: 1px solid var(--color-border);
+}
+
+.message-content {
+    flex: 1;
+    max-width: 70%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.message-assistant .message-content {
+    align-items: flex-end;
+}
+
+.message-text {
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-primary);
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+/* Markdown Styles */
+.message-text p {
+    margin: 0;
+}
+
+/* Add definitive spacing between all block elements */
+.message-text>*+* {
+    margin-top: 1.25em;
+}
+
+.message-text ul,
+.message-text ol {
+    padding-left: 1.5em;
+}
+
+.message-text pre {
+    background: rgba(0, 0, 0, 0.05);
+    padding: 0.5em;
+    border-radius: var(--radius-sm);
+    overflow-x: auto;
+}
+
+.message-text code {
+    font-family: monospace;
+    font-size: 0.9em;
+    background: rgba(0, 0, 0, 0.05);
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+}
+
+.message-text table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.message-text th,
+.message-text td {
+    padding: var(--spacing-sm);
+    border: 1px solid var(--color-border);
+    text-align: left;
+}
+
+.message-text th {
+    background: rgba(0, 0, 0, 0.05);
+    font-weight: 600;
+}
+
+.message-user .message-text {
+    background: var(--gradient-primary);
+    border: none;
+    color: white;
+}
+
+.message-timestamp {
+    font-size: 0.75rem;
+    color: var(--color-text-tertiary);
+    padding: 0 var(--spacing-sm);
+}
+
+.message-streaming .message-text {
+    border-color: var(--color-accent);
+}
+
+.message-streaming-indicator {
+    font-size: 0.75rem;
+    color: var(--color-accent);
+    padding: 0 var(--spacing-sm);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+.chat-input-container {
+    padding: var(--spacing-lg);
+    background: var(--color-bg-tertiary);
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: flex-end;
+}
+
+.chat-input {
+    flex: 1;
+    padding: var(--spacing-md);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text-primary);
+    font-family: inherit;
+    font-size: 0.9375rem;
+    resize: none;
+    transition: all 0.15s ease;
+    max-height: 200px;
+}
+
+.chat-input::placeholder {
+    color: var(--color-text-tertiary);
+}
+
+.chat-input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    background: var(--color-surface-hover);
+}
+
+.chat-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.chat-empty {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-md);
+    color: var(--color-text-tertiary);
+    text-align: center;
+    padding: var(--spacing-2xl);
+}
+
+.chat-empty-icon {
+    font-size: 4rem;
+    opacity: 0.3;
+}
+
+.chat-empty h3 {
+    font-size: 1.25rem;
+    color: var(--color-text-secondary);
+}
+
+.chat-empty p {
+    font-size: 0.9375rem;
+}
