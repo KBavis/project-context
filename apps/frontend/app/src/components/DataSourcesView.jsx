@@ -33,11 +33,18 @@ export default function DataSourcesView({ projectId }) {
     };
 
     const handleRunIngestion = async (dsId) => {
+        const ds = dataSources.find(d => d.id === dsId);
+        const displayName = ds?.name || ds?.config?.url || ds?.url || 'this data source';
+
+        if (!confirm(`Are you sure you want to start a new ingestion job for "${displayName}"?`)) {
+            return;
+        }
+
         setCreatingJob(true);
         try {
-            // Using project-specific ingestion if projectId is available
             await createIngestionJob(dsId);
             setActiveJobView(dsId);
+            alert('🚀 Ingestion job successfully triggered! You can view the status in the "Latest Jobs" section.');
         } catch (err) {
             alert('Failed to start ingestion job: ' + err.message);
         } finally {
