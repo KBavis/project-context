@@ -1,30 +1,9 @@
-import { useState, useEffect } from 'react';
-import { api } from '../services/api';
+import { useDataSources } from '../contexts/DataSourcesContext';
 import Button from './Button';
-import './DataSourcesView.css';
+import '../styles/DataSourcesView.css';
 
 export default function DataSourcesView({ projectId }) {
-    const [dataSources, setDataSources] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-
-    useEffect(() => {
-        if (projectId) {
-            loadDataSources();
-        }
-    }, [projectId]);
-
-    const loadDataSources = async () => {
-        setLoading(true);
-        try {
-            const data = await api.dataSources.list(projectId);
-            setDataSources(data);
-        } catch (err) {
-            setError('Failed to load data sources');
-        } finally {
-            setLoading(false);
-        }
-    };
+    const { dataSources, loading, error, deleteDataSource } = useDataSources();
 
     const handleDelete = async (dataSourceId) => {
         if (!confirm('Are you sure you want to delete this data source?')) {
@@ -32,8 +11,7 @@ export default function DataSourcesView({ projectId }) {
         }
 
         try {
-            await api.dataSources.delete(dataSourceId);
-            setDataSources(prev => prev.filter(ds => ds.id !== dataSourceId));
+            await deleteDataSource(dataSourceId);
         } catch (err) {
             alert('Failed to delete data source');
         }
@@ -49,7 +27,7 @@ export default function DataSourcesView({ projectId }) {
         );
     }
 
-    if (loading) {
+    if (loading && dataSources.length === 0) {
         return (
             <div className="data-sources-loading">
                 <div className="spinner spin"></div>

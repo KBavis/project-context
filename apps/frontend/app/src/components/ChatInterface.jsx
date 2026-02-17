@@ -3,11 +3,12 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { api } from '../services/api';
+import { useConversations } from '../contexts/ConversationContext';
 import Button from './Button';
-import './ChatInterface.css';
+import '../styles/ChatInterface.css';
 
 export default function ChatInterface({ conversationId }) {
-    const [messages, setMessages] = useState([]);
+    const { messages, setMessages } = useConversations();
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [streamingMessage, setStreamingMessage] = useState('');
@@ -21,21 +22,6 @@ export default function ChatInterface({ conversationId }) {
         scrollToBottom();
     }, [messages, streamingMessage]);
 
-    useEffect(() => {
-        if (conversationId) {
-            loadMessages();
-        }
-    }, [conversationId]);
-
-    const loadMessages = async () => {
-        try {
-            const data = await api.messages.list(conversationId);
-            setMessages(data);
-        } catch (error) {
-            console.error('Failed to load messages:', error);
-        }
-    };
-
     const handleSend = async () => {
         if (!input.trim() || loading) return;
 
@@ -48,7 +34,6 @@ export default function ChatInterface({ conversationId }) {
         try {
             const response = await api.messages.send(conversationId, input);
 
-            // Handle streaming response
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let assistantMessage = '';
@@ -62,7 +47,6 @@ export default function ChatInterface({ conversationId }) {
                 setStreamingMessage(assistantMessage);
             }
 
-            // Add complete message to history
             const completeMessage = {
                 role: 'assistant',
                 content: assistantMessage,
@@ -93,7 +77,6 @@ export default function ChatInterface({ conversationId }) {
     };
 
     const isUser = (msg) => {
-        // Handle both 'role' (local state) and 'sender' (backend DB)
         const role = msg.role || msg.sender;
         return role && role.toUpperCase() === 'USER';
     };

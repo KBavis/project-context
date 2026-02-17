@@ -1,35 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Modal from './Modal';
-import Input from './Input';
 import Button from './Button';
-import { api } from '../services/api';
-import './CreateConversationModal.css';
+import { useProjects, useConversations } from '../contexts/index';
+import '../styles/CreateConversationModal.css';
 
-export default function CreateConversationModal({ isOpen, onClose, onCreated }) {
-    const [projects, setProjects] = useState([]);
-    const [selectedProject, setSelectedProject] = useState('');
+export default function CreateConversationModal({ isOpen, onClose }) {
+    const { projects } = useProjects();
+    const { createConversation } = useConversations();
+    const [selectedProjectId, setSelectedProjectId] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-
-    useEffect(() => {
-        if (isOpen) {
-            loadProjects();
-        }
-    }, [isOpen]);
-
-    const loadProjects = async () => {
-        try {
-            const data = await api.projects.list();
-            setProjects(data);
-        } catch (err) {
-            setError('Failed to load projects');
-        }
-    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        if (!selectedProject) {
+        if (!selectedProjectId) {
             setError('Please select a project');
             return;
         }
@@ -38,10 +23,9 @@ export default function CreateConversationModal({ isOpen, onClose, onCreated }) 
         setError('');
 
         try {
-            const conversation = await api.conversations.create(selectedProject);
-            onCreated(conversation);
+            await createConversation(selectedProjectId);
             onClose();
-            setSelectedProject('');
+            setSelectedProjectId('');
         } catch (err) {
             setError(err.message || 'Failed to create conversation');
         } finally {
@@ -58,15 +42,15 @@ export default function CreateConversationModal({ isOpen, onClose, onCreated }) 
                         <span className="input-required">*</span>
                     </label>
                     <select
-                        value={selectedProject}
-                        onChange={(e) => setSelectedProject(e.target.value)}
+                        value={selectedProjectId}
+                        onChange={(e) => setSelectedProjectId(e.target.value)}
                         className="input"
                         required
                     >
                         <option value="">Choose a project...</option>
                         {projects.map((project) => (
                             <option key={project.id} value={project.id}>
-                                {project.project_name}
+                                {project.project_name || project.name}
                             </option>
                         ))}
                     </select>

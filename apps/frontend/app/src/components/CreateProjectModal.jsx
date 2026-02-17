@@ -2,9 +2,10 @@ import { useState } from 'react';
 import Modal from './Modal';
 import Input from './Input';
 import Button from './Button';
-import { api } from '../services/api';
+import { useProjects } from '../contexts/index';
 
-export default function CreateProjectModal({ isOpen, onClose, onCreated }) {
+export default function CreateProjectModal({ isOpen, onClose }) {
+    const { createProject } = useProjects();
     const [projectName, setProjectName] = useState('');
     const [description, setDescription] = useState('');
     const [loading, setLoading] = useState(false);
@@ -22,8 +23,7 @@ export default function CreateProjectModal({ isOpen, onClose, onCreated }) {
         setError('');
 
         try {
-            const project = await api.projects.create(projectName, description);
-            onCreated(project);
+            await createProject(projectName, description);
             onClose();
             setProjectName('');
             setDescription('');

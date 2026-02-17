@@ -1,33 +1,27 @@
 import { useState, useEffect } from 'react';
-import { api } from '../services/api';
+import { useIngestionJobs } from '../contexts/IngestionJobContext';
 import Button from './Button';
-import './IngestionJobsView.css';
+import '../styles/IngestionJobsView.css';
 
 export default function IngestionJobsView({ projectId }) {
-    const [jobs, setJobs] = useState([]);
-    const [loading, setLoading] = useState(false);
+    const { ingestionJobs: jobs, loading, createIngestionJob, fetchIngestionJobs } = useIngestionJobs();
     const [creatingJob, setCreatingJob] = useState(false);
 
     useEffect(() => {
         if (projectId) {
-            loadJobs();
-            const interval = setInterval(loadJobs, 5000); // Poll every 5 seconds
+            const interval = setInterval(fetchIngestionJobs, 5000); // Poll every 5 seconds
             return () => clearInterval(interval);
         }
-    }, [projectId]);
+    }, [projectId, fetchIngestionJobs]);
 
-    const loadJobs = async () => {
+    const handleCreateJob = async () => {
+        setCreatingJob(true);
         try {
-            const data = await api.ingestion.list(projectId);
-            const mappedJobs = data.map(job => ({
-                ...job,
-                status: mapStatus(job.processing_status),
-                created_at: job.start_time,
-                completed_at: job.end_time
-            }));
-            setJobs(mappedJobs);
+            await createIngestionJob();
         } catch (err) {
-            console.error('Failed to load jobs:', err);
+            alert('Failed to create ingestion job: ' + err.message);
+        } finally {
+            setCreatingJob(false);
         }
     };
 
@@ -38,18 +32,6 @@ export default function IngestionJobsView({ projectId }) {
         if (s === 'SUCCESS') return 'completed';
         if (s === 'FAILED') return 'failed';
         return status.toLowerCase();
-    };
-
-    const handleCreateJob = async () => {
-        setCreatingJob(true);
-        try {
-            await api.ingestion.create(projectId);
-            await loadJobs();
-        } catch (err) {
-            alert('Failed to create ingestion job: ' + err.message);
-        } finally {
-            setCreatingJob(false);
-        }
     };
 
     if (!projectId) {
@@ -76,7 +58,7 @@ export default function IngestionJobsView({ projectId }) {
                 </Button>
             </div>
 
-            {jobs.length === 0 ? (
+            {jobs.length === 0 && !loading ? (
                 <div className="jobs-empty">
                     <div className="empty-icon">⚙️</div>
                     <h3>No Ingestion Jobs</h3>
@@ -84,60 +66,63 @@ export default function IngestionJobsView({ projectId }) {
                 </div>
             ) : (
                 <div className="jobs-list">
-                    {jobs.map((job) => (
-                        <div key={job.id} className="job-card fade-in">
-                            <div className="job-header">
-                                <div className="job-id">
-                                    Job #{job.id.substring(0, 8)}
+                    {jobs.map((job) => {
+                        const status = mapStatus(job.processing_status);
+                        return (
+                            <div key={job.id} className="job-card fade-in">
+                                <div className="job-header">
+                                    <div className="job-id">
+                                        Job #{job.id.substring(0, 8)}
+                                    </div>
+                                    <div className={`job-status status-${status}`}>
+                                        {getStatusIcon(status)} {status}
+                                    </div>
                                 </div>
-                                <div className={`job-status status-${job.status}`}>
-                                    {getStatusIcon(job.status)} {job.status}
+
+                                <div className="job-details">
+                                    {job.data_source_id && (
+                                        <div className="job-detail">
+                                            <span className="detail-label">Data Source:</span>
+                                            <span className="detail-value">{job.data_source_id.substring(0, 8)}...</span>
+                                        </div>
+                                    )}
+
+                                    {job.start_time && (
+                                        <div className="job-detail">
+                                            <span className="detail-label">Created:</span>
+                                            <span className="detail-value">
+                                                {new Date(job.start_time).toLocaleString()}
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {job.end_time && (
+                                        <div className="job-detail">
+                                            <span className="detail-label">Completed:</span>
+                                            <span className="detail-value">
+                                                {new Date(job.end_time).toLocaleString()}
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {job.error && (
+                                        <div className="job-error">
+                                            <span className="detail-label">Error:</span>
+                                            <span className="error-text">{job.error}</span>
+                                        </div>
+                                    )}
                                 </div>
+
+                                {status === 'running' && (
+                                    <div className="job-progress">
+                                        <div className="progress-bar">
+                                            <div className="progress-fill pulse"></div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-
-                            <div className="job-details">
-                                {job.data_source_id && (
-                                    <div className="job-detail">
-                                        <span className="detail-label">Data Source:</span>
-                                        <span className="detail-value">{job.data_source_id.substring(0, 8)}...</span>
-                                    </div>
-                                )}
-
-                                {job.created_at && (
-                                    <div className="job-detail">
-                                        <span className="detail-label">Created:</span>
-                                        <span className="detail-value">
-                                            {new Date(job.created_at).toLocaleString()}
-                                        </span>
-                                    </div>
-                                )}
-
-                                {job.completed_at && (
-                                    <div className="job-detail">
-                                        <span className="detail-label">Completed:</span>
-                                        <span className="detail-value">
-                                            {new Date(job.completed_at).toLocaleString()}
-                                        </span>
-                                    </div>
-                                )}
-
-                                {job.error && (
-                                    <div className="job-error">
-                                        <span className="detail-label">Error:</span>
-                                        <span className="error-text">{job.error}</span>
-                                    </div>
-                                )}
-                            </div>
-
-                            {job.status === 'running' && (
-                                <div className="job-progress">
-                                    <div className="progress-bar">
-                                        <div className="progress-fill pulse"></div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
         </div>
