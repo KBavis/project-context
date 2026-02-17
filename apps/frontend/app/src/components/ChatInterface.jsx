@@ -13,9 +13,14 @@ export default function ChatInterface({ conversationId }) {
     const [loading, setLoading] = useState(false);
     const [streamingMessage, setStreamingMessage] = useState('');
     const messagesEndRef = useRef(null);
+    const inputRef = useRef(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    const focusInput = () => {
+        inputRef.current?.focus();
     };
 
     useEffect(() => {
@@ -135,24 +140,27 @@ export default function ChatInterface({ conversationId }) {
                 <div ref={messagesEndRef} />
             </div>
 
-            <div className="chat-input-container">
-                <textarea
-                    className="chat-input"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyPress={handleKeyPress}
-                    placeholder="Type your message... (Shift+Enter for new line)"
-                    rows={3}
-                    disabled={loading}
-                />
-                <Button
-                    onClick={handleSend}
-                    disabled={!input.trim() || loading}
-                    loading={loading}
-                    icon="→"
-                >
-                    Send
-                </Button>
+            <div className="chat-input-wrapper" onClick={focusInput}>
+                <div className="chat-input-container">
+                    <textarea
+                        ref={inputRef}
+                        className="chat-input"
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={handleKeyPress}
+                        placeholder="Type your message..."
+                        rows={1}
+                        disabled={loading}
+                    />
+                    <Button
+                        onClick={handleSend}
+                        disabled={!input.trim() || loading}
+                        loading={loading}
+                        icon="→"
+                    >
+                        Send
+                    </Button>
+                </div>
             </div>
         </div>
     );
