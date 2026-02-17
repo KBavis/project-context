@@ -69,7 +69,7 @@ export const api = {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    project_name: projectName,
+                    name: projectName,
                     description: description,
                 }),
             });
@@ -112,12 +112,10 @@ export const api = {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    project_id: projectId, // Check if backend expects this in body or as association logic
-                    type: dataSourceType, // Backend expects 'provider'
-                    provider: dataSourceType, // Mapping
-                    url: config.url || '', // Backend expects 'url'
-                    // config: config, // Backend might not accept arbitrary config
-                    project_ids: [projectId] // Backend create_data_source expects project_ids list!
+                    provider: dataSourceType,
+                    url: config.url || '',
+                    name: config.name || '',
+                    project_ids: [projectId]
                 }),
             });
             return handleResponse(response);
