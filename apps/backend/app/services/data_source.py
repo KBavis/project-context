@@ -51,13 +51,16 @@ class DataSourceService:
                 project_id=project.id, data_source_id=data_source.id
             )
             data_source.project_data.append(assocation)
+        
+        # flush to ensure relationships are loaded/persisted
+        self.db.flush()
 
         return {
             "id": data_source.id,
             "provider": data_source.provider,
             "name": data_source.name,
             "config": {"url": data_source.url},
-            "linked_projects": project_ids,
+            "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
         }
 
     def get_project_data_sources(self, project_id: UUID) -> list[dict[str, object]]:
@@ -68,16 +71,17 @@ class DataSourceService:
         stmt = (
             select(DataSource)
             .join(DataSource.project_data)
-            .where(Project.id == project_id)
+            .where(ProjectData.project_id == project_id)
         )
-        data_sources = self.db.execute(stmt).scalars().all()
+        data_sources = self.db.execute(stmt).scalars().unique().all()
 
         return [
             {
                 "id": data_source.id,
                 "provider": data_source.provider,
                 "name": data_source.name,
-                "config": {"url": data_source.url}
+                "config": {"url": data_source.url},
+                "linked_projects": [str(pd.project_id) for pd in data_source.project_data]
             }
             for data_source in data_sources
         ]
@@ -87,14 +91,15 @@ class DataSourceService:
         Functionality to retrieve all persisted data sources
         """
         stmt = select(DataSource)
-        data_sources = self.db.execute(stmt).scalars().all()
+        data_sources = self.db.execute(stmt).scalars().unique().all()
 
         return [
             {
                 "id": data_source.id,
                 "provider": data_source.provider,
                 "name": data_source.name,
-                "config": {"url": data_source.url}
+                "config": {"url": data_source.url},
+                "linked_projects": [str(pd.project_id) for pd in data_source.project_data]
             }
             for data_source in data_sources
         ]
