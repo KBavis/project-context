@@ -25,6 +25,10 @@ class DataSource(Base):
         nullable=False,
         comment="URL corresponding to public/private repostiory this data may correspond to",
     )
+    name: Mapped[str] = mapped_column(
+        nullable=False,
+        comment="Name of the data source",
+    )
 
     # one to many relationship with IngestionJob
     ingestion_jobs: Mapped[List["IngestionJob"]] = relationship(

@@ -26,7 +26,7 @@ class DataSourceService:
         self._validate_data_source_request(request)
 
         # create data source
-        data_source = DataSource(provider=request.provider, url=request.url)
+        data_source = DataSource(provider=request.provider, url=request.url, name=request.name)
 
         # persist & flush new record
         self.db.add(data_source)
@@ -74,8 +74,7 @@ class DataSourceService:
             {
                 "id": data_source.id,
                 "provider": data_source.provider,
-                "type": data_source.provider,
-                "name": data_source.url,
+                "name": data_source.name,
                 "config": {"url": data_source.url}
             }
             for data_source in data_sources
@@ -92,8 +91,7 @@ class DataSourceService:
             {
                 "id": data_source.id,
                 "provider": data_source.provider,
-                "type": data_source.provider,
-                "name": data_source.url,
+                "name": data_source.name,
                 "config": {"url": data_source.url}
             }
             for data_source in data_sources
