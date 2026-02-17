@@ -1,11 +1,12 @@
-import { useState } from 'react';
-import { useDataSources, useIngestionJobs, useAlert } from '../contexts/index';
+import { useState, useMemo } from 'react';
+import { useDataSources, useIngestionJobs, useAlert, useProjects } from '../contexts/index';
 import Button from './Button';
 import Modal from './Modal';
 import '../styles/DataSourcesView.css';
 import '../styles/IngestionJobsView.css';
 
 export default function DataSourcesView({ projectId }) {
+    const { projects } = useProjects();
     const { dataSources, loading: dsLoading, error, deleteDataSource, createDataSource } = useDataSources();
     const { ingestionJobs, createIngestionJob } = useIngestionJobs();
     const { showAlert } = useAlert();
@@ -13,7 +14,19 @@ export default function DataSourcesView({ projectId }) {
     const [activeJobView, setActiveJobView] = useState(null); // dataSourceId
     const [creatingJob, setCreatingJob] = useState(false);
     const [showAddForm, setShowAddForm] = useState(false);
-    const [newDS, setNewDS] = useState({ provider: 'GitHub', url: '', name: '' });
+
+    // Initialize with current project if available
+    const [newDS, setNewDS] = useState({
+        provider: 'GitHub',
+        url: '',
+        name: '',
+        projectIds: projectId ? [projectId] : []
+    });
+
+    const currentProject = useMemo(() =>
+        projects.find(p => p.id === projectId),
+        [projects, projectId]
+    );
 
     // Confirmation Modal state
     const [confirmModal, setConfirmModal] = useState({
@@ -83,9 +96,14 @@ export default function DataSourcesView({ projectId }) {
     const handleAddDataSource = async (e) => {
         e.preventDefault();
         try {
-            await createDataSource(newDS.provider, { url: newDS.url, name: newDS.name });
+            await createDataSource(newDS.provider, { url: newDS.url, name: newDS.name }, newDS.projectIds);
             setShowAddForm(false);
-            setNewDS({ provider: 'GitHub', url: '', name: '' });
+            setNewDS({
+                provider: 'GitHub',
+                url: '',
+                name: '',
+                projectIds: projectId ? [projectId] : []
+            });
             showAlert('Data source added successfully', 'success');
         } catch (err) {
             showAlert('Failed to add data source: ' + err.message, 'error');
@@ -100,16 +118,6 @@ export default function DataSourcesView({ projectId }) {
         if (s === 'FAILED') return 'failed';
         return status.toLowerCase();
     };
-
-    if (!projectId) {
-        return (
-            <div className="data-sources-empty">
-                <div className="empty-icon">📁</div>
-                <h3>No Project Selected</h3>
-                <p>Select a project to view its data sources</p>
-            </div>
-        );
-    }
 
     return (
         <div className="data-sources-container">
@@ -158,6 +166,26 @@ export default function DataSourcesView({ projectId }) {
                                     required
                                 />
                             </div>
+                            <div className="form-field">
+                                <label className="input-label">Target Projects</label>
+                                <select
+                                    multiple
+                                    className="input multi-select"
+                                    value={newDS.projectIds}
+                                    onChange={e => {
+                                        const values = Array.from(e.target.selectedOptions, option => option.value);
+                                        setNewDS({ ...newDS, projectIds: values });
+                                    }}
+                                    required
+                                >
+                                    {projects.map(p => (
+                                        <option key={p.id} value={p.id}>
+                                            {p.project_name || p.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="field-hint">Hold Ctrl/Cmd to select multiple</p>
+                            </div>
                             <div className="form-actions-inline">
                                 <Button type="submit" size="sm">Create Source</Button>
                             </div>
@@ -201,9 +229,24 @@ export default function DataSourcesView({ projectId }) {
                                         </div>
 
                                         <div className="data-source-content">
-                                            <h3 className="data-source-name">{displayName}</h3>
-                                            <p className="data-source-provider">{ds.provider || ds.type}</p>
+                                            <div className="data-source-title-row">
+                                                <h3 className="data-source-name">{displayName}</h3>
+                                                <p className="data-source-provider">{ds.provider || ds.type}</p>
+                                            </div>
                                             <p className="data-source-url" title={url}>{url}</p>
+
+                                            {ds.linked_projects && ds.linked_projects.length > 0 && (
+                                                <div className="data-source-projects">
+                                                    {ds.linked_projects.map(pId => {
+                                                        const p = projects.find(proj => proj.id === pId);
+                                                        return (
+                                                            <span key={pId} className={`project-tag ${pId === projectId ? 'active' : ''}`}>
+                                                                {p?.project_name || p?.name || 'Unknown Project'}
+                                                            </span>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
 

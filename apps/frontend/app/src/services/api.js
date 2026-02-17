@@ -107,7 +107,7 @@ export const api = {
             return handleResponse(response);
         },
 
-        create: async (projectId, dataSourceType, config) => {
+        create: async (projectIds, dataSourceType, config) => {
             const response = await fetch(`${API_BASE_URL}/data/sources/`, { // Fixed path
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -115,7 +115,7 @@ export const api = {
                     provider: dataSourceType,
                     url: config.url || '',
                     name: config.name || '',
-                    project_ids: [projectId]
+                    project_ids: Array.isArray(projectIds) ? projectIds : [projectIds]
                 }),
             });
             return handleResponse(response);

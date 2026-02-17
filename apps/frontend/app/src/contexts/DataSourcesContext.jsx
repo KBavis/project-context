@@ -19,29 +19,28 @@ export function DataSourcesProvider({ children }) {
     const [error, setError] = useState(null);
 
     const fetchDataSources = useCallback(async () => {
-        if (!selectedProject) {
-            setDataSources([]);
-            return;
-        }
         setLoading(true);
         try {
-            const data = await api.dataSources.list(selectedProject.id);
+            // Fetch all data sources globally instead of filtering by project
+            const data = await api.dataSources.list();
             setDataSources(data);
         } catch (err) {
             setError(err.message);
         } finally {
             setLoading(false);
         }
-    }, [selectedProject]);
+    }, []);
 
     useEffect(() => {
         fetchDataSources();
     }, [fetchDataSources]);
 
-    const createDataSource = async (type, config) => {
-        if (!selectedProject) throw new Error('No project selected');
+    const createDataSource = async (type, config, projectIds) => {
+        const ids = Array.isArray(projectIds) ? projectIds : [selectedProject?.id].filter(Boolean);
+        if (ids.length === 0) throw new Error('No projects specified');
+
         try {
-            const ds = await api.dataSources.create(selectedProject.id, type, config);
+            const ds = await api.dataSources.create(ids, type, config);
             setDataSources(prev => [...prev, ds]);
             return ds;
         } catch (err) {
