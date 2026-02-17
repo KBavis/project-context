@@ -10,6 +10,7 @@ export default function Button({
     icon = null,
     fullWidth = false,
     loading = false,
+    ...props
 }) {
     const classes = [
         'btn',
@@ -25,6 +26,7 @@ export default function Button({
             className={classes}
             onClick={onClick}
             disabled={disabled || loading}
+            {...props}
         >
             {loading && (
                 <span className="btn-spinner spin"></span>

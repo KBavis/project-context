@@ -1,77 +1,84 @@
 .modal-overlay {
     position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.75);
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000;
-    padding: var(--spacing-lg);
+    z-index: 10000;
 }
 
-.modal {
-    background: var(--color-bg-elevated);
+.modal-content {
+    background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-xl);
-    max-height: 90vh;
+    border-radius: var(--radius-xl);
+    width: 100%;
+    max-width: 500px;
+    box-shadow: var(--shadow-2xl);
     overflow: hidden;
-    display: flex;
-    flex-direction: column;
-}
-
-.modal-sm {
-    width: 100%;
-    max-width: 400px;
-}
-
-.modal-md {
-    width: 100%;
-    max-width: 600px;
-}
-
-.modal-lg {
-    width: 100%;
-    max-width: 800px;
 }
 
 .modal-header {
+    padding: var(--spacing-lg);
+    border-bottom: 1px solid var(--color-border);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--spacing-lg);
-    border-bottom: 1px solid var(--color-border);
 }
 
-.modal-title {
+.modal-header h3 {
+    margin: 0;
     font-size: 1.25rem;
     font-weight: 600;
     color: var(--color-text-primary);
 }
 
 .modal-close {
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
+    background: none;
     border: none;
-    border-radius: var(--radius-sm);
-    color: var(--color-text-secondary);
+    color: var(--color-text-tertiary);
     cursor: pointer;
-    font-size: 1.25rem;
-    transition: all 0.15s ease;
+    font-size: 1rem;
+    padding: 4px;
+    transition: color 0.2s ease;
 }
 
 .modal-close:hover {
-    background: var(--color-surface-hover);
     color: var(--color-text-primary);
 }
 
 .modal-body {
+    padding: var(--spacing-xl);
+    font-size: 1rem;
+    color: var(--color-text-secondary);
+    line-height: 1.6;
+}
+
+.modal-footer {
     padding: var(--spacing-lg);
-    overflow-y: auto;
-    flex: 1;
+    background: var(--color-bg-tertiary);
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-md);
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in-up {
+    animation: fadeInUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }

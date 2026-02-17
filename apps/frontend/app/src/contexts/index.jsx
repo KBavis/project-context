@@ -2,6 +2,7 @@ import { ProjectProvider } from './ProjectContext';
 import { ConversationProvider } from './ConversationContext';
 import { DataSourcesProvider } from './DataSourcesContext';
 import { IngestionJobProvider } from './IngestionJobContext';
+import { AlertProvider } from './AlertContext';
 
 export function AppProvider({ children }) {
     return (
@@ -9,7 +10,9 @@ export function AppProvider({ children }) {
             <ConversationProvider>
                 <DataSourcesProvider>
                     <IngestionJobProvider>
-                        {children}
+                        <AlertProvider>
+                            {children}
+                        </AlertProvider>
                     </IngestionJobProvider>
                 </DataSourcesProvider>
             </ConversationProvider>
@@ -21,3 +24,4 @@ export * from './ProjectContext';
 export * from './ConversationContext';
 export * from './DataSourcesContext';
 export * from './IngestionJobContext';
+export * from './AlertContext';

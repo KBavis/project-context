@@ -35,8 +35,23 @@ export default function CreateProjectModal({ isOpen, onClose }) {
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Create New Project" size="md">
-            <form onSubmit={handleSubmit} className="create-conversation-form">
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title="Create New Project"
+            size="md"
+            actions={
+                <>
+                    <Button type="button" variant="ghost" onClick={onClose}>
+                        Cancel
+                    </Button>
+                    <Button form="create-project-form" type="submit" loading={loading}>
+                        Create Project
+                    </Button>
+                </>
+            }
+        >
+            <form id="create-project-form" onSubmit={handleSubmit} className="create-conversation-form">
                 <Input
                     label="Project Name"
                     value={projectName}
@@ -58,15 +73,6 @@ export default function CreateProjectModal({ isOpen, onClose }) {
                 {error && projectName && (
                     <div className="error-message">{error}</div>
                 )}
-
-                <div className="form-actions">
-                    <Button type="button" variant="ghost" onClick={onClose}>
-                        Cancel
-                    </Button>
-                    <Button type="submit" loading={loading}>
-                        Create Project
-                    </Button>
-                </div>
             </form>
         </Modal>
     );

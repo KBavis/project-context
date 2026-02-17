@@ -4,6 +4,7 @@ import CreateConversationModal from '../components/CreateConversationModal';
 import CreateProjectModal from '../components/CreateProjectModal';
 import DataSourcesView from '../components/DataSourcesView';
 import IngestionJobsView from '../components/IngestionJobsView';
+import AlertContainer from '../components/Alert';
 import { useProjects, useConversations } from '../contexts/index';
 import '../styles/App.css';
 
@@ -138,6 +139,8 @@ export default function Home({ view }) {
                 isOpen={showCreateProject}
                 onClose={() => setShowCreateProject(false)}
             />
+
+            <AlertContainer />
         </div>
     );
 }

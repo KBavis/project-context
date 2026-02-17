@@ -1,17 +1,30 @@
 import { useState } from 'react';
-import { useDataSources, useIngestionJobs } from '../contexts/index';
+import { useDataSources, useIngestionJobs, useAlert } from '../contexts/index';
 import Button from './Button';
+import Modal from './Modal';
 import '../styles/DataSourcesView.css';
 import '../styles/IngestionJobsView.css';
 
 export default function DataSourcesView({ projectId }) {
     const { dataSources, loading: dsLoading, error, deleteDataSource, createDataSource } = useDataSources();
     const { ingestionJobs, createIngestionJob } = useIngestionJobs();
+    const { showAlert } = useAlert();
 
     const [activeJobView, setActiveJobView] = useState(null); // dataSourceId
     const [creatingJob, setCreatingJob] = useState(false);
     const [showAddForm, setShowAddForm] = useState(false);
     const [newDS, setNewDS] = useState({ provider: 'GitHub', url: '', name: '' });
+
+    // Confirmation Modal state
+    const [confirmModal, setConfirmModal] = useState({
+        isOpen: false,
+        title: '',
+        message: '',
+        onConfirm: null,
+        confirmLabel: 'Confirm'
+    });
+
+    const closeConfirmModal = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
 
     // Filter jobs for specific data source and limit to latest 3
     const getLatestJobsForDataSource = (dsId) => {
@@ -21,35 +34,50 @@ export default function DataSourcesView({ projectId }) {
             .slice(0, 3);
     };
 
-    const handleDelete = async (dataSourceId) => {
-        if (!confirm('Are you sure you want to permanently delete this data source and all its associated data?')) {
-            return;
-        }
-        try {
-            await deleteDataSource(dataSourceId);
-        } catch (err) {
-            alert('Failed to delete data source');
-        }
+    const handleDelete = (dataSourceId) => {
+        const ds = dataSources.find(d => d.id === dataSourceId);
+        const displayName = ds?.name || ds?.config?.url || ds?.url || 'this data source';
+
+        setConfirmModal({
+            isOpen: true,
+            title: 'Delete Data Source',
+            message: `Are you sure you want to permanently delete "${displayName}" and all its associated data? This action cannot be undone.`,
+            confirmLabel: 'Delete',
+            onConfirm: async () => {
+                try {
+                    await deleteDataSource(dataSourceId);
+                    showAlert('Data source deleted successfully', 'success');
+                } catch (err) {
+                    showAlert('Failed to delete data source: ' + err.message, 'error');
+                }
+                closeConfirmModal();
+            }
+        });
     };
 
-    const handleRunIngestion = async (dsId) => {
+    const handleRunIngestion = (dsId) => {
         const ds = dataSources.find(d => d.id === dsId);
         const displayName = ds?.name || ds?.config?.url || ds?.url || 'this data source';
 
-        if (!confirm(`Are you sure you want to start a new ingestion job for "${displayName}"?`)) {
-            return;
-        }
-
-        setCreatingJob(true);
-        try {
-            await createIngestionJob(dsId);
-            setActiveJobView(dsId);
-            alert('🚀 Ingestion job successfully triggered! You can view the status in the "Latest Jobs" section.');
-        } catch (err) {
-            alert('Failed to start ingestion job: ' + err.message);
-        } finally {
-            setCreatingJob(false);
-        }
+        setConfirmModal({
+            isOpen: true,
+            title: 'Run Ingestion',
+            message: `You are about to start a new ingestion job for "${displayName}". This will retrieve and process the latest data from the source.`,
+            confirmLabel: 'Start Ingestion',
+            onConfirm: async () => {
+                setCreatingJob(true);
+                try {
+                    await createIngestionJob(dsId);
+                    setActiveJobView(dsId);
+                    showAlert('🚀 Ingestion job successfully triggered!', 'success');
+                } catch (err) {
+                    showAlert('Failed to start ingestion job: ' + err.message, 'error');
+                } finally {
+                    setCreatingJob(false);
+                }
+                closeConfirmModal();
+            }
+        });
     };
 
     const handleAddDataSource = async (e) => {
@@ -58,8 +86,9 @@ export default function DataSourcesView({ projectId }) {
             await createDataSource(newDS.provider, { url: newDS.url, name: newDS.name });
             setShowAddForm(false);
             setNewDS({ provider: 'GitHub', url: '', name: '' });
+            showAlert('Data source added successfully', 'success');
         } catch (err) {
-            alert('Failed to add data source: ' + err.message);
+            showAlert('Failed to add data source: ' + err.message, 'error');
         }
     };
 
@@ -230,6 +259,27 @@ export default function DataSourcesView({ projectId }) {
                     })}
                 </div>
             )}
+
+            {/* Confirmation Modal */}
+            <Modal
+                isOpen={confirmModal.isOpen}
+                onClose={closeConfirmModal}
+                title={confirmModal.title}
+                actions={
+                    <>
+                        <Button size="sm" variant="secondary" onClick={closeConfirmModal}>Cancel</Button>
+                        <Button
+                            size="sm"
+                            variant={confirmModal.confirmLabel === 'Delete' ? 'danger' : 'primary'}
+                            onClick={confirmModal.onConfirm}
+                        >
+                            {confirmModal.confirmLabel}
+                        </Button>
+                    </>
+                }
+            >
+                <p>{confirmModal.message}</p>
+            </Modal>
         </div>
     );
 }

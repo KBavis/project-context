@@ -34,8 +34,23 @@ export default function CreateConversationModal({ isOpen, onClose }) {
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Create New Conversation" size="md">
-            <form onSubmit={handleSubmit} className="create-conversation-form">
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title="Create New Conversation"
+            size="md"
+            actions={
+                <>
+                    <Button type="button" variant="ghost" onClick={onClose}>
+                        Cancel
+                    </Button>
+                    <Button form="create-conversation-form" type="submit" loading={loading}>
+                        Create Conversation
+                    </Button>
+                </>
+            }
+        >
+            <form id="create-conversation-form" onSubmit={handleSubmit} className="create-conversation-form">
                 <div className="form-field">
                     <label className="input-label">
                         Select Project
@@ -59,15 +74,6 @@ export default function CreateConversationModal({ isOpen, onClose }) {
                 {error && (
                     <div className="error-message">{error}</div>
                 )}
-
-                <div className="form-actions">
-                    <Button type="button" variant="ghost" onClick={onClose}>
-                        Cancel
-                    </Button>
-                    <Button type="submit" loading={loading}>
-                        Create Conversation
-                    </Button>
-                </div>
             </form>
         </Modal>
     );
