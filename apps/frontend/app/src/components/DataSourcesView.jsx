@@ -11,7 +11,7 @@ export default function DataSourcesView({ projectId }) {
     const [activeJobView, setActiveJobView] = useState(null); // dataSourceId
     const [creatingJob, setCreatingJob] = useState(false);
     const [showAddForm, setShowAddForm] = useState(false);
-    const [newDS, setNewDS] = useState({ provider: 'github', url: '', name: '' });
+    const [newDS, setNewDS] = useState({ provider: 'GitHub', url: '', name: '' });
 
     // Filter jobs for specific data source and limit to latest 3
     const getLatestJobsForDataSource = (dsId) => {
@@ -35,6 +35,7 @@ export default function DataSourcesView({ projectId }) {
     const handleRunIngestion = async (dsId) => {
         setCreatingJob(true);
         try {
+            // Using project-specific ingestion if projectId is available
             await createIngestionJob(dsId);
             setActiveJobView(dsId);
         } catch (err) {
@@ -49,7 +50,7 @@ export default function DataSourcesView({ projectId }) {
         try {
             await createDataSource(newDS.provider, { url: newDS.url, name: newDS.name });
             setShowAddForm(false);
-            setNewDS({ provider: 'github', url: '', name: '' });
+            setNewDS({ provider: 'GitHub', url: '', name: '' });
         } catch (err) {
             alert('Failed to add data source: ' + err.message);
         }
@@ -58,8 +59,8 @@ export default function DataSourcesView({ projectId }) {
     const mapStatus = (status) => {
         if (!status) return 'pending';
         const s = status.toUpperCase();
-        if (s === 'IN_PROGRESS') return 'running';
-        if (s === 'SUCCESS') return 'completed';
+        if (s === 'IN_PROGRESS' || s === 'RUNNING') return 'running';
+        if (s === 'SUCCESS' || s === 'COMPLETED') return 'completed';
         if (s === 'FAILED') return 'failed';
         return status.toLowerCase();
     };
@@ -94,9 +95,9 @@ export default function DataSourcesView({ projectId }) {
                                     value={newDS.provider}
                                     onChange={e => setNewDS({ ...newDS, provider: e.target.value })}
                                 >
-                                    <option value="github">GitHub</option>
-                                    <option value="file">File Upload</option>
-                                    <option value="web">Web Scraper</option>
+                                    <option value="GitHub">GitHub</option>
+                                    <option value="BitBucket">BitBucket</option>
+                                    <option value="Confluence">Confluence</option>
                                 </select>
                             </div>
                             <div className="form-field">
@@ -170,24 +171,20 @@ export default function DataSourcesView({ projectId }) {
                                         </div>
                                     </div>
 
-                                    <div className="data-source-footer">
-                                        <div className="data-source-actions-group">
-                                            <Button
-                                                size="xs"
-                                                variant={activeJobView === ds.id ? "primary" : "ghost"}
-                                                onClick={() => setActiveJobView(activeJobView === ds.id ? null : ds.id)}
-                                            >
-                                                {activeJobView === ds.id ? 'Hide History' : 'Latest Jobs'}
-                                            </Button>
-                                            <Button
-                                                size="xs"
-                                                variant="secondary"
-                                                onClick={() => handleRunIngestion(ds.id)}
-                                                loading={creatingJob}
-                                            >
-                                                ▶ Run Ingestion
-                                            </Button>
-                                        </div>
+                                    <div className="data-source-actions-flat">
+                                        <button
+                                            className={`flat-action ${activeJobView === ds.id ? 'active' : ''}`}
+                                            onClick={() => setActiveJobView(activeJobView === ds.id ? null : ds.id)}
+                                        >
+                                            {activeJobView === ds.id ? 'Hide History' : 'View Latest Jobs'}
+                                        </button>
+                                        <button
+                                            className="flat-action primary"
+                                            onClick={() => handleRunIngestion(ds.id)}
+                                            disabled={creatingJob}
+                                        >
+                                            {creatingJob ? 'Starting...' : 'Run Ingestion'}
+                                        </button>
                                     </div>
 
                                     {activeJobView === ds.id && (
