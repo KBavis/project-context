@@ -131,18 +131,14 @@ export const api = {
 
     // Ingestion Job endpoints
     ingestion: {
-        create: async (projectId, dataSourceId = null) => {
-            // Backend expects POST /ingestion/jobs/{data_source_id} or /{data_source_id}/{project_id}
-            let url = `${API_BASE_URL}/ingestion/jobs/${dataSourceId}`;
-            if (projectId) {
-                url += `/${projectId}`;
-            }
+        create: async (dataSourceId) => {
+            const url = `${API_BASE_URL}/ingestion/jobs/${dataSourceId}`;
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({}), // No body required by backend params
             });
-            return handleResponse(response); // Backend returns object directly
+            return handleResponse(response);
         },
 
         getStatus: async (jobId) => {

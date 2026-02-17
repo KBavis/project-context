@@ -39,10 +39,9 @@ export function IngestionJobProvider({ children }) {
     }, [fetchIngestionJobs]);
 
     const createIngestionJob = async (dataSourceId) => {
-        if (!selectedProject) throw new Error('No project selected');
         try {
-            const job = await api.ingestion.create(selectedProject.id, dataSourceId);
-            setIngestionJobs(prev => [...prev, job]);
+            const job = await api.ingestion.create(dataSourceId);
+            setIngestionJobs(prev => [job, ...prev]);
             return job;
         } catch (err) {
             console.error('Failed to create ingestion job:', err);
