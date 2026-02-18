@@ -59,6 +59,8 @@ class LLMBase(ABC):
             existing_messages (str): The existing messages in the conversation
         """
 
+        # TODO: Add logic for ensuring that the question is sound or if we require additional clarification from user 
+
         try:
 
             decompose_query_prompt = f"""
