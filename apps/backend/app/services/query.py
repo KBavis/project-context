@@ -41,7 +41,7 @@ class QueryService:
         self.q_and_a_svc: QuestionAndAnswerService = q_and_a_svc
     
 
-    async def execute_simple_query(self, query: str, project_id: UUID, q_and_a_record_id: UUID, start_time: datetime, llm_manager: LLMManager) -> None:
+    async def execute_q_and_a_query(self, query: str, project_id: UUID, q_and_a_record_id: UUID, start_time: datetime, llm_manager: LLMManager) -> None:
         """
         Execute a one-time query against the ingested documentation and code for a specified Project
 
@@ -96,12 +96,10 @@ class QueryService:
 
             raise e
 
-    async def execute_query(self, query: str, project_id: UUID, llm_manager: LLMManager, existing_messages: str, existing_tokens: int) -> QueryResponse: 
+
+    async def execute_query(self, query: str, project_id: UUID, llm_manager: LLMManager, existing_messages: str = "", existing_tokens: int = 0, needs_context: bool = True) -> QueryResponse: 
         """
         Execute a query against the ingested documentation and code for a specified Project
-
-        TODO: Fix issues with RAG retrieval and code. Seemingly not finding relevant code files when I prompt 
-        things like 'What code files deal with authentication?'
 
         Args:
             query (str): The query string to execute.
@@ -109,6 +107,7 @@ class QueryService:
             llm_manager (LLMManager): The LLM Manager to use for the query.
             previous_messages (str): The previous messages in the conversation.
             total_tokens (int): The total number of tokens in the conversation.
+            needs_context (bool): Whether the query needs context from the ingested documentation and code.
         """
 
         llm = llm_manager.get_llm()
@@ -117,19 +116,22 @@ class QueryService:
         user_prompt_tokens = len(await llm.tokenize(query))
 
         # retrieve relevant chunks & re-rank 
-        chunks = await self.get_relevant_chunks(query, project_id)
-        re_ranked_nodes = await self.ranking_svc.get_rankings(
-            chunks=chunks,
-            query=query,
-            top_k=5 # TODO: Make this a configuration 
-        )
+        if needs_context:
+            chunks = await self.get_relevant_chunks(query, project_id)
+            re_ranked_nodes = await self.ranking_svc.get_rankings(
+                chunks=chunks,
+                query=query,
+                top_k=5 # TODO: Make this a configuration 
+            )
 
-        # get relevant prompt 
-        prompt = self.get_prompt(query, re_ranked_nodes, existing_messages)
+            # get relevant prompt & populate with context retrieved via RAG
+            prompt = self.get_prompt(query, re_ranked_nodes, existing_messages)
+        else:
+            # get prompt without additional context
+            prompt = self.get_prompt(query, previous_messages=existing_messages)
 
         # configure LLM 
         await self._configure_llm(llm)
-
 
         # NOTE: Leverage 'prompt' instead of 'query' for validation (in order to account for conversation history bloat)
         valid = await llm.validate_context_length(prompt, current_token_count=existing_tokens)
@@ -209,7 +211,7 @@ class QueryService:
 
         
     
-    def get_prompt(self, query: str, nodes: list[NodeWithScore], previous_messages: str = "") -> str:
+    def get_prompt(self, query: str, nodes: list[NodeWithScore] | None = None, previous_messages: str = "") -> str:
         """
         Get the prompt template to use for querying the LLM.
 
@@ -226,10 +228,13 @@ class QueryService:
         if previous_messages:
             system_prompt += f"\n\n<context>\nPrevious Messages in this Conversation (in format user:<message> and model:<message> and sorted in oldest to latest order):\n{previous_messages}\n</context>"
 
-        context = "\n\n---\n\n".join([
-            f"Source: {node.metadata.get('source', 'Unknown')}\n{node.get_text()}" 
-            for node in nodes
-        ])
+        if nodes:
+            context = "\n\n---\n\n".join([
+                f"Source: {node.metadata.get('source', 'Unknown')}\n{node.get_text()}" 
+                for node in nodes
+            ])
+        else:
+            context = "No context provided"
 
         full_prompt = f"{system_prompt}\n\nContext:\n{context}\n\nUser Query: {query}\n\nAnswer:"
 
