@@ -166,25 +166,35 @@ export default function DataSourcesView({ projectId }) {
                                     required
                                 />
                             </div>
-                            <div className="form-field">
+                            <div className="form-field projects-field">
                                 <label className="input-label">Target Projects</label>
-                                <select
-                                    multiple
-                                    className="input multi-select"
-                                    value={newDS.projectIds}
-                                    onChange={e => {
-                                        const values = Array.from(e.target.selectedOptions, option => option.value);
-                                        setNewDS({ ...newDS, projectIds: values });
-                                    }}
-                                    required
-                                >
-                                    {projects.map(p => (
-                                        <option key={p.id} value={p.id}>
-                                            {p.project_name || p.name}
-                                        </option>
-                                    ))}
-                                </select>
-                                <p className="field-hint">Hold Ctrl/Cmd to select multiple</p>
+                                <div className="project-selector-container">
+                                    {projects.map(p => {
+                                        const isSelected = newDS.projectIds.includes(p.id);
+                                        return (
+                                            <div
+                                                key={p.id}
+                                                className={`project-option ${isSelected ? 'selected' : ''}`}
+                                                onClick={() => {
+                                                    const values = isSelected
+                                                        ? newDS.projectIds.filter(id => id !== p.id)
+                                                        : [...newDS.projectIds, p.id];
+                                                    setNewDS({ ...newDS, projectIds: values });
+                                                }}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isSelected}
+                                                    onChange={() => { }} // Handled by div onClick
+                                                />
+                                                <span className="project-option-name" title={p.project_name || p.name}>
+                                                    {p.project_name || p.name}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <p className="field-hint">Select one or more projects to link this source to.</p>
                             </div>
                             <div className="form-actions-inline">
                                 <Button type="submit" size="sm">Create Source</Button>

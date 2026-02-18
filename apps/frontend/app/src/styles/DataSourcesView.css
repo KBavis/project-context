@@ -29,9 +29,13 @@
 
 .form-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr 1.5fr 1.5fr auto;
-    gap: var(--spacing-md);
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--spacing-lg);
     align-items: flex-end;
+}
+
+.projects-field {
+    grid-column: 1 / -1;
 }
 
 .data-source-title-row {
@@ -59,44 +63,100 @@
 }
 
 .project-tag.active {
-    background: rgba(var(--color-accent-rgb), 0.1);
+    background: rgba(99, 102, 241, 0.1);
     border-color: var(--color-accent);
     color: var(--color-accent);
 }
 
-.selected-project-indicator {
-    padding: var(--spacing-sm) var(--spacing-md);
+.project-selector-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
     background: var(--color-bg-tertiary);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
-    font-size: 0.8125rem;
-    color: var(--color-text-secondary);
-    height: 38px;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 4px;
+}
+
+.project-option {
     display: flex;
     align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid transparent;
+    background: var(--color-surface);
 }
 
-.selected-project-indicator strong {
-    color: var(--color-accent);
-    margin-left: 4px;
+.project-option:hover {
+    background: var(--color-surface-hover);
+    border-color: var(--color-border-hover);
 }
 
-.multi-select {
-    height: auto !important;
-    min-height: 100px;
-    padding: var(--spacing-xs) !important;
+.project-option.selected {
+    background: var(--color-accent-light);
+    border-color: var(--color-accent);
 }
 
-.multi-select option {
-    padding: var(--spacing-xs) var(--spacing-sm);
-    border-radius: var(--radius-sm);
-    margin: 2px 0;
+.project-option input[type="checkbox"] {
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--color-border);
+    border-radius: 4px;
+    outline: none;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.project-option input[type="checkbox"]:checked {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+}
+
+.project-option input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.project-option-name {
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: none;
+}
+
+.project-option.selected .project-option-name {
+    color: var(--color-text-primary);
+    font-weight: 500;
+}
+
+.form-actions-inline {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--spacing-sm);
 }
 
 .field-hint {
     font-size: 0.75rem;
     color: var(--color-text-tertiary);
-    margin-top: 4px;
+    margin-top: 6px;
 }
 
 .data-sources-grid {
