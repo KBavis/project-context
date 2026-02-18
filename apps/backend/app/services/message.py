@@ -79,6 +79,9 @@ class MessageService:
 
 
         # TODO: Remove QuestionType and Determine Question Type function in favor of using decomposition of queries 
+        llm = llm_manager.get_llm()
+        decomposition_result = await llm.decompose_query(message.content, existing_messages)
+        logger.debug(f"Decomposition Result for the Conversation={conversation_id} and Message={message.content}: {decomposition_result}")
 
         # determine if this question requires new chunks to be retrieved (or if its a follow up question that can be answered using existing context)
         question_type = await self.determine_question_type(message.content, existing_messages, llm_manager)
