@@ -83,6 +83,7 @@ class MessageService:
         logger.debug(f"QuestionType for the Conversation={conversation_id} and Message={message.content}: {question_type.value}")        
 
         # perform relevant flows based on the type of question posed 
+        query_result: QueryResponse | None = None
         match question_type:
             case QuestionType.NEW_CHUNKS:
                 """
@@ -90,42 +91,22 @@ class MessageService:
                 and the retreived chunks that are semantically similar to users prompt
                 """
 
-                query_result: QueryResponse = await self.query_svc.execute_query(message.content, conversation.project_id, llm_manager, existing_messages, conversation.total_tokens)
-                logger.debug(f"Query Result for the Conversation={conversation_id} and Message={message.content}: {query_result.model_response}")
-                logger.debug(f"Total Token Count for the Conversation={conversation_id} and Message={message.content}: {query_result.total_tokens}")
-
+                query_result = await self.query_svc.execute_query(message.content, conversation.project_id, llm_manager, existing_messages, conversation.total_tokens)
 
             case QuestionType.FOLLOW_UP:
                 """
                 Utilize the existing context from previous K messages to answer the user's question
                 """
-                logger.debug(f"Follow up question for the Conversation={conversation_id} and Message={message.content}") 
 
+                query_result = await self.query_svc.execute_query(message.content, conversation.project_id, llm_manager, existing_messages, conversation.total_tokens, needs_context=False)
 
-                # TODO: Configure logic to handle follow up questions and remove the following stub 
-                return PromptResponse(
-                    user_message=MessageDto(
-                        content=message.content,
-                        content_type=message.content_type,
-                        token_count=0,
-                        sequence_number=len(existing_messages) + 1,
-                        created_at=datetime.now(),
-                        updated_at=datetime.now()
-                    ),
-                    model_message=MessageDto(
-                        content="",
-                        content_type=message.content_type,
-                        token_count=0,
-                        sequence_number=len(existing_messages) + 2,
-                        created_at=datetime.now(),
-                        updated_at=datetime.now()
-                    ),
-                    conversation_id=conversation_id
-                )
             case QuestionType.UNKNOWN:
                 logger.error(f"Could not determine question type for conversation {conversation_id}")
                 raise Exception("Could not determine question type")
 
+        
+        logger.debug(f"Query Result for the Conversation={conversation_id} and Message={message.content}: {query_result.model_response}")
+        logger.debug(f"Total Token Count for the Conversation={conversation_id} and Message={message.content}: {query_result.total_tokens}")
 
         # persist updates to Message & Conversation
         user_msg, model_msg = await self.save_messages(
