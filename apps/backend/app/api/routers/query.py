@@ -33,7 +33,7 @@ async def query(
         # NOTE: For sake of this endpoint, we'll simply use the default LLM configurations (conversations will be configured on a per LLM basis)
         llm_manager = LLMManager()
 
-        background_tasks.add_task(svc.execute_simple_query, request.query, request.project_id, q_and_a_record.id, q_and_a_record.start_time, llm_manager)
+        background_tasks.add_task(svc.execute_q_and_a_query, request.query, request.project_id, q_and_a_record.id, q_and_a_record.start_time, llm_manager)
 
         return {
             "id": q_and_a_record.id,
