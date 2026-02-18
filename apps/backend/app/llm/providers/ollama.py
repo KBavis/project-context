@@ -132,14 +132,6 @@ class OllamaLLM(LLMBase):
         return self.tokenizer(text)
 
 
-    def decompose_query(self, query: str) -> list[str]:
-        """
-        Decompose a complex query into simpler sub-queries that can be answered individually.
-        """
-        # TODO: Implement me
-        return [query]
-
-
     def is_available(self) -> bool:
         """
         Check if a) ollama is installed and b) the specified model is available.

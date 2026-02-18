@@ -75,15 +75,6 @@ class OpenAIProvider(LLMBase):
         # NOTE: It would be nice to also store some pricing information in order to calculate cost per query
         
 
-    def decompose_query(self, query: str) -> list[str]:
-        """
-        Decompose a complex query into simpler sub-queries that can be answered individually.
-        """
-
-        #TODO: Implement me 
-        return [query]
-
-
     def get_llama_idx_instance(self) -> OpenAI:
         """
         Returns the LlamaIndex instance for the OpenAI model.
