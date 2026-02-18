@@ -78,6 +78,8 @@ class MessageService:
             logger.warning(f"No existing messages found for conversation {conversation_id}")
 
 
+        # TODO: Remove QuestionType and Determine Question Type function in favor of using decomposition of queries 
+
         # determine if this question requires new chunks to be retrieved (or if its a follow up question that can be answered using existing context)
         question_type = await self.determine_question_type(message.content, existing_messages, llm_manager)
         logger.debug(f"QuestionType for the Conversation={conversation_id} and Message={message.content}: {question_type.value}")        
