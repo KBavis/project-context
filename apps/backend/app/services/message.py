@@ -245,22 +245,27 @@ class MessageService:
         """
         
         determine_question_type_prompt = f"""
-        You are a helpful assistant that determine if a user's question requires some additional context to be answered, 
-        or if it can simply be answered using the existing conversation history. 
+            You are a classifier that determines whether a user's question can be answered using existing conversation history, or requires retrieving new information.
 
-        The messages will be formatted as follows: "sender:<message>" and will be ordered by oldest to latest. 
+            MESSAGES FORMAT: "sender:<message>", ordered oldest to latest.
 
-        If you believe that the answer could be answered using the existing conversation history, return "follow_up" as the response. 
-        If you believe that the answer requires new chunks to be retrieved, return "new_chunks" as the response.
+            CLASSIFICATION RULES:
+            - Return "new_chunks" if the question introduces any new topic, entity, or concept not already discussed in the conversation history.
+            - Return "new_chunks" if you are uncertain which to choose.
+            - Return "follow_up" ONLY if you are highly confident the question can be fully answered from the existing messages alone (e.g. "can you clarify what you said?", "summarize the above", "what did you mean by X?" where X was already explained).
 
-        User Question: {prompt}
-        Existing Messages: {formatted_messages}
+            IMPORTANT: When in doubt, always return "new_chunks". It is better to retrieve unnecessary context than to fail to answer due to missing information.
+
+            User Question: {prompt}
+            Existing Messages: {formatted_messages}
+
+            Respond with only "follow_up" or "new_chunks".
         """
 
         llm = llm_manager.get_llm()
 
         try:
-            logger.debug(f"Determining QuestionType for the Message={prompt}")
+            logger.debug(f"Determining QuestionType for the Message={prompt}\nLLM Prompt: {determine_question_type_prompt}")
             response = await llm.send_message(determine_question_type_prompt)
         except Exception as e:
             logger.error(f"Error determining question type: {e}")
