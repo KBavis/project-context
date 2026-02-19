@@ -73,7 +73,6 @@ class MessageService:
             logger.warning(f"No existing messages found for conversation {conversation_id}")
 
 
-        # TODO: Remove QuestionType and Determine Question Type function in favor of using decomposition of queries 
         llm = llm_manager.get_llm()
         decomposition_result = await llm.decompose_query(message.content, existing_messages)
         logger.debug(f"Decomposition Result for the Conversation={conversation_id} and Message={message.content}: {decomposition_result}")
@@ -197,48 +196,7 @@ class MessageService:
 
         return msg_to_save
 
-
-    async def determine_question_type(self, prompt: str, formatted_messages: str, llm_manager: LLMManager) -> QuestionType: 
-        """
-        Determine if the current question requires new chunks to be retrieved (or if its a follow up question that can be answered using existing context)
-
-        Args:
-            prompt (str): The user's question
-            formatted_messages (str): Formatted messages from the conversation, seperated by sender
-            llm_manager (LLMManager): LLM Manager instance to be used for the query
-        """
-        
-        determine_question_type_prompt = f"""
-            You are a classifier that determines whether a user's question can be answered using existing conversation history, or requires retrieving new information.
-
-            MESSAGES FORMAT: "sender:<message>", ordered oldest to latest.
-
-            CLASSIFICATION RULES:
-            - Return "new_chunks" if the question introduces any new topic, entity, or concept not already discussed in the conversation history.
-            - Return "new_chunks" if you are uncertain which to choose.
-            - Return "follow_up" ONLY if you are highly confident the question can be fully answered from the existing messages alone (e.g. "can you clarify what you said?", "summarize the above", "what did you mean by X?" where X was already explained).
-
-            IMPORTANT: When in doubt, always return "new_chunks". It is better to retrieve unnecessary context than to fail to answer due to missing information.
-
-            User Question: {prompt}
-            Existing Messages: {formatted_messages}
-
-            Respond with only "follow_up" or "new_chunks".
-        """
-
-        llm = llm_manager.get_llm()
-
-        try:
-            logger.debug(f"Determining QuestionType for the Message={prompt}\nLLM Prompt: {determine_question_type_prompt}")
-            response = await llm.send_message(determine_question_type_prompt)
-        except Exception as e:
-            logger.error(f"Error determining question type: {e}")
-            return QuestionType.UNKNOWN
-
-        return QuestionType(response.text) if response and response.text else QuestionType.UNKNOWN
-        
-
-
+    
     def get_previous_k_messages(self, conversation: Conversation, k: int = 10) -> str:
         """
         Functionality to retrieve the last k messages for a specific Conversation
