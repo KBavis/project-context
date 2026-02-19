@@ -180,6 +180,11 @@ class MessageService:
             )
             await self.conversation_svc.update_total_tokens(conversation_id, total_tokens)
 
+            # manually commit transaction (THIS IS REQUIRED FOR STREAMINGRESPONSE) 
+            await self.db.commit() 
+            await self.db.refresh(user_msg)
+            await self.db.refresh(model_msg)
+
             # 6. Final Metadata
             yield self._format_sse_event(StreamEventType.METADATA, {
                 "user_message": self._get_message_dto(user_msg).model_dump(),
