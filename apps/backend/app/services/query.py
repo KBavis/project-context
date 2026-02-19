@@ -174,13 +174,16 @@ class QueryService:
         # retrieve relevant chunks & re-rank 
         if decomposition:
             nodes = await self.get_all_chunks(decomposition, project_id, query)
+            logger.info(f"Retrieved {len(nodes)} chunks after decomposition and ranking.")
         else:
+            logger.info(f"Retrieving relevant chunks for project {project_id} and query '{query}'")
             chunks = await self.get_relevant_chunks(query, project_id)
             nodes = await self.ranking_svc.get_rankings(
                 chunks=chunks,
                 query=query,
                 top_k=5 # TODO: Make this a configuration 
             )
+            logger.info(f"Retrieved {len(nodes)} chunks after ranking for project {project_id}.")
 
         # get relevant prompt & populate with context retrieved via RAG
         prompt = self.get_prompt(query, nodes, existing_messages)
@@ -270,7 +273,7 @@ class QueryService:
         }
 
         for item in decomposition['queries']:
-            logger.debug(f"Retrieving chunks from {item['collections']} query: {item['query']}")
+            logger.info(f"Retrieving chunks for query: {item['query']} from collections: {item['collections']}")
 
             # Case-insensitive check to be safe
             collections_upper = [c.upper() for c in item['collections']]
@@ -284,6 +287,7 @@ class QueryService:
                 needs_code=needs_code
             )
 
+            logger.info(f"Retrieved {len(query_chunks.get(CODE, []))} code chunks and {len(query_chunks.get(DOCS, []))} doc chunks for sub-query")
             chunks_by_type[CODE].extend(query_chunks.get(CODE, []))
             chunks_by_type[DOCS].extend(query_chunks.get(DOCS, []))
         
