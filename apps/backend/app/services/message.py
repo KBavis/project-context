@@ -127,6 +127,7 @@ class MessageService:
 
             # 2. Summary (if needed)
             if conversation.summary is None:
+                logger.info(f"Conversation {conversation_id} has no summary, generating one...")
                 yield self._format_sse_event(StreamEventType.STATUS, "Generating conversation summary...", "Summarizing")
                 await self.conversation_svc.create_conversation_summary(conversation, message.content, llm_manager)
 
@@ -137,11 +138,11 @@ class MessageService:
             
             yield self._format_sse_event(StreamEventType.STATUS, "Analyzing query and retrieving context...", "Retrieving")
             decomposition_result = await llm.decompose_query(message.content, existing_messages)
-            logger.debug(f"Decomposition Result for the Conversation={conversation_id} and Message={message.content}: {decomposition_result}")
+            logger.info(f"Decomposition Result for the Conversation={conversation_id}: {decomposition_result}")
             
             # 4. Starting LLM Stream
             yield self._format_sse_event(StreamEventType.STATUS, "Generating response...", "Generating")
-            logger.debug(f"Starting LLM Stream for the Conversation={conversation_id} and UserPrompt={message.content}")
+            logger.info(f"Starting LLM Stream for the Conversation={conversation_id}")
 
             full_response = ""
             async for token in self.query_svc.execute_query_stream(
