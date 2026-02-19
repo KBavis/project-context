@@ -201,7 +201,7 @@ class MessageService:
         Format a single SSE event string.
         """
         event = StreamEvent(event=event_type, data=data, description=description)
-        # Using json.dumps to ensure data is properly escaped for the wire
+        # follow SSE standard (data: <json>\n\n)
         return f"data: {event.model_dump_json()}\n\n"
     
     def _get_message_dto(self, message: Message) -> MessageDto:
