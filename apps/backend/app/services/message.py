@@ -17,11 +17,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class QuestionType(Enum):
-    NEW_CHUNKS = "new_chunks"
-    FOLLOW_UP = "follow_up"
-    UNKNOWN = "unknown"
-
 class MessageService:
     def __init__(
         self, 
@@ -83,31 +78,14 @@ class MessageService:
         decomposition_result = await llm.decompose_query(message.content, existing_messages)
         logger.debug(f"Decomposition Result for the Conversation={conversation_id} and Message={message.content}: {decomposition_result}")
 
-        # determine if this question requires new chunks to be retrieved (or if its a follow up question that can be answered using existing context)
-        question_type = await self.determine_question_type(message.content, existing_messages, llm_manager)
-        logger.debug(f"QuestionType for the Conversation={conversation_id} and Message={message.content}: {question_type.value}")        
-
-        # perform relevant flows based on the type of question posed 
-        query_result: QueryResponse | None = None
-        match question_type:
-            case QuestionType.NEW_CHUNKS:
-                """
-                Retrieve relevant chunks from project's Vector DB, and perform query previous K messages 
-                and the retreived chunks that are semantically similar to users prompt
-                """
-
-                query_result = await self.query_svc.execute_query(message.content, conversation.project_id, llm_manager, existing_messages, conversation.total_tokens)
-
-            case QuestionType.FOLLOW_UP:
-                """
-                Utilize the existing context from previous K messages to answer the user's question
-                """
-
-                query_result = await self.query_svc.execute_query(message.content, conversation.project_id, llm_manager, existing_messages, conversation.total_tokens, needs_context=False)
-
-            case QuestionType.UNKNOWN:
-                logger.error(f"Could not determine question type for conversation {conversation_id}")
-                raise Exception("Could not determine question type")
+        query_result = await self.query_svc.execute_query(
+            query=message.content, 
+            project_id=conversation.project_id, 
+            llm_manager=llm_manager, 
+            decomposition=decomposition_result, 
+            existing_messages=existing_messages, 
+            existing_tokens=conversation.total_tokens
+        )
 
         
         logger.debug(f"Query Result for the Conversation={conversation_id} and Message={message.content}: {query_result.model_response}")
