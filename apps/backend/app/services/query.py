@@ -15,7 +15,7 @@ from datetime import datetime
 from uuid import uuid4
 import asyncio
 from uuid import UUID
-
+from typing import Any
 from llama_index.vector_stores.chroma import ChromaVectorStore # type: ignore
 from llama_index.core import VectorStoreIndex, Settings
 from llama_index.core.embeddings import BaseEmbedding
@@ -97,7 +97,7 @@ class QueryService:
             raise e
 
 
-    async def execute_query(self, query: str, project_id: UUID, llm_manager: LLMManager, existing_messages: str = "", existing_tokens: int = 0, needs_context: bool = True) -> QueryResponse: 
+    async def execute_query(self, query: str, project_id: UUID, llm_manager: LLMManager, decomposition: dict[str, Any] | None = None, existing_messages: str = "", existing_tokens: int = 0) -> QueryResponse: 
         """
         Execute a query against the ingested documentation and code for a specified Project
 
@@ -105,9 +105,9 @@ class QueryService:
             query (str): The query string to execute.
             project_id (UUID): The ID of the Project to query against.
             llm_manager (LLMManager): The LLM Manager to use for the query.
-            previous_messages (str): The previous messages in the conversation.
-            total_tokens (int): The total number of tokens in the conversation.
-            needs_context (bool): Whether the query needs context from the ingested documentation and code.
+            decomposition (dict[str, Any]): The decomposition of the users original query.
+            existing_messages (str): The previous messages in the conversation.
+            existing_tokens (int): The total number of tokens in the conversation.
         """
 
         llm = llm_manager.get_llm()
@@ -116,19 +116,18 @@ class QueryService:
         user_prompt_tokens = len(await llm.tokenize(query))
 
         # retrieve relevant chunks & re-rank 
-        if needs_context:
+        if decomposition:
+            nodes = await self.get_all_chunks(decomposition, project_id, query)
+        else:
             chunks = await self.get_relevant_chunks(query, project_id)
-            re_ranked_nodes = await self.ranking_svc.get_rankings(
+            nodes = await self.ranking_svc.get_rankings(
                 chunks=chunks,
                 query=query,
                 top_k=5 # TODO: Make this a configuration 
             )
 
-            # get relevant prompt & populate with context retrieved via RAG
-            prompt = self.get_prompt(query, re_ranked_nodes, existing_messages)
-        else:
-            # get prompt without additional context
-            prompt = self.get_prompt(query, previous_messages=existing_messages)
+        # get relevant prompt & populate with context retrieved via RAG
+        prompt = self.get_prompt(query, nodes, existing_messages)
 
         # configure LLM 
         await self._configure_llm(llm)
@@ -209,7 +208,91 @@ class QueryService:
             logger.error(f"Error caching embeddings for project {project_id}: {str(e)}")
             # Don't raise - caching is a performance optimization, not critical
 
+    
+    async def get_all_chunks(self, decomposition: dict[str, Any], project_id: UUID, query: str) -> list[NodeWithScore]:
+        """
+        Retrieve all relevant chunks from Chroma based on the decomposition of the query.
+
+        Args:
+            decomposition (dict[str, Any]): The decomposition of the query
+            project_id (UUID): The project ID to retrieve chunks for
+            query (str): The query to retrieve chunks for
+        """
+
+        if not decomposition['requires_retrieval']:
+            return []
+
+        # retrieve all chunks for each query (decomposition of users original query)
+        chunks_by_type: dict[str, list[NodeWithScore]] = {
+            CODE: [],
+            DOCS: []
+        }
+
+        for item in decomposition['queries']:
+            logger.debug(f"Retrieving chunks from {item['collections']} query: {item['query']}")
+
+            # Case-insensitive check to be safe
+            collections_upper = [c.upper() for c in item['collections']]
+            needs_code = CODE in collections_upper
+            needs_docs = DOCS in collections_upper
+            
+            query_chunks = await self.get_relevant_chunks(
+                query=item['query'], 
+                project_id=project_id, 
+                needs_docs=needs_docs, 
+                needs_code=needs_code
+            )
+
+            chunks_by_type[CODE].extend(query_chunks.get(CODE, []))
+            chunks_by_type[DOCS].extend(query_chunks.get(DOCS, []))
         
+
+        logger.debug(f"Chunks retrieved based on decomposition:\nCODE CHUNKS:\n\t{chunks_by_type[CODE]}\nDOC CHUNKS:\n\t{chunks_by_type[DOCS]}")
+            
+
+        # deduplicate chunks 
+        deduplicated_chunks = self.deduplicate_chunks(chunks_by_type)
+
+        # rank chunks 
+        ranked_chunks = await self.ranking_svc.get_rankings(
+                chunks=deduplicated_chunks,
+                query=query,
+                top_k=5 # TODO: Make this a configuration 
+            )
+
+        # return ranked chunks 
+        return ranked_chunks
+
+
+        
+
+    def deduplicate_chunks(self, chunks_by_type: dict[str, list[NodeWithScore]]) -> dict[str, list[NodeWithScore]]:
+        """
+        Deduplicate chunks based on their content.
+
+        Args:
+            chunks_by_type (dict[str, list[NodeWithScore]]): The chunks to deduplicate
+        """
+
+        # deduplicate doc chunks 
+        for content_type in [DOCS, CODE]:
+
+            chunks = chunks_by_type.get(content_type, [])
+            unique_chunk_ids = set()
+            unique_chunks = []
+            
+            for curr_chunk in chunks:
+                if curr_chunk.id_ not in unique_chunk_ids:
+                    logger.debug(f"Deduplicated chunk: {curr_chunk.id_}")
+                    unique_chunk_ids.add(curr_chunk.id_)
+                    unique_chunks.append(curr_chunk)
+                else:
+                    logger.debug(f"Duplicate chunk: {curr_chunk.id_}")
+            
+            chunks_by_type[content_type] = unique_chunks
+        
+        return chunks_by_type
+                
     
     def get_prompt(self, query: str, nodes: list[NodeWithScore] | None = None, previous_messages: str = "") -> str:
         """
@@ -240,7 +323,7 @@ class QueryService:
 
         return full_prompt
 
-    async def get_relevant_chunks(self, query: str, project_id: UUID) -> defaultdict[str, list[NodeWithScore]]: 
+    async def get_relevant_chunks(self, query: str, project_id: UUID, needs_docs: bool = True, needs_code: bool = True) -> defaultdict[str, list[NodeWithScore]]: 
         """
         Retrieve relevant code and documentation chunks from Chroma based on the query and project ID.
 
@@ -248,6 +331,7 @@ class QueryService:
             query (str): user passed in query 
             project_id (UUID): the project the query corresponds to 
         """
+
 
         # retreive relevant Chroma Collections corresponding to Project 
         collections = self.chroma_svc.get_collections_by_project(project_id)
@@ -261,30 +345,40 @@ class QueryService:
         # Create embedding manager with project_id for caching
         embedding_manager = EmbeddingManager(collections_by_type, project_id=project_id)
 
-        # load embedding models in parallel (with caching)
-        embedding_docs = await embedding_manager.aget_embedding_model_cached(DOCS)
-        embedding_code = await embedding_manager.aget_embedding_model_cached(CODE)
+        # load required embedding models (with caching)
+        embedding_docs = None
+        embedding_code = None
 
-        # fetch chunks in parallel
-        chunks_docs, chunks_code = await asyncio.gather(
-            self._get_chunks(
+        if needs_docs:
+            embedding_docs = await embedding_manager.aget_embedding_model_cached(DOCS)
+        if needs_code:
+            embedding_code = await embedding_manager.aget_embedding_model_cached(CODE)
+
+        # determine which retrieval tasks are required 
+        fetch_tasks: dict[str, Any] = {} 
+        if needs_docs and embedding_docs:
+            fetch_tasks[DOCS] = self._get_chunks(
                 query=query,
                 collection=collections_by_type[DOCS],
                 embedding=embedding_docs
-            ),
-            self._get_chunks(
+            )
+        if needs_code and embedding_code:
+            fetch_tasks[CODE] = self._get_chunks(
                 query=query,
                 collection=collections_by_type[CODE],
                 embedding=embedding_code
             )
-        )
+    
+        # execute retrieval tasks in parallel 
+        keys = list(fetch_tasks.keys())
+        results = await asyncio.gather(*fetch_tasks.values())
+        
+        # organize results by type 
+        chunks: defaultdict[str, list[NodeWithScore]] = defaultdict(list)
+        for key, result in zip(keys, results):
+            chunks[key] = result
 
-        # organize chunks by type
-        chunks = defaultdict(list)
-        chunks[DOCS] = chunks_docs
-        chunks[CODE] = chunks_code
-
-        return chunks       
+        return chunks
 
 
     
@@ -302,12 +396,10 @@ class QueryService:
         # get actual Chroma Collection 
         chroma_collection = self.chroma_svc.get_real_chroma_collection(collection_name=collection.name)
 
-        # confiugre LlamaIndex to use Chroma collection embedding model
-        Settings.embed_model = embedding
-
-        # confiugre LlamaaIndex retriever from Chroma collection 
+        # configure LlamaIndex retriever from Chroma collection 
+        # Pass embed_model explicitly to avoid race conditions with global Settings
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-        index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
+        index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embedding)
         retriever = index.as_retriever(similarity_top_k=5) # TODO: Make this configurable 
 
         # retrieve relevant chunks from collection
