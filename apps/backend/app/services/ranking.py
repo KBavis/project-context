@@ -7,6 +7,7 @@ from collections import defaultdict
 from llama_index.core.schema import NodeWithScore
 import asyncio
 
+from app.core.constants import DOCS, CODE
 from app.core.config import settings
 
 from sentence_transformers import CrossEncoder
@@ -19,7 +20,7 @@ class RankingService:
         self.db = db
     
 
-    async def get_rankings(self, chunks: defaultdict[str, List[NodeWithScore]], query: str, top_k: int = 5) -> List[NodeWithScore]:
+    async def get_rankings(self, chunks: dict[str, List[NodeWithScore]], query: str, top_k: int = 5) -> List[NodeWithScore]:
         """
         Rank code and documentation chunks based on relevance to query 
 
@@ -36,7 +37,7 @@ class RankingService:
         cross_encoder = await asyncio.to_thread(self._get_cross_encoder, settings.CROSS_ENCODING_MODEL)
 
         # construct pairs for cross encoder scoring
-        all_chunks = chunks['CODE'] + chunks['DOCS']
+        all_chunks = chunks.get(CODE, []) + chunks.get(DOCS, [])
         pairs = [[query, chunk.get_content()] for chunk in all_chunks]
 
         # score & sort pairs 
