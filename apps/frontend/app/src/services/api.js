@@ -48,7 +48,7 @@ export const api = {
     // Message endpoints
     messages: {
         send: async (conversationId, content) => {
-            const response = await fetch(`${API_BASE_URL}/message/${conversationId}`, {
+            const response = await fetch(`${API_BASE_URL}/message/${conversationId}/stream`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ content }),

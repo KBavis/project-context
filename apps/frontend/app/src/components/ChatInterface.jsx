@@ -12,6 +12,7 @@ export default function ChatInterface({ conversationId }) {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [streamingMessage, setStreamingMessage] = useState('');
+    const [status, setStatus] = useState('');
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
 
@@ -39,17 +40,49 @@ export default function ChatInterface({ conversationId }) {
         try {
             const response = await api.messages.send(conversationId, input);
 
+            if (!response.body) {
+                throw new Error('No response body');
+            }
+
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let assistantMessage = '';
+            let buffer = '';
 
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
 
-                const chunk = decoder.decode(value);
-                assistantMessage += chunk;
-                setStreamingMessage(assistantMessage);
+                buffer += decoder.decode(value, { stream: true });
+
+                // Process buffer for SSE lines
+                const lines = buffer.split('\n');
+                // Keep the last partial line in the buffer
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+
+                    try {
+                        const jsonStr = line.replace('data: ', '');
+                        const event = JSON.parse(jsonStr);
+
+                        if (event.event === 'status') {
+                            setStatus(event.data);
+                        } else if (event.event === 'chunk') {
+                            assistantMessage += event.data;
+                            setStreamingMessage(assistantMessage);
+                            setStatus('Generating...'); // Reset to "Generating" when we get actual tokens
+                        } else if (event.event === 'metadata') {
+                            // Final data (token counts, etc)
+                            console.log('Stream Metadata:', event.data);
+                        } else if (event.event === 'error') {
+                            throw new Error(event.data);
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse SSE event:', e, line);
+                    }
+                }
             }
 
             const completeMessage = {
@@ -59,6 +92,7 @@ export default function ChatInterface({ conversationId }) {
             };
             setMessages(prev => [...prev, completeMessage]);
             setStreamingMessage('');
+            setStatus('');
 
         } catch (error) {
             console.error('Failed to send message:', error);
@@ -71,6 +105,7 @@ export default function ChatInterface({ conversationId }) {
             setMessages(prev => [...prev, errorMessage]);
         } finally {
             setLoading(false);
+            setStatus('');
         }
     };
 
@@ -121,17 +156,23 @@ export default function ChatInterface({ conversationId }) {
                     </div>
                 ))}
 
-                {streamingMessage && (
+                {(loading || streamingMessage) && (
                     <div className="message message-assistant message-streaming">
                         <div className="message-avatar">🤖</div>
                         <div className="message-content">
                             <div className="message-text">
-                                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-                                    {streamingMessage}
-                                </ReactMarkdown>
+                                {streamingMessage ? (
+                                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                                        {streamingMessage}
+                                    </ReactMarkdown>
+                                ) : (
+                                    <div className="typing-dots">
+                                        <span></span><span></span><span></span>
+                                    </div>
+                                )}
                             </div>
                             <div className="message-streaming-indicator">
-                                <span className="pulse">●</span> Generating...
+                                <span className="pulse"></span> {status || 'Thinking...'}
                             </div>
                         </div>
                     </div>
