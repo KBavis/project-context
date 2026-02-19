@@ -1,5 +1,6 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from uuid import UUID
 
 from app.pydantic import MessageRequest, PromptResponse
@@ -32,6 +33,20 @@ async def send_message(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"{str(e)}"
         )
+    
+@router.post("/{conversation_id}/stream", summary="Send a new message to a conversation and stream the response back via SSE")
+async def send_message_stream(
+    conversation_id: UUID,
+    message: MessageRequest,
+    message_svc: MessageService = Depends(get_async_message_svc)
+):
+    """
+    Send a new message to a conversation and stream the response back via SSE.
+    """
+    return StreamingResponse(
+        message_svc.send_message_stream(message, conversation_id),
+        media_type="text/event-stream"
+    )
 
 
 @router.get("/{conversation_id}", summary="Get all messages for a conversation")

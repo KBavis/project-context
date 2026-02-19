@@ -16,12 +16,11 @@ from zoneinfo import ZoneInfo
 from uuid import uuid4
 import asyncio
 from uuid import UUID
-from typing import Any
+from typing import Any, AsyncGenerator, Tuple
 from llama_index.vector_stores.chroma import ChromaVectorStore # type: ignore
 from llama_index.core import VectorStoreIndex, Settings
 from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core.schema import NodeWithScore
-from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
 
 from collections import defaultdict
 
@@ -113,6 +112,62 @@ class QueryService:
 
         llm = llm_manager.get_llm()
 
+        # configure LLM 
+        await self._configure_llm(llm)
+
+        prompt, user_prompt_tokens = await self._prepare_query_context(
+            query=query,
+            project_id=project_id,
+            llm=llm,
+            decomposition=decomposition,
+            existing_messages=existing_messages,
+            existing_tokens=existing_tokens
+        )
+
+        # NOTE: Using acomplete for standard query
+        response = await Settings.llm.acomplete(prompt)
+
+        # calculate exact output tokens from the response text
+        model_output_tokens = len(await llm.tokenize(response.text))
+
+        return QueryResponse(
+            user_prompt=query,
+            model_response=response.text,
+            user_input_tokens=user_prompt_tokens,
+            model_output_tokens=model_output_tokens,
+            total_tokens = existing_tokens + user_prompt_tokens + model_output_tokens
+        )
+
+
+    async def execute_query_stream(self, query: str, project_id: UUID, llm_manager: LLMManager, decomposition: dict[str, Any] | None = None, existing_messages: str = "", existing_tokens: int = 0) -> AsyncGenerator[str, None]:
+        """
+        Execute a streaming query against the ingested documentation and code.
+        """
+        llm = llm_manager.get_llm()
+
+        # configure LLM 
+        await self._configure_llm(llm)
+
+        prompt, _ = await self._prepare_query_context(
+            query=query,
+            project_id=project_id,
+            llm=llm,
+            decomposition=decomposition,
+            existing_messages=existing_messages,
+            existing_tokens=existing_tokens
+        )
+
+        response_gen = await Settings.llm.astream_complete(prompt)
+
+        async for chunk in response_gen:
+            if chunk.delta:
+                yield chunk.delta
+
+
+    async def _prepare_query_context(self, query: str, project_id: UUID, llm: LLMBase, decomposition: dict[str, Any] | None = None, existing_messages: str = "", existing_tokens: int = 0) -> Tuple[str, int]:
+        """
+        Helper to prepare the prompt and context for both sync and streaming queries.
+        """
         # tokenize user prompt (excluding message history & system prompt)
         user_prompt_tokens = len(await llm.tokenize(query))
 
@@ -130,27 +185,12 @@ class QueryService:
         # get relevant prompt & populate with context retrieved via RAG
         prompt = self.get_prompt(query, nodes, existing_messages)
 
-        # configure LLM 
-        await self._configure_llm(llm)
-
         # NOTE: Leverage 'prompt' instead of 'query' for validation (in order to account for conversation history bloat)
         valid = await llm.validate_context_length(prompt, current_token_count=existing_tokens)
         if not valid:
-            # TODO: Reduce number of chunks present in order to send and handle this gracefully
             raise Exception(f"Total Context Length Exceeded for Provider={llm.provider} and Model={llm.model_name}")
 
-        response = await Settings.llm.acomplete(prompt)
-
-        # calculate exact output tokens from the response text
-        model_output_tokens = len(await llm.tokenize(response.text))
-
-        return QueryResponse(
-            user_prompt=query,
-            model_response=response.text,
-            user_input_tokens=user_prompt_tokens,
-            model_output_tokens=model_output_tokens,
-            total_tokens = existing_tokens + user_prompt_tokens + model_output_tokens
-        )
+        return prompt, user_prompt_tokens
 
 
     async def _configure_llm(self, llm: LLMBase) -> None:

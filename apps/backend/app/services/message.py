@@ -14,6 +14,8 @@ from app.pydantic import QueryResponse, PromptResponse, MessageDto, MessageReque
 from uuid import UUID
 import heapq
 import logging
+from typing import Any, AsyncGenerator
+from app.pydantic.streaming import StreamEvent, StreamEventType
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +97,7 @@ class MessageService:
             query_result, 
             conversation_id, 
             message.content_type, 
-            len(existing_messages)
+            len(conversation.messages)
         )
         await self.conversation_svc.update_total_tokens(conversation_id, query_result.total_tokens)
 
@@ -106,7 +108,95 @@ class MessageService:
         ) 
 
 
-        # stream response from LLM back to user 
+
+    async def send_message_stream(self, message: MessageRequest, conversation_id: UUID) -> AsyncGenerator[str, None]:
+        """
+        Stream the message response back to the user, providing intermediate status updates.
+        """
+        try:
+            # 1. Initialization
+            yield self._format_sse_event(StreamEventType.STATUS, "Initializing conversation context...", "Initializing")
+            
+            conversation = await self.conversation_svc.get_conversation(conversation_id)
+            if not conversation:
+                yield self._format_sse_event(StreamEventType.ERROR, f"Conversation {conversation_id} not found", "Error")
+                return
+
+            llm_manager = LLMManager(model_name=conversation.ll_model_name, provider=conversation.ll_model_provider)
+            llm = llm_manager.get_llm()
+
+            # 2. Summary (if needed)
+            if conversation.summary is None:
+                yield self._format_sse_event(StreamEventType.STATUS, "Generating conversation summary...", "Summarizing")
+                await self.conversation_svc.create_conversation_summary(conversation, message.content, llm_manager)
+
+            # 3. Context Retrieval
+            existing_messages = self.get_previous_k_messages(conversation)
+            if not existing_messages:
+                logger.debug(f"No existing messages found for conversation {conversation_id}")
+            
+            yield self._format_sse_event(StreamEventType.STATUS, "Analyzing query and retrieving context...", "Retrieving")
+            decomposition_result = await llm.decompose_query(message.content, existing_messages)
+            logger.debug(f"Decomposition Result for the Conversation={conversation_id} and Message={message.content}: {decomposition_result}")
+            
+            # 4. Starting LLM Stream
+            yield self._format_sse_event(StreamEventType.STATUS, "Generating response...", "Generating")
+            logger.debug(f"Starting LLM Stream for the Conversation={conversation_id} and UserPrompt={message.content}")
+
+            full_response = ""
+            async for token in self.query_svc.execute_query_stream(
+                query=message.content,
+                project_id=conversation.project_id,
+                llm_manager=llm_manager,
+                decomposition=decomposition_result,
+                existing_messages=existing_messages,
+                existing_tokens=conversation.total_tokens
+            ):
+                full_response += token
+                yield self._format_sse_event(StreamEventType.CHUNK, token)
+
+            # 5. Finalize and Persist
+            yield self._format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
+            
+            # Re-calculate tokens for persistence (since we don't have QueryResponse in stream)
+            user_prompt_tokens = len(await llm.tokenize(message.content))
+            model_output_tokens = len(await llm.tokenize(full_response))
+            total_tokens = conversation.total_tokens + user_prompt_tokens + model_output_tokens
+            
+            query_result_for_save = QueryResponse(
+                user_prompt=message.content,
+                model_response=full_response,
+                user_input_tokens=user_prompt_tokens,
+                model_output_tokens=model_output_tokens,
+                total_tokens=total_tokens
+            )
+
+            user_msg, model_msg = await self.save_messages(
+                query_result_for_save,
+                conversation_id,
+                message.content_type,
+                len(conversation.messages)
+            )
+            await self.conversation_svc.update_total_tokens(conversation_id, total_tokens)
+
+            # 6. Final Metadata
+            yield self._format_sse_event(StreamEventType.METADATA, {
+                "user_message": self._get_message_dto(user_msg).model_dump(),
+                "model_message": self._get_message_dto(model_msg).model_dump(),
+                "conversation_id": str(conversation_id)
+            }, "Metadata")
+
+        except Exception as e:
+            logger.error(f"Error in streaming message for conversation {conversation_id}: {str(e)}", exc_info=True)
+            yield self._format_sse_event(StreamEventType.ERROR, str(e), "Error")
+
+    def _format_sse_event(self, event_type: StreamEventType, data: Any, description: str | None = None) -> str:
+        """
+        Format a single SSE event string.
+        """
+        event = StreamEvent(event=event_type, data=data, description=description)
+        # Using json.dumps to ensure data is properly escaped for the wire
+        return f"data: {event.model_dump_json()}\n\n"
     
     def _get_message_dto(self, message: Message) -> MessageDto:
         return MessageDto(
