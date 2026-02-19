@@ -53,6 +53,7 @@ class RankingService:
         return [node for node, score in scored_nodes[:top_k]]
 
 
+    # TODO: We should cache this cross encoder for performance gains 
     def _get_cross_encoder(self, model_name: str) -> CrossEncoder:
         """
         Retrieve CrossEncoder configured in configurations in a seperate worker thread 
