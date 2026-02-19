@@ -8,6 +8,7 @@ from app.pydantic.query import QueryRequest
 
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 router = APIRouter(prefix="/query")
 
@@ -24,7 +25,7 @@ async def query(
     """
 
     try:
-        start_time = datetime.now()
+        start_time = datetime.now(ZoneInfo("America/New_York"))
         logger.info(f"Received query request for project_id={request.project_id} with query='{request.query}' at {start_time}")
 
         # create inital query record 

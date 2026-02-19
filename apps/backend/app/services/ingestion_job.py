@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from uuid import UUID, uuid4
 from collections.abc import Iterator
 from typing import Any
@@ -162,7 +163,7 @@ class IngestionJobService:
 
             self._cleanup_tmp_dirs(job_pk)
 
-            job_end_time = datetime.now()
+            job_end_time = datetime.now(ZoneInfo("America/New_York"))
             duration = job_end_time - job_start_time
 
             # update IngestionJob status to be SUCCESS
@@ -181,7 +182,7 @@ class IngestionJobService:
         except Exception as e:
             logger.error(f"Failure occurred while performing IngestionJob={job_pk}: {str(e)}")
 
-            job_fail_time = datetime.now()
+            job_fail_time = datetime.now(ZoneInfo("America/New_York"))
             duration=(job_fail_time - job_start_time).seconds
 
             # NOTE: seperate session required in order to ensure status update is not rolled back

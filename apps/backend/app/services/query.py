@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from uuid import uuid4
 import asyncio
 from uuid import UUID
@@ -69,7 +70,7 @@ class QueryService:
             logger.debug(f"LLM Response: {response.model_response}")
             logger.debug(f"Total Token Count: {response.total_tokens}")
 
-            end_time = datetime.now() 
+            end_time = datetime.now(ZoneInfo("America/New_York")) 
 
             await self.q_and_a_svc.update_q_and_a_record(
                 id=q_and_a_record_id,
@@ -83,7 +84,7 @@ class QueryService:
         except Exception as e:
             logger.error(f"Error executing query for project_id={project_id} with query='{query}': {str(e)}")
 
-            end_time = datetime.now() 
+            end_time = datetime.now(ZoneInfo("America/New_York")) 
 
             await self.q_and_a_svc.update_q_and_a_record(
                 id=q_and_a_record_id,

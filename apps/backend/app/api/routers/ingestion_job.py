@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from app.services import IngestionJobService
 from app.models import ProcessingStatus
@@ -29,7 +30,7 @@ async def create_ingestion_job(
     """
 
 
-    job_start_time = datetime.now()
+    job_start_time = datetime.now(ZoneInfo("America/New_York"))
     logging.info(f"create_ingestion_job() request recieved for dataSource={data_source_id} at {job_start_time}")
 
     # create inital ingestion job 
