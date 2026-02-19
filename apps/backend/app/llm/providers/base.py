@@ -105,7 +105,7 @@ class LLMBase(ABC):
                 raise ValueError("Prompt exceeds maximum context length")
 
             llm_instance = self.get_llama_idx_instance()
-            response = llm_instance.complete(decompose_query_prompt)
+            response = await llm_instance.acomplete(decompose_query_prompt)
 
             return json.loads(response.text)
         
