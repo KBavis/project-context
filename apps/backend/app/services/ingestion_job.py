@@ -634,6 +634,7 @@ class IngestionJobService:
         # read files from temporary directory 
         reader = SimpleDirectoryReader( # TODO: Look into leveraging "num_workers" attribute if we choose to utilize multi-threading & 
             input_dir=f"{settings.TMP_CODE or 'tmp/code'}/{job_pk}", 
+            recursive=True,
             raise_on_error=True
         )
 

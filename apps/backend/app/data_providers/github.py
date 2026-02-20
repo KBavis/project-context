@@ -1,5 +1,6 @@
 import logging
 import re
+from pathlib import Path
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from io import BytesIO
@@ -155,14 +156,18 @@ class GithubDataProvider(DataProvider):
 
             # write file to temporary directory if needed
             dir = f"{settings.TMP_DOCS}/{self.job_pk}" if file_type == "DOCS" else f"{settings.TMP_CODE}/{self.job_pk}"
-            temp_file_name = f"{dir}/{self._get_file_name(url)}" 
             
+            # create parent directories if they don't exist
+            full_path = Path(f"{dir}/{file_path}")
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+
             """
             TODO: This can get expensive in terms of memory when we read the entire file into Buffer
             Consider alternative approach for iterating through chunks of response without storing in memory 
             while still being able to Hash
             """
-            with open(temp_file_name, "wb") as f:
+            
+            with open(full_path, "wb") as f:
                 f.write(buffer.getbuffer())
 
         except Exception as e:
@@ -170,22 +175,4 @@ class GithubDataProvider(DataProvider):
             raise Exception(
                 f"Failure occurred while attempt to download file: {file_name}", e
             )
-    
-
-
-    def _get_file_name(self, url: str):
-        """
-        Helper function to retrieve the relevatn file name to store in temporary directory
-
-        Args
-            url (str) - download URL for the specified file
-        """
-
-        file_paths = url.split("/")
-        if not file_paths:
-            raise Exception(f"Invalid GitHub download URL specified: {url}")
-
-        # find index of specified branch in download URL
-        branch_idx = file_paths.index(self.branch_name)
-
-        return "-".join(path for path in file_paths[branch_idx + 1 :])
+   
