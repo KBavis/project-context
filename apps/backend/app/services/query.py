@@ -111,9 +111,7 @@ class QueryService:
         """
 
         llm = llm_manager.get_llm()
-
-        # configure LLM 
-        await self._configure_llm(llm)
+        ll_model = llm.get_llama_idx_instance()
 
         prompt, user_prompt_tokens = await self._prepare_query_context(
             query=query,
@@ -125,7 +123,7 @@ class QueryService:
         )
 
         # NOTE: Using acomplete for standard query
-        response = await Settings.llm.acomplete(prompt)
+        response = await ll_model.acomplete(prompt)
 
         # calculate exact output tokens from the response text
         model_output_tokens = len(await llm.tokenize(response.text))
@@ -144,9 +142,7 @@ class QueryService:
         Execute a streaming query against the ingested documentation and code.
         """
         llm = llm_manager.get_llm()
-
-        # configure LLM 
-        await self._configure_llm(llm)
+        ll_model = llm.get_llama_idx_instance()
 
         prompt, _ = await self._prepare_query_context(
             query=query,
@@ -157,7 +153,7 @@ class QueryService:
             existing_tokens=existing_tokens
         )
 
-        response_gen = await Settings.llm.astream_complete(prompt)
+        response_gen = await ll_model.astream_complete(prompt)
 
         async for chunk in response_gen:
             if chunk.delta:
@@ -194,23 +190,6 @@ class QueryService:
             raise Exception(f"Total Context Length Exceeded for Provider={llm.provider} and Model={llm.model_name}")
 
         return prompt, user_prompt_tokens
-
-
-    async def _configure_llm(self, llm: LLMBase) -> None:
-        """
-        Configure the LLM with the relevant prompt.
-
-        Args:
-            llm (LLM): The LLM to configure.
-            prompt (str): The prompt to configure the LLM with.
-        """
-
-        # configure LlamaIndex to use the selected LLM 
-        Settings.llm = llm.get_llama_idx_instance()
-
-        # TODO: configure any callbacks, limits, etc 
-    
-        
 
 
     async def download_and_cache_embeddings(self, project_id: UUID) -> None:
