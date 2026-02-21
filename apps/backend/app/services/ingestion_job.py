@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from typing import Any
 import asyncio
 import threading
+import shutil
 from collections import defaultdict
 
 from sqlalchemy import select
@@ -263,7 +264,7 @@ class IngestionJobService:
         logger.debug('Successfully chunked ingested documentation for each project')
 
         # convert Docling chunks to LlamaIndex TextNodes
-        nodes = self._convert_to_text_nodes(project_chunks)
+        nodes = self._convert_to_text_nodes(project_chunks, data_source.id)
         logger.debug(f"Successfully convert DocChunks to LlamaIndex TextNode's")
 
         # store results within Chroma DB, using embedding specified DataSource
@@ -372,7 +373,11 @@ class IngestionJobService:
         return code_path, docs_path
     
 
-    def _convert_to_text_nodes(self, chunks: dict[str, list[dict[str, Any]]]) -> dict[str, list[TextNode]]:
+    def _convert_to_text_nodes(
+        self, 
+        chunks: dict[str, list[dict[str, Any]]], 
+        data_source_id: UUID
+    ) -> dict[str, list[TextNode]]:
         """
         Convert Docling chunks to TextNodes in order to store within ChromaDB 
 
@@ -395,14 +400,20 @@ class IngestionJobService:
                     TextNode(
                         _id=f"{doc_chunk.meta.origin.filename}_{i}", 
                         text=context_chunk,
-                        metadata=self._get_chunk_meta_data(doc_chunk, i, project)
+                        metadata=self._get_chunk_meta_data(doc_chunk, i, project, data_source_id)
                     )
                 )
         
         return project_nodes
 
 
-    def _get_chunk_meta_data(self, chunk: DocChunk, i: int, project: str) -> dict[str, str]:
+    def _get_chunk_meta_data(
+        self, 
+        chunk: DocChunk, 
+        i: int, 
+        project: str,
+        data_source_id: UUID
+    ) -> dict[str, str]:
             """
             Helper function to extract relevant metadata for a particular Document Chunk 
 
@@ -410,6 +421,7 @@ class IngestionJobService:
                 chunk (DocChunk): document chunk to extract meta data for 
                 i (int): current position 
                 project (str): relevant project this chunk belongs to
+                data_source_id (UUID): data source this chunk belongs to
             """
             chunks_meta_data: DocMeta = chunk.meta 
 
@@ -430,7 +442,8 @@ class IngestionJobService:
                 "mimetype": mimetype,
                 "headings": " > ".join(headings) if headings else "No Headings",
                 "document_hash": document_hash,
-                "content_types": content_types
+                "content_types": content_types,
+                "data_source_id": str(data_source_id)
             }
 
     def _create_tmp_dirs(self, job_pk: UUID):
@@ -531,14 +544,14 @@ class IngestionJobService:
         for project, nodes in project_chunks.items():
 
             # get Project model 
-            curr_project = project_mapping[project]
+            curr_project = project_mapping[str(project)]
 
             # get embedding manager for project
             embedding_manager = EmbeddingManager(curr_project.collections_by_type)
 
             # retrieve Chroma DB collection 
             collection = self.chroma_svc.get_real_chroma_collection(
-                f"{get_normalized_project_name(project)}_{source_type}"
+                f"{get_normalized_project_name(str(project))}_{source_type}"
             )
 
             # get chroma vector store corresponding to our projects DOCS collection
@@ -557,7 +570,9 @@ class IngestionJobService:
 
     def _cleanup_tmp_dirs(self, job_pk: UUID):
         """
-        Remove files from temporary directory and remove directory altogether
+        Recursively remove all files and subdirectories from the job-specific
+        temporary directories, then attempt to remove the shared base dirs
+        if no other jobs are currently using them.
 
         Args:
             job_pk (UUID): unique ID for current ingestion job 
@@ -570,38 +585,28 @@ class IngestionJobService:
         code_dir = Path(settings.TMP_CODE or "tmp/code")
         docs_dir = Path(settings.TMP_DOCS or "tmp/docs")
 
-        # ingestion specific dirs to fully clean 
+        # ingestion specific dirs to fully clean (may contain nested subdirectories)
         job_code_path = code_dir / str(job_pk)
         job_docs_path = docs_dir / str(job_pk)
 
-        # cleanup job-specific sub-directories files
+        # recursively remove entire job-specific directory trees (files + subdirs)
         for job_path in [job_docs_path, job_code_path]: 
-
-            # ensure path is a dir 
             if job_path.is_dir():
+                try:
+                    shutil.rmtree(job_path)
+                    logger.debug(f"Removed temporary directory: {job_path}")
+                except OSError as e:
+                    logger.warning(f"Failed to remove temporary directory {job_path}: {e}")
 
-                # remove all files  
-                for file_path in job_path.rglob("*"):
-                    if file_path.is_file():
-                        try:
-                            file_path.unlink() 
-                        except OSError as e:
-                            logger.warning(f"Failed to delete file {file_path}: {e}")
-        
-        # remove job-specific dirs 
-        job_code_path.rmdir() 
-        job_docs_path.rmdir() 
-
-        # attempt to remove base dir (NOTE: If another process is running, this will be handled by subsequent process)
+        # attempt to remove shared base dirs
+        # NOTE: rmdir() only succeeds when the directory is empty, so if another
+        # ingestion job is still running this will safely no-op and log a warning
         for base_dir in [code_dir, docs_dir, tmp_dir]:
             if base_dir.is_dir():
-                
-                # handle failrues gracefully & log
                 try:
                     base_dir.rmdir()
-                except OSError as e:
-                    logger.warning(f"Failed to remove non-empty base directory: {base_dir}")
-                    pass
+                except OSError:
+                    logger.debug(f"Base directory {base_dir} still in use by another job, skipping removal")
         
 
 
@@ -619,7 +624,12 @@ class IngestionJobService:
         return any(path.iterdir())
 
 
-    def _chunk_code(self, data_source: DataSource, project_id: UUID | None, job_pk: UUID) -> dict[str | UUID, list[TextNode]]:
+    def _chunk_code(
+        self, 
+        data_source: DataSource, 
+        project_id: UUID | None, 
+        job_pk: UUID
+    ) -> dict[str | UUID, list[TextNode]]:
         """
         Functionality to chunk code files via LlamaIndex (using CodeSplitter)
 
@@ -642,7 +652,12 @@ class IngestionJobService:
         try:
             all_docs = defaultdict(list)
             for docs in reader.iter_data():  
-                for doc in docs:
+                for doc in docs: 
+
+                    # add meta data for data source ID 
+                    doc.metadata["data_source_id"] = str(data_source.id)
+
+                    # get file extension and determine file type
                     ext = Path(doc.metadata["file_name"]).suffix.lower().lstrip(".")
                     curr_file_type = settings.EXTENSION_TO_LANGUAGE[ext] if ext in settings.EXTENSION_TO_LANGUAGE else "plain_text"
                     all_docs[curr_file_type].append(doc)
