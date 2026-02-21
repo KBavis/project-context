@@ -71,3 +71,8 @@ class File(Base):
     file_collections: Mapped[List["FileCollection"]] = relationship(
         back_populates="file", cascade="all, delete-orphan"
     )
+
+    # one to one relationship with Citation
+    citation: Mapped["Citation"] = relationship(
+        back_populates="file"
+    )   
