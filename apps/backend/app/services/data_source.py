@@ -18,6 +18,20 @@ class DataSourceService:
     def __init__(self, db: Session):
         self.db: Session = db
 
+    def get_data_source_by_id(self, data_source_id: UUID) -> DataSource:
+        """
+        Functionality to retrieve a DataSource by ID
+        """
+
+        stmt = select(DataSource).where(DataSource.id == data_source_id)
+        data_source = self.db.execute(stmt).scalar_one_or_none()
+
+        if not data_source:
+            raise Exception(f"Data Source with ID {data_source_id} not found")
+
+        return data_source
+        
+
     def create_data_source(self, request: DataSourceRequest) -> dict[str, object]:
         """
         Functionality to persist new DataSource based on specified request
