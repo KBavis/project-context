@@ -34,11 +34,13 @@ class QueryService:
         chroma_svc: ChromaService,
         ranking_svc: RankingService,
         q_and_a_svc: QuestionAndAnswerService,
+        citation_svc: CitationService
     ):
         self.db: AsyncSession = db
         self.chroma_svc: ChromaService = chroma_svc
         self.ranking_svc: RankingService = ranking_svc
         self.q_and_a_svc: QuestionAndAnswerService = q_and_a_svc
+        self.citation_svc: CitationService = citation_svc
     
 
     async def execute_q_and_a_query(self, query: str, project_id: UUID, q_and_a_record_id: UUID, start_time: datetime, llm_manager: LLMManager) -> None:
@@ -160,7 +162,15 @@ class QueryService:
                 yield chunk.delta
 
 
-    async def _prepare_query_context(self, query: str, project_id: UUID, llm: LLMBase, decomposition: dict[str, Any] | None = None, existing_messages: str = "", existing_tokens: int = 0) -> Tuple[str, int]:
+    async def _prepare_query_context(
+        self, 
+        query: str, 
+        project_id: UUID, 
+        llm: LLMBase, 
+        decomposition: dict[str, Any] | None = None, 
+        existing_messages: str = "", 
+        existing_tokens: int = 0
+    ) -> Tuple[str, int]:
         """
         Helper to prepare the prompt and context for both sync and streaming queries.
         """
@@ -169,7 +179,7 @@ class QueryService:
 
         # retrieve relevant chunks & re-rank 
         if decomposition:
-            nodes = await self.get_all_chunks(decomposition, project_id, query)
+            nodes = await self.get_all_chunks(decomsposition, project_id, query)
             logger.info(f"Retrieved {len(nodes)} chunks after decomposition and ranking.")
         else:
             logger.info(f"Retrieving relevant chunks for project {project_id} and query '{query}'")
@@ -180,6 +190,10 @@ class QueryService:
                 top_k=5 # TODO: Make this a configuration 
             )
             logger.info(f"Retrieved {len(nodes)} chunks after ranking for project {project_id}.")
+        
+        # retrieve relevant citations based on nodes retrieved 
+        # TODO: figure out how to get these citations in response 
+        citations = await self.citation_svc.get_citations(nodes)
 
         # get relevant prompt & populate with context retrieved via RAG
         prompt = self.get_prompt(query, nodes, existing_messages)
