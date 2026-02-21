@@ -262,7 +262,7 @@ class IngestionJobService:
         project_chunks = self._chunk_docs(data_source, project_id, converted_files)
         logger.debug('Successfully chunked ingested documentation for each project')
 
-        # convert docling project chunks to LlamaIndex TextNodes
+        # convert Docling chunks to LlamaIndex TextNodes
         nodes = self._convert_to_text_nodes(project_chunks)
         logger.debug(f"Successfully convert DocChunks to LlamaIndex TextNode's")
 
