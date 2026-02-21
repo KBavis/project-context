@@ -131,6 +131,8 @@ class IngestionJobService:
             # validate retrieval resulted in some data being processed
             if not has_docs and not has_code:
                 logger.warning("No new files ingested, skipping ingestion")
+            
+            # TODO: Ensure we're not duplicating chunks when reingesting a fie
 
             # documentation files were ingested
             # TODO: Consider moving logic surronding chunking & converting & storing to Chroma in their own seperate services 
@@ -151,7 +153,6 @@ class IngestionJobService:
 
             # code files were ingested 
             if has_code:
-                # TODO: Handle chunking and saving of Code files to Chroma DB 
                 logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
 
                 await asyncio.to_thread(
