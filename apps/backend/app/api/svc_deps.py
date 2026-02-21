@@ -90,7 +90,6 @@ def get_data_source_svc(
 # Async Service Dependencies 
 ###########################
 
-
 def get_async_q_and_a_svc(
         db: AsyncSession = Depends(get_async_db_session)
 ):
@@ -117,11 +116,29 @@ def get_async_ranking_svc(
     return RankingService(db=db)
 
 
+def get_async_citation_svc(
+        db: AsyncSession = Depends(get_async_db_session),
+        file_svc: FileService = Depends(get_async_file_svc),
+        data_source_svc: DataSourceService = Depends(get_data_source_svc)
+):
+    """
+    Setup async CitationService dependency 
+
+    Args:
+        db (AsyncSession): async DB session
+        file_svc (FileService): async file service dependency
+        data_source_svc (DataSourceService): async data source service dependency
+    """
+
+    return CitationService(db=db, file_svc=file_svc, data_source_svc=data_source_svc)
+
+
 def get_async_query_svc(
         db: AsyncSession = Depends(get_async_db_session),
         chroma_svc: ChromaService = Depends(get_chroma_svc),
         ranking_svc: RankingService = Depends(get_async_ranking_svc),
-        q_and_a_svc: QuestionAndAnswerService = Depends(get_async_q_and_a_svc)
+        q_and_a_svc: QuestionAndAnswerService = Depends(get_async_q_and_a_svc),
+        citation_svc: CitationService = Depends(get_async_citation_svc)
 ):
     """
     Setup async QueryService dependency 
