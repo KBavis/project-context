@@ -1,6 +1,6 @@
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import ForeignKey, text, Index, Enum as SQLEnum
+from sqlalchemy import ForeignKey, text, Index, Enum as SQLEnum, DateTime
 from uuid import UUID
 from typing import TYPE_CHECKING
 from datetime import datetime
@@ -26,8 +26,8 @@ class IngestionJob(Base):
     data_source_id: Mapped[UUID] = mapped_column(ForeignKey("data_source.id"))
 
 
-    start_time: Mapped[datetime] = mapped_column(nullable=False, comment="Start time of IngestionJob processing")
-    end_time: Mapped[datetime] = mapped_column(nullable=True, comment="End time of IngestionJob processing")
+    start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="Start time of IngestionJob processing")
+    end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True, comment="End time of IngestionJob processing")
     total_duration: Mapped[int] = mapped_column(nullable=True, comment="Total duration of IngestionJob in seconds")
 
     data_source: Mapped["DataSource"] = relationship(back_populates="ingestion_jobs")
