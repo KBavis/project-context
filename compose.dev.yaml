@@ -1,17 +1,48 @@
 services:
+
   backend:
-    image: backend-app 
+    image: backend-app
+    container_name: backend
     env_file:
-      - ./apps/backend/.env 
-    
+      - ./apps/backend/.env
     command: python3 -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678 -m app.main
-    
     ports:
       - "8000:8000"
       - "5678:5678"
     volumes:
       - ./apps/backend:/app
+    depends_on:
+      - db
+      - chromadb
     environment:
       - PYTHONUNBUFFERED=1
       - PYDEVD_DISABLE_FILE_VALIDATION=1
       - NVIDIA_VISIBLE_DEVICES=all
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - DEBUG_MODE=true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chroma_db
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+
+  db:
+    image: postgres:15
+    container_name: postgres_db
+    env_file:
+      - ./apps/backend/.env
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+  chroma_data:
