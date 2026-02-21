@@ -2,7 +2,7 @@ from .chat import ChatRequest
 from .data_source import DataSourceRequest
 from .project import ProjectRequest
 from .file import File, CodeFileExtension, DocsFileExtension, FileProcesingStatus
-from .chroma import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse
+from .chroma import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse, DeleteCollectionRequest
 from .status import ProcessingStatus
 from .conversation import CreateConversationRequest, UpdateConversationRequest
 from .message import MessageRequest, MessageResponse as PromptResponse, MessageDto
@@ -26,5 +26,6 @@ __all__ = [
     "QueryRequest",
     "QueryResponse",
     "PromptResponse",
-    "MessageDto"
+    "MessageDto",
+    "DeleteCollectionRequest"
 ]

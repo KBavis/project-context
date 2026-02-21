@@ -19,3 +19,7 @@ class CollectionFilesResponse(TypedDict, total=False):
 class MessageResponse(TypedDict):
     """Response containing a message"""
     message: str
+
+
+class DeleteCollectionRequest(BaseModel):
+    names: list[str]

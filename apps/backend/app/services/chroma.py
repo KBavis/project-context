@@ -354,5 +354,28 @@ class ChromaService:
 
         self.client.delete_collection(name=f"{project_name}_{source_type}")
         logger.info(f"Successfully deleted the collection {project_name}_{source_type}")
+    
 
+    def delete_collection_by_names(self, collection_names: list[str]):
+        """
+        Delete collection from ChromaDB by name
+
+        Args:
+            collection_names (list[str]): list of collection names to delete 
+        """
+
+        for collection_name in collection_names:
+            self.client.delete_collection(name=collection_name)
+            logger.info(f"Successfully deleted the collection {collection_name}")
+
+
+    def delete_all_collections(self):
+        """
+        Delete all collections from ChromaDB
+        """
+
+        for collection in self.client.list_collections():
+            self.client.delete_collection(name=collection.name)
+            logger.info(f"Successfully deleted the collection {collection.name}")
+        
 

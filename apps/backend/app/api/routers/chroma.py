@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Depends
 
 from app.services import ChromaService
-from app.pydantic import DeleteCollectionDocsRequest
+from app.pydantic import DeleteCollectionDocsRequest, DeleteCollectionRequest
 
 from ..svc_deps import get_chroma_svc
 
@@ -53,13 +53,51 @@ def get_documents(
         )  
 
 
+@router.delete("/collection")
+def delete_collection_by_name(
+    delete_collection_request: DeleteCollectionRequest,
+    svc: ChromaService = Depends(get_chroma_svc)
+):
+    """
+    Delete a collection from ChromaDB by name
+
+    Args:
+        collection_name (str): name of the collection to delete 
+    """
+
+    try:
+        return svc.delete_collection_by_names(delete_collection_request.names)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"{str(e)}"
+        )  
+
+
+@router.delete("/collection/all")
+def delete_all_collections(
+    svc: ChromaService = Depends(get_chroma_svc)
+):
+    """
+    Delete all collections from ChromaDB
+    """
+
+    try:
+        return svc.delete_all_collections()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"{str(e)}"
+        )  
+
+
 @router.delete("/collection/{project_id}")
 def delete_collection(
     project_id: UUID,
     svc: ChromaService = Depends(get_chroma_svc)
 ):
     """
-    Retrieve the documents associated with a particular project in Chroma 
+    Delete the collections associated with a particular project in Chroma 
 
     TODO: Allow for specification of a particular source_type (i.e DOCS or CODE)
     """
