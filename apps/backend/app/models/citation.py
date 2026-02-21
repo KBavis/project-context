@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from .file import File
 
 class Citation(Base):
+    # TODO: we should create a linking table between a citation and a message 
+    # This way, we can get the citations in the the LLM response by retrieving the message 
 
     __tablename__: str = "citation"
 
