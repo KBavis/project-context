@@ -1,5 +1,6 @@
 import logging
 import re
+import asyncio
 from pathlib import Path
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -138,7 +139,7 @@ class GithubDataProvider(DataProvider):
 
             # hash file content & store in buffer 
             buffer = BytesIO()
-            hashed_content = self.file_service.hash_file_content(response, buffer)
+            hashed_content = await asyncio.to_thread(self.file_service.hash_file_content, response, buffer)
 
             # determine file status 
             file = File(
@@ -146,7 +147,8 @@ class GithubDataProvider(DataProvider):
                 file_name=file_name, 
                 file_type=file_extension, 
                 size=size, 
-                hash=hashed_content
+                hash=hashed_content,
+                file_url=url
             )
             file_status = await self.file_service.process_file(file, self.data_source, self.job_pk)
 
@@ -159,20 +161,23 @@ class GithubDataProvider(DataProvider):
             
             # create parent directories if they don't exist
             full_path = Path(f"{dir}/{file_path}")
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-
-            """
-            TODO: This can get expensive in terms of memory when we read the entire file into Buffer
-            Consider alternative approach for iterating through chunks of response without storing in memory 
-            while still being able to Hash
-            """
             
-            with open(full_path, "wb") as f:
-                f.write(buffer.getbuffer())
+            await asyncio.to_thread(self._write_file, full_path, buffer)
 
         except Exception as e:
             logger.error(f"Failure downloading file={file_path} with exception={str(e)}")
             raise Exception(
                 f"Failure occurred while attempt to download file: {file_name}", e
             )
+    
+    def _write_file(self, full_path: Path, buffer: BytesIO):
+        """Sync helper: write buffered content to disk (runs in worker thread)."""
+
+        """ TODO: This can get expensive in terms of memory when we read the entire file into Buffer
+        Consider alternative approach for iterating through chunks of response without storing in memory 
+        while still being able to Hash
+        """
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(full_path, "wb") as f:
+            f.write(buffer.getbuffer())
    
