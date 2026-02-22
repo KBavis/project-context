@@ -68,10 +68,10 @@ class Settings(BaseSettings):
     ###########################
     # File Paths 
     ###########################
-    TMP: str | None = "tmp"
+    TMP: str | None = "/tmp/contextualized"
     PROCESSED_DIR: str | None = "/processed"
-    TMP_DOCS: str | None = f"{TMP}/docs"
-    TMP_CODE: str | None = f"{TMP}/code"
+    TMP_DOCS: str | None = "/tmp/contextualized/docs"
+    TMP_CODE: str | None = "/tmp/contextualized/code"
 
     ###########################
     # Environment 
