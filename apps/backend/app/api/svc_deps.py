@@ -42,6 +42,7 @@ def get_chroma_manager() -> ChromaClientManager:
 
 def get_chroma_svc(
         db: Session = Depends(get_sync_db_session),
+        async_db: AsyncSession = Depends(get_async_db_session),
         chroma_mnger: ChromaClientManager = Depends(get_chroma_manager)
     ):
     """
@@ -53,6 +54,7 @@ def get_chroma_svc(
     
     return ChromaService(
         db=db, 
+        async_db=async_db,
         chroma_manager=chroma_mnger
     )
 
@@ -116,29 +118,11 @@ def get_async_ranking_svc(
     return RankingService(db=db)
 
 
-def get_async_citation_svc(
-        db: AsyncSession = Depends(get_async_db_session),
-        file_svc: FileService = Depends(get_async_file_svc),
-        data_source_svc: DataSourceService = Depends(get_data_source_svc)
-):
-    """
-    Setup async CitationService dependency 
-
-    Args:
-        db (AsyncSession): async DB session
-        file_svc (FileService): async file service dependency
-        data_source_svc (DataSourceService): async data source service dependency
-    """
-
-    return CitationService(db=db, file_svc=file_svc, data_source_svc=data_source_svc)
-
-
 def get_async_query_svc(
         db: AsyncSession = Depends(get_async_db_session),
         chroma_svc: ChromaService = Depends(get_chroma_svc),
         ranking_svc: RankingService = Depends(get_async_ranking_svc),
-        q_and_a_svc: QuestionAndAnswerService = Depends(get_async_q_and_a_svc),
-        citation_svc: CitationService = Depends(get_async_citation_svc)
+        q_and_a_svc: QuestionAndAnswerService = Depends(get_async_q_and_a_svc)
 ):
     """
     Setup async QueryService dependency 
@@ -178,7 +162,8 @@ def get_async_record_lock_svc():
 def get_async_ingestion_job_svc(
         db: AsyncSession = Depends(get_async_db_session),
         chroma_svc: ChromaService = Depends(get_chroma_svc),
-        record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc)
+        record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc),
+        file_svc: FileService = Depends(get_async_file_svc)
 ):
     """
     Setup async IngestionJobService dependency 
@@ -191,7 +176,8 @@ def get_async_ingestion_job_svc(
     return IngestionJobService(
         db=db, 
         chroma_svc=chroma_svc,
-        record_lock_svc=record_lock_svc
+        record_lock_svc=record_lock_svc,
+        file_svc=file_svc
     )
 
 
