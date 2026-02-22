@@ -4,6 +4,7 @@ from uuid import UUID
 from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 
@@ -21,9 +22,11 @@ class ChromaService:
     def __init__(
             self, 
             db: Session, 
+            async_db: AsyncSession,
             chroma_manager: ChromaClientManager,
     ):
         self.db: Session = db
+        self.async_db: AsyncSession = async_db
         self.client: ClientAPI = chroma_manager.get_sync_client() # NOTE: LlamaIndex doesn't support working with Async Client when creating VectorStore/Index
 
     
@@ -57,7 +60,7 @@ class ChromaService:
         return list(self.db.execute(stmt).scalars().all())
 
 
-    def get_collection_by_project_and_type(self, project_id: UUID, content_type: str) -> ChromaCollection:
+    async def get_collection_by_project_and_type(self, project_id: UUID, content_type: str) -> ChromaCollection:
         """
         Get ChromaCollection by Project and Content Type
 
@@ -70,7 +73,8 @@ class ChromaService:
             .options(selectinload(ChromaCollection.project))
             .where(ChromaCollection.project_id == project_id, ChromaCollection.content_type == content_type)
         )
-        return self.db.execute(stmt).scalars().one()
+        result = await self.async_db.execute(stmt)
+        return result.scalars().one()
 
 
     def get_total_number_of_collections(self) -> dict[str, int]:
