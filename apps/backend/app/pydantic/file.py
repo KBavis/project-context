@@ -45,3 +45,4 @@ class File(BaseModel):
     file_type: CodeFileExtension | DocsFileExtension
     size: int # number of bytes in file
     hash: str # hash based on file content 
+    file_url: str # direct access URL to the file

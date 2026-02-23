@@ -62,7 +62,7 @@ class FileService:
         return status
 
 
-    async def get_file_status(self, hashed_content: str, file_path: str, data_source_id: UUID) -> FileProcesingStatus:
+    async def get_file_status(self, hashed_content: str, file_path: str, data_source_id: UUID) -> tuple[FileProcesingStatus, File | None]:
         """
         Utility function to determine what the particular status is of the File we are currently processing 
 
@@ -227,7 +227,7 @@ class FileService:
         logger.debug(f"Successfully removed files associated with DataSource={data_source_id}, but were not processed by IngestionJob={ingestion_job_id}")
     
     
-    async def get_files_by_hash_and_data_source(self, hash: str, data_source_id: UUID) -> File:
+    async def get_files_by_hash_and_data_source(self, hash: str, data_source_id: UUID) -> List[File]:
         """
         Find File(s) by hashed content & data source 
                 NOTE: There could be multiple files with same hash existing at data source 
@@ -252,7 +252,7 @@ class FileService:
         return res.scalars().all()
 
     
-    async def get_file_by_path_and_data_source(self, path: str, data_source_id: UUID) -> File: 
+    async def get_file_by_path_and_data_source(self, path: str, data_source_id: UUID) -> File | None: 
         """
         Get File by path and its data source ID
 
@@ -336,7 +336,8 @@ class FileService:
             name=file.file_name,
             path=file.path,
             data_source_id=data_source.id,
-            last_ingestion_job_id=job_pk
+            last_ingestion_job_id=job_pk,
+            file_url=file.file_url
         )
 
 
@@ -351,7 +352,7 @@ class FileService:
         content_type = "DOCS" if file.file_type in settings.DOCS_FILE_EXTENSIONS else "CODE"
 
         # get all ChromaCollections corresponding to file type for each relevant project 
-        chroma_collections = [self.chroma_svc.get_collection_by_project_and_type(project_id, content_type) for project_id in data_source_project_ids]
+        chroma_collections = [await self.chroma_svc.get_collection_by_project_and_type(project_id, content_type) for project_id in data_source_project_ids]
 
         # create FileCollections records 
         collections = [

@@ -54,6 +54,11 @@ class File(Base):
         comment="The entire path to the file"
     )
 
+    file_url: Mapped[str] = mapped_column(
+        nullable=True, 
+        comment="Direct access URL to the file"
+    )
+
     # one to one relationship with IngestionJob 
     last_ingestion_job_id: Mapped[UUID] = mapped_column(
         ForeignKey("ingestion_job.id")
