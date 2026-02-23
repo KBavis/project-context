@@ -21,7 +21,7 @@ from app.embeddings import EmbeddingManager
 from app.services.util import get_normalized_project_name
 from app.services.chroma import ChromaService 
 from app.services.record_lock import RecordLockService
-
+from app.services.file import FileService
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
@@ -48,11 +48,13 @@ class IngestionJobService:
             self, 
             db: AsyncSession, 
             chroma_svc: ChromaService,
-            record_lock_svc: RecordLockService
+            record_lock_svc: RecordLockService,
+            file_svc: FileService
     ):
         self.db: AsyncSession = db
         self.chroma_svc: ChromaService = chroma_svc
         self.record_lock_svc: RecordLockService = record_lock_svc
+        self.file_svc: FileService = file_svc
 
     
     async def init_ingestion_job(self, data_source_id: UUID, job_start_time: datetime): 
@@ -142,25 +144,14 @@ class IngestionJobService:
                 #  TODO: How can we update this logic to intelligently use images/graphs/tables/charts that may be on documents? 
 
                 # TODO: Consider thread pool based on available resources to user (CPU cores, GPU, etc)
-                # run Docling conversion, chunking, and ChromaDB persistence in seperate worker thread 
-                await asyncio.to_thread(
-                    self.docs_convert_chunk_and_store,
-                    data_source,
-                    project_id,
-                    job_pk
-                )
+                # run Docling conversion, chunking, and ChromaDB persistence 
+                await self.docs_convert_chunk_and_store(data_source, project_id, job_pk)
 
 
             # code files were ingested 
             if has_code:
                 logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
-
-                await asyncio.to_thread(
-                    self.code_chunk_and_store, 
-                    data_source, 
-                    project_id,
-                    job_pk
-                )
+                await self.code_chunk_and_store(data_source, project_id, job_pk)
 
 
             self._cleanup_tmp_dirs(job_pk)
@@ -206,7 +197,7 @@ class IngestionJobService:
 
         
 
-    def code_chunk_and_store(
+    async def code_chunk_and_store(
             self, 
             data_source: DataSource, 
             project_id: UUID | None, 
@@ -222,19 +213,24 @@ class IngestionJobService:
             project_id (Optional[UUID]): optional specified proejct to run ingestion job for 
             job_pk (UUID): pk of current ingesetion job
         """
-        logger.info(f"Converting, chunking, and storing downloaded Code files via workerThreadId={threading.get_ident()}")
+        logger.info(f"Chunking and storing downloaded Code files")
 
         # chunk & convert relevant code files (using CodeSplitter from LlamaIndex)
-        nodes = self._chunk_code(data_source, project_id, job_pk)
+        nodes = await self._chunk_code(data_source, project_id, job_pk)
 
         # save LlamaIndex nodes to ChromaDB collection
-        self._save_to_chroma(nodes, CODE, data_source)
+        await asyncio.to_thread(
+            self._save_to_chroma, 
+            nodes, 
+            CODE, 
+            data_source
+        )
 
         logger.info(f"Succesfully chunked and stored downloaded Code files")
 
 
 
-    def docs_convert_chunk_and_store(
+    async def docs_convert_chunk_and_store(
             self,
             data_source: DataSource, 
             project_id: UUID | None,
@@ -246,6 +242,8 @@ class IngestionJobService:
         Convert downloaded Documentation files to Docling files, chunk using Docling's HybridChunker,
         convert to LlamaIndex TextNodes & store in relevant Chroma DB collection
 
+        NOTE: This functionality will offload blocking processes to seperate worker threads 
+
         Args:
             data_source (DataSource): the data source corresponding to current ingestion job
             project_id (Optional[UUID]): optional specified project to run ingestion job for 
@@ -255,21 +253,34 @@ class IngestionJobService:
         logger.info(f"Converting, chunking, and storing downloaded Documentation via workerThreadId={threading.get_ident()}")
 
         # convert docs to docling files 
-        converted_files = self._convert_docs_files_to_docling(job_pk)
+        converted_files = await asyncio.to_thread(
+            self._convert_docs_files_to_docling, 
+            job_pk
+        )
         if not converted_files:
             logger.warning("No documentation files were converted, skipping ingestion")
             return
 
         # chunk ingested documentation based on configured project embedding model
-        project_chunks = self._chunk_docs(data_source, project_id, converted_files)
+        project_chunks = await asyncio.to_thread(
+            self._chunk_docs, 
+            data_source, 
+            project_id,
+            converted_files
+        )
         logger.debug('Successfully chunked ingested documentation for each project')
 
-        # convert Docling chunks to LlamaIndex TextNodes
-        nodes = self._convert_to_text_nodes(project_chunks, data_source.id)
+        # convert Docling chunks to LlamaIndex TextNodes (NOTE: Async call to file_svc, so must be on main loop)
+        nodes = await self._convert_to_text_nodes(project_chunks, data_source.id)
         logger.debug(f"Successfully convert DocChunks to LlamaIndex TextNode's")
 
         # store results within Chroma DB, using embedding specified DataSource
-        self._save_to_chroma(nodes, DOCS, data_source)
+        await asyncio.to_thread(
+            self._save_to_chroma, 
+            nodes, 
+            DOCS, 
+            data_source
+        )
 
         logger.info(f"Succesfully converted, chunked, and stored downloaded Documentation files")
 
@@ -374,7 +385,7 @@ class IngestionJobService:
         return code_path, docs_path
     
 
-    def _convert_to_text_nodes(
+    async def _convert_to_text_nodes(
         self, 
         chunks: dict[str, list[dict[str, Any]]], 
         data_source_id: UUID
@@ -396,24 +407,26 @@ class IngestionJobService:
                 # extract DocChunk & ContextChunk from mapping
                 doc_chunk = data['doc_chunk']
                 context_chunk = data['contextualized_chunk']
+                file_path = data['file_path']
 
                 project_nodes[project].append(
                     TextNode(
                         _id=f"{doc_chunk.meta.origin.filename}_{i}", 
                         text=context_chunk,
-                        metadata=self._get_chunk_meta_data(doc_chunk, i, project, data_source_id)
+                        metadata=await self._get_chunk_meta_data(doc_chunk, i, project, data_source_id, file_path)
                     )
                 )
         
         return project_nodes
 
 
-    def _get_chunk_meta_data(
+    async def _get_chunk_meta_data(
         self, 
         chunk: DocChunk, 
         i: int, 
         project: str,
-        data_source_id: UUID
+        data_source_id: UUID,
+        file_path: str
     ) -> dict[str, str]:
             """
             Helper function to extract relevant metadata for a particular Document Chunk 
@@ -423,6 +436,7 @@ class IngestionJobService:
                 i (int): current position 
                 project (str): relevant project this chunk belongs to
                 data_source_id (UUID): data source this chunk belongs to
+                file_path (str): absolute file path of the file this chunk belongs to
             """
             chunks_meta_data: DocMeta = chunk.meta 
 
@@ -430,6 +444,12 @@ class IngestionJobService:
             mimetype = chunks_meta_data.origin.mimetype if chunks_meta_data.origin else ""
             headings = chunks_meta_data.headings 
             document_hash = str(chunks_meta_data.origin.binary_hash) if chunks_meta_data.origin else ""
+
+            cleaned_file_path = self._clean_file_path(file_path)
+
+            file = await self.file_svc.get_file_by_path_and_data_source(cleaned_file_path, data_source_id)
+            if not file:
+                raise Exception(f"Unable to locate File assocaited with the DataSource={data_source_id} and Path={cleaned_file_path}")
 
             content_types = ",".join(list(set([
                 str(item.label)
@@ -440,11 +460,12 @@ class IngestionJobService:
             return {
                 "chunk_idx": f"{get_normalized_project_name(project)}_{i}",
                 "source": origin_file,
+                "file_path": file_path,
                 "mimetype": mimetype,
                 "headings": " > ".join(headings) if headings else "No Headings",
                 "document_hash": document_hash,
                 "content_types": content_types,
-                "data_source_id": str(data_source_id)
+                "file_id": str(file.id)
             }
 
     def _create_tmp_dirs(self, job_pk: UUID):
@@ -582,9 +603,9 @@ class IngestionJobService:
         logger.info(f"Cleaning up temporary directories for IngestionJob={job_pk}")
 
         # base dirs to remove
-        tmp_dir = Path(settings.TMP or "tmp")
-        code_dir = Path(settings.TMP_CODE or "tmp/code")
-        docs_dir = Path(settings.TMP_DOCS or "tmp/docs")
+        tmp_dir = Path(settings.TMP or "/tmp")
+        code_dir = Path(settings.TMP_CODE or "/tmp/code")
+        docs_dir = Path(settings.TMP_DOCS or "/tmp/docs")
 
         # ingestion specific dirs to fully clean (may contain nested subdirectories)
         job_code_path = code_dir / str(job_pk)
@@ -625,7 +646,7 @@ class IngestionJobService:
         return any(path.iterdir())
 
 
-    def _chunk_code(
+    async def _chunk_code(
         self, 
         data_source: DataSource, 
         project_id: UUID | None, 
@@ -655,8 +676,16 @@ class IngestionJobService:
             for docs in reader.iter_data():  
                 for doc in docs: 
 
-                    # add meta data for data source ID 
-                    doc.metadata["data_source_id"] = str(data_source.id)
+                    # clean file path to remove the temporary directory path
+                    file_path = self._clean_file_path(doc.metadata["file_path"])
+
+                    # get file by data source and path 
+                    file = await self.file_svc.get_file_by_path_and_data_source(file_path, data_source.id)
+                    if not file:
+                        raise Exception(f"Unable to find File for the DataSource={data_source.id} and Path={file_path}")
+
+                    # add meta data for file ID 
+                    doc.metadata["file_id"] = str(file.id)
 
                     # get file extension and determine file type
                     ext = Path(doc.metadata["file_name"]).suffix.lower().lstrip(".")
@@ -717,6 +746,9 @@ class IngestionJobService:
             for res in conversion_results:
                 logger.debug(f'Conversion result confidence for Document={res.document.name} = {res.confidence}')
 
+                # extract absolute file 
+                file_path = str(res.input.file)
+
                 # chunk current Docling document into DocChunk's
                 curr_doc_chunks = list(chunker.chunk(dl_doc=res.document))
 
@@ -725,15 +757,28 @@ class IngestionJobService:
                     chunked_docs[project.project_name].append(
                         {
                             "doc_chunk": chunk,
-                            "contextualized_chunk": chunker.contextualize(chunk=chunk)
+                            "contextualized_chunk": chunker.contextualize(chunk=chunk),
+                            "file_path": file_path
                         }
                     )
 
-                
-                
-
-
 
         return chunked_docs
+    
+
+    def _clean_file_path(self, file_path: str): 
+        """
+        Clean file path to remove the temporary directory path
+
+        Args:
+            file_path (str): absolute file path to clean
+            job_pk (UUID): unique ID of current ingestion job
+        """
+
+        file_path_split = file_path.split("/")
+        if len(file_path_split) < 5:
+            raise Exception(f"Unable to clean file path: {file_path}: Expected at least 5 components in file path")
+        
+        return "/".join(file_path_split[5:])
 
 
