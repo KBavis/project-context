@@ -11,7 +11,7 @@ router = APIRouter(prefix="/message")
 
 
 @router.post("/{conversation_id}", summary="Send a new message to a conversation with LLM regarding a project")
-async def send_message(
+async def send_message_sync(
     conversation_id: UUID,
     message: MessageRequest,
     message_svc: MessageService = Depends(get_async_message_svc)
@@ -25,7 +25,7 @@ async def send_message(
     """
 
     try: 
-        response: PromptResponse = await message_svc.send_message(message, conversation_id)
+        response: PromptResponse = await message_svc.sync_send_message(message, conversation_id)
         return response
 
     except Exception as e:
