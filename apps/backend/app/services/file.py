@@ -368,3 +368,17 @@ class FileService:
 
         return new_file
 
+
+
+    async def get_file_by_id(self, file_id: UUID) -> File | None:
+        """
+        Utility function to get a File by its ID
+
+        Args:
+            file_id (UUID): the ID of the file to retrieve 
+        """
+
+        stmt = select(File).where(File.id == file_id)
+        result = await self.session.execute(stmt)
+        file = result.scalar_one_or_none()
+        return file

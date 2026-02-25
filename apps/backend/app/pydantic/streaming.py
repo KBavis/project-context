@@ -7,6 +7,7 @@ class StreamEventType(str, Enum):
     CHUNK = "chunk"
     METADATA = "metadata"
     ERROR = "error"
+    CITATION = "citation"
 
 class StreamEvent(BaseModel):
     event: StreamEventType

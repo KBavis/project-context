@@ -1,7 +1,7 @@
 from .chat import ChatRequest
 from .data_source import DataSourceRequest
 from .project import ProjectRequest
-from .file import File, CodeFileExtension, DocsFileExtension, FileProcesingStatus
+from .file import File, CodeFileExtension, DocsFileExtension, FileProcesingStatus, FileCitation
 from .chroma import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse, DeleteCollectionRequest
 from .status import ProcessingStatus
 from .conversation import CreateConversationRequest, UpdateConversationRequest
@@ -19,6 +19,7 @@ __all__ = [
     "CollectionFilesResponse",
     "MessageResponse",
     "FileProcesingStatus",
+    "FileCitation",
     "ProcessingStatus",
     "CreateConversationRequest",
     "UpdateConversationRequest",

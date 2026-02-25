@@ -46,3 +46,9 @@ class File(BaseModel):
     size: int # number of bytes in file
     hash: str # hash based on file content 
     file_url: str # direct access URL to the file
+
+
+class FileCitation(BaseModel):
+    file_url: str 
+    file_name: str 
+    data_source_id: str

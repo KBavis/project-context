@@ -1,14 +1,19 @@
 from datetime import datetime
 from enum import Enum
+
+from llama_index.core.schema import NodeWithScore
+from llama_index.core.vector_stores.types import NodeWithEmbedding
 from app.models import Conversation, Sender
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.pydantic.file import FileCitation
 from app.services.conversation import ConversationService
+from app.services.file import FileService
 from app.services.query import QueryService
 from app.models import Message
-from app.llm import LLMManager
+from app.llm import LLMBase, LLMManager
 from app.pydantic import QueryResponse, PromptResponse, MessageDto, MessageRequest
 
 from uuid import UUID
@@ -24,11 +29,13 @@ class MessageService:
         self, 
         db: AsyncSession,
         conversation_svc: ConversationService,
-        query_svc: QueryService
+        query_svc: QueryService,
+        file_svc: FileService
     ):
         self.db = db
         self.conversation_svc = conversation_svc
         self.query_svc = query_svc
+        self.file_svc = file_svc
 
     
     async def get_messages(self, conversation_id: UUID):
@@ -45,12 +52,12 @@ class MessageService:
         return messages.scalars().all()
 
 
-    async def send_message(self, message: MessageRequest, conversation_id: UUID) -> PromptResponse:
+    async def sync_send_message(self, message: MessageRequest, conversation_id: UUID) -> PromptResponse:
         """
-        Functionality to send a message to a previously created Conversation
+        Functionality to send a message to a previously created Conversation synchronously 
 
-        TODO: Look into streaming this response back to the user and sending periodic updates so front-end 
-        knows the current state 
+        NOTE: Sending a message via streaming capabilities is stypically the preferred method, but this functionality 
+        can be leveraged for testing purposes 
 
         Args:
             message (MessageRequest): Message to be sent
@@ -112,9 +119,16 @@ class MessageService:
     async def send_message_stream(self, message: MessageRequest, conversation_id: UUID) -> AsyncGenerator[str, None]:
         """
         Stream the message response back to the user, providing intermediate status updates.
+
+        Args:
+            message (MessageRequest): users prompt 
+            conversation_id (UUID): ID of the conversation to send the message to
+        
+        Yields:
+            str: SSE formatted event with intermediate status updates
         """
         try:
-            # 1. Initialization
+            # 1. Initialize 
             yield self._format_sse_event(StreamEventType.STATUS, "Initializing conversation context...", "Initializing")
             
             conversation = await self.conversation_svc.get_conversation(conversation_id)
@@ -125,13 +139,13 @@ class MessageService:
             llm_manager = LLMManager(model_name=conversation.ll_model_name, provider=conversation.ll_model_provider)
             llm = llm_manager.get_llm()
 
-            # 2. Summary (if needed)
+            # 2. Generate Conversation Summary (if needed)
             if conversation.summary is None:
                 logger.info(f"Conversation {conversation_id} has no summary, generating one...")
                 yield self._format_sse_event(StreamEventType.STATUS, "Generating conversation summary...", "Summarizing")
                 await self.conversation_svc.create_conversation_summary(conversation, message.content, llm_manager)
 
-            # 3. Context Retrieval
+            # 3. Retrieve Conversation History & Decompose Query If Needed
             existing_messages = self.get_previous_k_messages(conversation)
             if not existing_messages:
                 logger.debug(f"No existing messages found for conversation {conversation_id}")
@@ -140,30 +154,33 @@ class MessageService:
             decomposition_result = await llm.decompose_query(message.content, existing_messages)
             logger.info(f"Decomposition Result for the Conversation={conversation_id}: {decomposition_result}")
             
-            # 4. Starting LLM Stream
+            # 4. Prompt LLM and retrieve relevant context
             yield self._format_sse_event(StreamEventType.STATUS, "Generating response...", "Generating")
             logger.info(f"Starting LLM Stream for the Conversation={conversation_id}")
 
-            full_response = ""
-            async for token in self.query_svc.execute_query_stream(
+            chunks, llm_response_stream = await self.query_svc.execute_query_stream(
                 query=message.content,
                 project_id=conversation.project_id,
                 llm_manager=llm_manager,
                 decomposition=decomposition_result,
                 existing_messages=existing_messages,
                 existing_tokens=conversation.total_tokens
-            ):
+            )
+            full_response = ""
+            async for token in llm_response_stream:
                 full_response += token
                 yield self._format_sse_event(StreamEventType.CHUNK, token)
 
-            # 5. Finalize and Persist
+            # 5. Generate Mesage citations based on utilized chunks 
+            yield self._format_sse_event(StreamEventType.STATUS, "Generating citations...", "Citations")
+
+            citations = await self.get_citations(chunks)
+            yield self._format_sse_event(StreamEventType.CITATION, citations)
+
+            # 6. Finalize and Persist
             yield self._format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
             
-            # Re-calculate tokens for persistence (since we don't have QueryResponse in stream)
-            user_prompt_tokens = len(await llm.tokenize(message.content))
-            model_output_tokens = len(await llm.tokenize(full_response))
-            total_tokens = conversation.total_tokens + user_prompt_tokens + model_output_tokens
-            
+            user_prompt_tokens, model_output_tokens, total_tokens = await self.calculate_token_totals(message.content, full_response, llm)
             query_result_for_save = QueryResponse(
                 user_prompt=message.content,
                 model_response=full_response,
@@ -185,7 +202,7 @@ class MessageService:
             await self.db.refresh(user_msg)
             await self.db.refresh(model_msg)
 
-            # 6. Final Metadata
+            # 7. Final Metadata
             yield self._format_sse_event(StreamEventType.METADATA, {
                 "user_message": self._get_message_dto(user_msg).model_dump(),
                 "model_message": self._get_message_dto(model_msg).model_dump(),
@@ -195,7 +212,51 @@ class MessageService:
         except Exception as e:
             logger.error(f"Error in streaming message for conversation {conversation_id}: {str(e)}", exc_info=True)
             yield self._format_sse_event(StreamEventType.ERROR, str(e), "Error")
+    
 
+    async def get_citations(self, chunks: list[NodeWithScore]) -> list[FileCitation]:
+        """
+        Generate citations based on the utilized chunks.
+
+        Args:
+            chunks (list[NodeWithScore]): The chunks utilized in the query response.
+
+        Returns:
+            list[FileCitation]: A list of file citations.
+        """
+        citations = []
+        for chunk in chunks:
+            
+            # extract file ID from chunk
+            file_id = chunk.metadata.get("file_id", None)
+            if not file_id:
+                logger.warning(f"No file ID found for chunk {chunk.id_}, skipping Citation generation")
+                continue
+            
+            # get file by specified file ID corresponding to chunk 
+            file = await self.file_svc.get_file_by_id(file_id)
+            if not file:
+                logger.warning(f"No file found for file ID {file_id}, skipping Citation generation")
+                continue
+            
+            
+            citations.append(FileCitation(
+                file_url=file.file_url,
+                file_name=file.name,
+                data_source_id=str(file.data_source_id)
+            ))
+       
+        return citations
+
+    async def calculate_token_totals(self, user_prompt: str, model_output: str, llm: LLMBase) -> tuple[int, int, int]:
+        """
+        Calculate the token totals for the user prompt and model output.
+        """
+        user_prompt_tokens = len(await llm.tokenize(user_prompt))
+        model_output_tokens = len(await llm.tokenize(model_output))
+        total_tokens = user_prompt_tokens + model_output_tokens
+        return user_prompt_tokens, model_output_tokens, total_tokens
+    
     def _format_sse_event(self, event_type: StreamEventType, data: Any, description: str | None = None) -> str:
         """
         Format a single SSE event string.
@@ -203,6 +264,7 @@ class MessageService:
         event = StreamEvent(event=event_type, data=data, description=description)
         # follow SSE standard (data: <json>\n\n)
         return f"data: {event.model_dump_json()}\n\n"
+
     
     def _get_message_dto(self, message: Message) -> MessageDto:
         return MessageDto(
