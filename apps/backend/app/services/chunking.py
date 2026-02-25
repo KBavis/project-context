@@ -20,9 +20,9 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 class ChunkingService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, chroma_svc: ChromaService):
         self.db: AsyncSession = db
-        self.chroma_svc: ChromaService = ChromaService(db)
+        self.chroma_svc: ChromaService = chroma_svc
 
 
 
@@ -77,10 +77,10 @@ class ChunkingService:
             
 
         # deduplicate chunks 
-        deduplicated_chunks = self.deduplicate_chunks(chunks_by_type)
+        deduplicated_chunks = await self.deduplicate_chunks_by_type(chunks_by_type)
 
         # rank chunks 
-        ranked_chunks = await self.ranking_svc.get_rankings(
+        ranked_chunks = await self.get_rankings(
                 chunks=deduplicated_chunks,
                 query=original_query,
                 top_k=5 # TODO: Make this a configuration 
