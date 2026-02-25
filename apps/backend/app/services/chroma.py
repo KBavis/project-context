@@ -1,5 +1,6 @@
 import logging
 from uuid import UUID
+import asyncio
 
 from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
@@ -12,6 +13,9 @@ from app.services.util import get_normalized_project_name
 from app.core import ChromaClientManager
 from app.pydantic import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse
 from app.models import ChromaCollection
+from app.core import DOCS, CODE
+from app.embeddings import EmbeddingManager
+
 
 
 logger = logging.getLogger(__name__)
@@ -28,6 +32,46 @@ class ChromaService:
         self.db: Session = db
         self.async_db: AsyncSession = async_db
         self.client: ClientAPI = chroma_manager.get_sync_client() # NOTE: LlamaIndex doesn't support working with Async Client when creating VectorStore/Index
+    
+
+    async def download_and_cache_collection_embeddings(self, project_id):
+        """
+        Download and cache embeddings for a specified project.
+        
+        This preloads embedding models into memory cache to improve 
+        response time for subsequent queries on this project.
+        
+        Args:
+            project_id (UUID): The project ID to cache embeddings for
+        """
+
+        try:
+            # retreive relevant Chroma Collections corresponding to Project 
+            collections = self.get_collections_by_project(project_id)
+            if not collections:
+                logger.warning(f"No ingested data found for Project ID: {project_id}")
+                return
+
+            collections_by_type = {collection.content_type: collection for collection in collections}
+            if CODE not in collections_by_type or DOCS not in collections_by_type:
+                logger.warning(f"Both Code and Documentation collections must be present for Project ID: {project_id}")
+                return
+            
+            # Create embedding manager with project_id for caching
+            embedding_manager = EmbeddingManager(collections_by_type, project_id=project_id)
+
+            # Pre-load and cache both embedding models in parallel
+            logger.info(f"Pre-loading and caching embeddings for project {project_id}...")
+            await asyncio.gather(
+                embedding_manager.aget_embedding_model_cached(DOCS),
+                embedding_manager.aget_embedding_model_cached(CODE)
+            )
+            logger.info(f"Successfully cached embeddings for project {project_id}")
+            
+        except Exception as e:
+            logger.error(f"Error caching embeddings for project {project_id}: {str(e)}")
+            # Don't raise - caching is a performance optimization, not critical
+
 
     
     def get_real_chroma_collection(self, collection_name: str) -> Collection: 
