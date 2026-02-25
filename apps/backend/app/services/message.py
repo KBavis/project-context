@@ -218,6 +218,8 @@ class MessageService:
         """
         Generate citations based on the utilized chunks.
 
+        TODO: We should persist this information (link between message / files) so that the UI can properly show citations after reloading page 
+
         Args:
             chunks (list[NodeWithScore]): The chunks utilized in the query response.
 
