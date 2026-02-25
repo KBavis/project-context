@@ -21,12 +21,10 @@ class QueryService:
     def __init__(
         self,
         db: AsyncSession,
-        chroma_svc: ChromaService,
         q_and_a_svc: QuestionAndAnswerService,
         chunking_svc: ChunkingService,
     ):
         self.db: AsyncSession = db
-        self.chroma_svc: ChromaService = chroma_svc
         self.q_and_a_svc: QuestionAndAnswerService = q_and_a_svc
         self.chunking_svc: ChunkingService = chunking_svc
     
@@ -91,6 +89,9 @@ class QueryService:
         """
         Execute a query against the ingested documentation and code for a specified Project
 
+        NOTE: This is only leveraged via `execute_q_and_q_query` and `send_message_sync`, but the preferred execution of queries 
+        is `execute_query_stream`. This can be removed down the line
+
         Args:
             query (str): The query string to execute.
             project_id (UUID): The ID of the Project to query against.
@@ -100,17 +101,28 @@ class QueryService:
             existing_tokens (int): The total number of tokens in the conversation.
         """
 
+        logger.info()
+
         llm = llm_manager.get_llm()
         ll_model = llm.get_llama_idx_instance()
 
-        prompt, user_prompt_tokens = await self._prepare_query_context(
+        user_prompt_tokens = len(await llm.tokenize(query))
+
+        chunks = await self.chunking_svc.get_relevant_chunks(query, project_id)
+        nodes = await self.chunking_svc.get_rankings(
+            chunks=chunks,
             query=query,
-            project_id=project_id,
-            llm=llm,
-            decomposition=decomposition,
-            existing_messages=existing_messages,
-            existing_tokens=existing_tokens
+            top_k=5 # TODO: Make this a configuration 
         )
+        logger.info(f"Retrieved {len(nodes)} chunks after ranking for project {project_id}.")
+
+        # get relevant prompt & populate with context retrieved via RAG
+        prompt = self.get_prompt(query, nodes, existing_messages)
+
+        # NOTE: Leverage 'prompt' instead of 'query' for validation (in order to account for conversation history & system prompt bloat)
+        valid = await llm.validate_context_length(prompt, current_token_count=existing_tokens)
+        if not valid:
+            raise Exception(f"Total Context Length Exceeded for Provider={llm.provider} and Model={llm.model_name}")
 
         # NOTE: Using acomplete for standard query
         response = await ll_model.acomplete(prompt)
@@ -125,69 +137,62 @@ class QueryService:
             model_output_tokens=model_output_tokens,
             total_tokens = existing_tokens + user_prompt_tokens + model_output_tokens
         )
+        
 
-
-    async def execute_query_stream(self, query: str, project_id: UUID, llm_manager: LLMManager, decomposition: dict[str, Any] | None = None, existing_messages: str = "", existing_tokens: int = 0) -> AsyncGenerator[str, None]:
-        """
-        Execute a streaming query against the ingested documentation and code.
-        """
-        llm = llm_manager.get_llm()
-        ll_model = llm.get_llama_idx_instance()
-
-        prompt, _ = await self._prepare_query_context(
-            query=query,
-            project_id=project_id,
-            llm=llm,
-            decomposition=decomposition,
-            existing_messages=existing_messages,
-            existing_tokens=existing_tokens
-        )
-
-        response_gen = await ll_model.astream_complete(prompt)
-
-        async for chunk in response_gen:
-            if chunk.delta:
-                yield chunk.delta
-
-
-    async def _prepare_query_context(
+    async def execute_query_stream(
         self, 
         query: str, 
         project_id: UUID, 
-        llm: LLMBase, 
-        decomposition: dict[str, Any] | None = None, 
+        llm_manager: LLMManager,
+        decomposition: dict[str, Any], 
         existing_messages: str = "", 
         existing_tokens: int = 0
-    ) -> Tuple[str, int]:
+    ) -> Tuple[list[NodeWithScore], AsyncGenerator[str, None]]:
         """
-        Helper to prepare the prompt and context for both sync and streaming queries.
+        Send user's decomposed query to the configured LLM, utilizing the Conversation History & 
+        chunked ingested Code/Documentation files as context, and stream the response 
+        back to the calling function in chunks
+
+        Args:
+            query (str): The users original prompt.
+            project_id (UUID): The ID of the Project to query against.
+            llm_manager (LLMManager): The LLM Manager to use for the query.
+            decomposition (dict[str, Any]): The decomposition of the users original query.
+            existing_messages (str): The previous messages in the conversation.
+            existing_tokens (int): The total number of tokens in the conversation.
         """
-        # tokenize user prompt (excluding message history & system prompt)
-        user_prompt_tokens = len(await llm.tokenize(query))
 
-        # retrieve relevant chunks & re-rank 
-        if decomposition:
-            nodes = await self.chunking_svc.retrieve_chunks_by_decomposition(decomposition=decomposition, project_id=project_id, original_query=query)
-            logger.info(f"Retrieved {len(nodes)} chunks after decomposition and ranking.")
-        else:
-            logger.info(f"Retrieving relevant chunks for project {project_id} and query '{query}'")
-            chunks = await self.chunking_svc.get_relevant_chunks(query, project_id)
-            nodes = await self.chunking_svc.get_rankings(
-                chunks=chunks,
-                query=query,
-                top_k=5 # TODO: Make this a configuration 
-            )
-            logger.info(f"Retrieved {len(nodes)} chunks after ranking for project {project_id}.")
+        llm = llm_manager.get_llm()
+        ll_model = llm.get_llama_idx_instance()
+        
+        # retrieve relevant chunks based on decomposed query 
+        relevant_chunks = await self.chunking_svc.retrieve_chunks_by_decomposition(
+            decomposition, 
+            project_id,
+            original_query = query
+        )
 
-        # get relevant prompt & populate with context retrieved via RAG
-        prompt = self.get_prompt(query, nodes, existing_messages)
+        # generate prompt using additional context & conversation history 
+        prompt = self.get_prompt(
+            query,
+            relevant_chunks,
+            existing_messages
+        )
 
-        # NOTE: Leverage 'prompt' instead of 'query' for validation (in order to account for conversation history bloat)
-        valid = await llm.validate_context_length(prompt, current_token_count=existing_tokens)
+        # valid context length against prompt 
+        valid = await llm.validate_context_length(prompt, current_token_count=existing_tokens) # NOTE: Leverage 'prompt' instead of 'query' for validation (account for conversation history & system prompt bloat)
         if not valid:
             raise Exception(f"Total Context Length Exceeded for Provider={llm.provider} and Model={llm.model_name}")
 
-        return prompt, user_prompt_tokens
+        # generator for streaming LLM response back to invoking user 
+        async def llm_token_generator():
+            response_gen = await ll_model.astream_complete(prompt)
+            async for chunk in response_gen:
+                if chunk.delta:
+                    yield chunk.delta
+
+        return relevant_chunks, llm_token_generator()
+
 
     
     def get_prompt(self, query: str, nodes: list[NodeWithScore] | None = None, previous_messages: str = "") -> str:
@@ -223,6 +228,7 @@ class QueryService:
             context = "No context provided"
 
         full_prompt = f"{system_prompt}\n\nContext:\n{context}\n\nUser Query: {query}\n\nAnswer:"
+        logger.debug(f"Complete prompt being executed: \n{full_prompt}")
 
         return full_prompt
 

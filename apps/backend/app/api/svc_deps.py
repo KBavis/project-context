@@ -124,7 +124,6 @@ def get_async_chunking_svc(
 
 def get_async_query_svc(
         db: AsyncSession = Depends(get_async_db_session),
-        chroma_svc: ChromaService = Depends(get_chroma_svc),
         q_and_a_svc: QuestionAndAnswerService = Depends(get_async_q_and_a_svc),
         chunking_svc: ChunkingService = Depends(get_async_chunking_svc)
 ):
@@ -133,10 +132,9 @@ def get_async_query_svc(
 
     Args:
         db (AsyncSession): async DB session
-        chroma_svc (ChromaService): async chroma service dependency
     """
 
-    return QueryService(db=db, chroma_svc=chroma_svc, q_and_a_svc=q_and_a_svc, chunking_svc=chunking_svc)
+    return QueryService(db=db, q_and_a_svc=q_and_a_svc, chunking_svc=chunking_svc)
 
 def get_async_file_svc(
         db: AsyncSession = Depends(get_async_db_session),
@@ -186,24 +184,23 @@ def get_async_ingestion_job_svc(
 
 
 def get_async_conversation_svc(
-        db: AsyncSession = Depends(get_async_db_session),
-        query_svc: QueryService = Depends(get_async_query_svc)
+        db: AsyncSession = Depends(get_async_db_session)
 ):
     """
     Setup async ConversationService dependency 
 
     Args:
         db (AsyncSession): async DB session
-        query_svc (QueryService): async query service dependency
     """
 
-    return ConversationService(db=db, query_svc=query_svc)
+    return ConversationService(db=db)
 
 
 def get_async_message_svc(
         db: AsyncSession = Depends(get_async_db_session),
         conversation_svc: ConversationService = Depends(get_async_conversation_svc),
-        query_svc: QueryService = Depends(get_async_query_svc)
+        query_svc: QueryService = Depends(get_async_query_svc),
+        file_svc: FileService = Depends(get_async_file_svc)
 ):
     """
     Setup async MessageService dependency 
@@ -212,6 +209,7 @@ def get_async_message_svc(
         db (AsyncSession): async DB session
         conversation_svc (ConversationService): async conversation service dependency
         query_svc (QueryService): async query service dependency
+        file_svc (FileService): async file service dependency
     """
 
-    return MessageService(db=db, conversation_svc=conversation_svc, query_svc=query_svc)
+    return MessageService(db=db, conversation_svc=conversation_svc, query_svc=query_svc, file_svc=file_svc)
