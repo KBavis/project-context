@@ -21,10 +21,8 @@ class ConversationService:
     def __init__(
         self, 
         db: AsyncSession,
-        query_svc: QueryService,
     ):
         self.db = db 
-        self.query_svc = query_svc
 
     
     async def create_conversation_summary(self, conversation: Conversation, message: str, llm_manager: LLMManager) -> str:
