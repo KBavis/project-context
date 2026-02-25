@@ -44,6 +44,11 @@ from llama_index.core.readers import SimpleDirectoryReader
 logger = logging.getLogger(__name__)
 
 class IngestionJobService:
+    """
+    TODO: Consider shifting over some of this chunking logic over to the Chunking Service and then removing the dependency on the 
+    Chroma Service and adding the Chunking Service as a dependency
+    """
+
     def __init__(
             self, 
             db: AsyncSession, 
