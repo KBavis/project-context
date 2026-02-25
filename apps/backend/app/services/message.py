@@ -225,6 +225,7 @@ class MessageService:
             list[FileCitation]: A list of file citations.
         """
         citations = []
+        seen_ids = set() 
         for chunk in chunks:
             
             # extract file ID from chunk
@@ -239,13 +240,18 @@ class MessageService:
                 logger.warning(f"No file found for file ID {file_id}, skipping Citation generation")
                 continue
             
-            
+            if file_id in seen_ids:
+                logger.debug(f"Skipping duplicate file ID {file_id}")
+                continue
+
+            seen_ids.add(file_id)
             citations.append(FileCitation(
                 file_url=file.file_url,
                 file_name=file.name,
                 data_source_id=str(file.data_source_id)
             ))
-       
+
+        logger.debug(f"Generated citations: {citations}") 
         return citations
 
     async def calculate_token_totals(self, user_prompt: str, model_output: str, llm: LLMBase) -> tuple[int, int, int]:
