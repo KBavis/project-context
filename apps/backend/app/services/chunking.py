@@ -189,8 +189,6 @@ class ChunkingService:
         """
         Rank code and documentation chunks based on relevance to query 
 
-        TODO: Use CrossEncoder from LlamaIndex to determine which chunks are most relevant to user posed question 
-
         Args:
             code_chunks (list): List of code chunks to rank.
             doc_chunks (list): List of documentation chunks to rank.
