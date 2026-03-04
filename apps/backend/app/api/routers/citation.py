@@ -1,0 +1,19 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from .svc_deps import get_async_citation_svc
+from uuid import UUID
+
+router = APIRouter(prefix="/citation")
+
+@router.get("/{conversation_id}", summary="Get all citations for a conversation")
+async def get_citations(
+    conversation_id: UUID,
+    citation_svc: CitationService = Depends(get_async_citation_svc)
+):
+    try:
+        citations = await citation_svc.get_citations(conversation_id)
+        return citations
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"{str(e)}"
+        )
