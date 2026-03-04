@@ -1,9 +1,11 @@
-from app.models import Citation
-from app.pydantic import FileCitation 
+from app.models import Citation, Message
+from app.pydantic import FileCitation, CitationDto
 from app.services.files import FileService
 
 from uuid import UUID
 
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -57,26 +59,36 @@ class CitationService:
         return citations
     
 
-    async def get_citations(self, conversation_id: UUID) -> list[Citation]:
+    async def get_citations(self, conversation_id: UUID) -> list[CitationDto]:
         """
-        Get citations for a specific conversation.
+        Get citations for a specific conversation, enriched with file display fields.
 
         Args:
             conversation_id (UUID): The ID of the conversation.
 
         Returns:
-            list[Citation]: A list of citations.
+            list[CitationDto]: A list of enriched citation DTOs.
         """
         stmt = (
             select(Citation)
             .join(Citation.message)
             .where(Message.conversation_id == conversation_id)
+            .options(selectinload(Citation.file))
         )
         res = await self.db.execute(stmt)
 
         citations = res.scalars().all()
         logger.debug(f"Fetched following Citations for Conversation={conversation_id}: {citations}")
-        return citations
+
+        return [
+            CitationDto(
+                message_id=str(c.message_id),
+                file_id=str(c.file_id),
+                file_url=c.file.file_url,
+                file_name=c.file.name,
+            )
+            for c in citations
+        ]
 
     
 

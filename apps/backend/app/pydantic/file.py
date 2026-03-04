@@ -53,3 +53,12 @@ class FileCitation(BaseModel):
     file_url: str 
     file_name: str 
     data_source_id: str
+
+
+class CitationDto(BaseModel):
+    """Enriched citation returned from GET /citation/{conversation_id}.
+    Carries the file display fields needed to render citations in the UI."""
+    message_id: str
+    file_id: str
+    file_url: str
+    file_name: str

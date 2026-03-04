@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from .svc_deps import get_async_citation_svc
+from app.pydantic import CitationDto
 from uuid import UUID
 
 router = APIRouter(prefix="/citation")
 
-@router.get("/{conversation_id}", summary="Get all citations for a conversation")
+@router.get("/{conversation_id}", response_model=list[CitationDto], summary="Get all citations for a conversation")
 async def get_citations(
     conversation_id: UUID,
     citation_svc: CitationService = Depends(get_async_citation_svc)
