@@ -196,11 +196,24 @@ def get_async_conversation_svc(
     return ConversationService(db=db)
 
 
+def get_async_citation_svc(
+        db: AsyncSession = Depends(get_async_db_session)
+):
+    """
+    Setup async CitationService dependency 
+
+    Args:
+        db (AsyncSession): async DB session
+    """
+
+    return CitationService(db=db)
+
+
 def get_async_message_svc(
         db: AsyncSession = Depends(get_async_db_session),
         conversation_svc: ConversationService = Depends(get_async_conversation_svc),
         query_svc: QueryService = Depends(get_async_query_svc),
-        file_svc: FileService = Depends(get_async_file_svc)
+        citation_svc: CitationService = Depends(get_async_citation_svc)
 ):
     """
     Setup async MessageService dependency 
@@ -209,7 +222,7 @@ def get_async_message_svc(
         db (AsyncSession): async DB session
         conversation_svc (ConversationService): async conversation service dependency
         query_svc (QueryService): async query service dependency
-        file_svc (FileService): async file service dependency
+        citation_svc (CitationService): async citation service dependency
     """
 
-    return MessageService(db=db, conversation_svc=conversation_svc, query_svc=query_svc, file_svc=file_svc)
+    return MessageService(db=db, conversation_svc=conversation_svc, query_svc=query_svc, citation_svc=citation_svc)
