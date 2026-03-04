@@ -49,6 +49,7 @@ class File(BaseModel):
 
 
 class FileCitation(BaseModel):
+    file_id: str
     file_url: str 
     file_name: str 
     data_source_id: str
