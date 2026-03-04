@@ -238,6 +238,7 @@ class MessageService:
     
     def _get_message_dto(self, message: Message) -> MessageDto:
         return MessageDto(
+            id=message.id,
             content=message.content,
             content_type=message.content_type,
             token_count=message.token_count,

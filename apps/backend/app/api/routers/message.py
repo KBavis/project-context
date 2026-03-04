@@ -1,9 +1,8 @@
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from uuid import UUID
 
-from app.pydantic import MessageRequest, PromptResponse
+from app.pydantic import MessageRequest, PromptResponse, MessageDto
 from app.services.message import MessageService
 from app.api.svc_deps import get_async_message_svc
 
@@ -49,7 +48,7 @@ async def send_message_stream(
     )
 
 
-@router.get("/{conversation_id}", summary="Get all messages for a conversation")
+@router.get("/{conversation_id}", response_model=list[MessageDto], summary="Get all messages for a conversation")
 async def get_messages(
     conversation_id: UUID,
     message_svc: MessageService = Depends(get_async_message_svc)

@@ -10,12 +10,15 @@ class MessageRequest(BaseModel):
 
 
 class MessageDto(BaseModel):
+    id: UUID
     content: str
     content_type: str
     token_count: int
     sequence_number: int
     created_at: datetime
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MessageResponse(BaseModel): 
