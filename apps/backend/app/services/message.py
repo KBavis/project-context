@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from app.pydantic.file import FileCitation
 from app.services.conversation import ConversationService
-from app.services.file import FileService
+from app.services.citations import CitationService
 from app.services.query import QueryService
 from app.models import Message
 from app.llm import LLMBase, LLMManager
@@ -22,6 +22,7 @@ import logging
 from typing import Any, AsyncGenerator
 from app.pydantic.streaming import StreamEvent, StreamEventType
 
+
 logger = logging.getLogger(__name__)
 
 class MessageService:
@@ -30,12 +31,12 @@ class MessageService:
         db: AsyncSession,
         conversation_svc: ConversationService,
         query_svc: QueryService,
-        file_svc: FileService
+        citation_svc: CitationService
     ):
         self.db = db
         self.conversation_svc = conversation_svc
         self.query_svc = query_svc
-        self.file_svc = file_svc
+        self.citation_svc = citation_svc
 
     
     async def get_messages(self, conversation_id: UUID):
@@ -174,7 +175,7 @@ class MessageService:
             # 5. Generate Mesage citations based on utilized chunks 
             yield self._format_sse_event(StreamEventType.STATUS, "Generating citations...", "Citations")
 
-            citations = await self.get_citations(chunks)
+            citations = await self.citation_svc.generate_citations(chunks)
             yield self._format_sse_event(StreamEventType.CITATION, citations)
 
             # 6. Finalize and Persist
@@ -195,6 +196,8 @@ class MessageService:
                 message.content_type,
                 len(conversation.messages)
             )
+
+            await self.citation_svc.save_citations(citations, model_msg.id)
             await self.conversation_svc.update_total_tokens(conversation_id, total_tokens)
 
             # manually commit transaction (THIS IS REQUIRED FOR STREAMINGRESPONSE) 
@@ -214,47 +217,6 @@ class MessageService:
             yield self._format_sse_event(StreamEventType.ERROR, str(e), "Error")
     
 
-    async def get_citations(self, chunks: list[NodeWithScore]) -> list[FileCitation]:
-        """
-        Generate citations based on the utilized chunks.
-
-        TODO: We should persist this information (link between message / files) so that the UI can properly show citations after reloading page 
-
-        Args:
-            chunks (list[NodeWithScore]): The chunks utilized in the query response.
-
-        Returns:
-            list[FileCitation]: A list of file citations.
-        """
-        citations = []
-        seen_ids = set() 
-        for chunk in chunks:
-            
-            # extract file ID from chunk
-            file_id = chunk.metadata.get("file_id", None)
-            if not file_id:
-                logger.warning(f"No file ID found for chunk {chunk.id_}, skipping Citation generation")
-                continue
-            
-            # get file by specified file ID corresponding to chunk 
-            file = await self.file_svc.get_file_by_id(file_id)
-            if not file:
-                logger.warning(f"No file found for file ID {file_id}, skipping Citation generation")
-                continue
-            
-            if file_id in seen_ids:
-                logger.debug(f"Skipping duplicate file ID {file_id}")
-                continue
-
-            seen_ids.add(file_id)
-            citations.append(FileCitation(
-                file_url=file.file_url,
-                file_name=file.name,
-                data_source_id=str(file.data_source_id)
-            ))
-
-        logger.debug(f"Generated citations: {citations}") 
-        return citations
 
     async def calculate_token_totals(self, user_prompt: str, model_output: str, llm: LLMBase) -> tuple[int, int, int]:
         """
