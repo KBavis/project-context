@@ -62,6 +62,15 @@ export const api = {
         },
     },
 
+    // Citation endpoints
+    citations: {
+        list: async (conversationId) => {
+            const response = await fetch(`${API_BASE_URL}/citation/${conversationId}`);
+            return handleResponse(response);
+        },
+    },
+
+
     // Project endpoints
     projects: {
         create: async (projectName, description = '') => {
