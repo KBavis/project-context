@@ -9,6 +9,7 @@ from .query import QueryService
 from .q_and_a import QuestionAndAnswerService
 from .message import MessageService
 from .chunking import ChunkingService
+from .citations import CitationService
 
 __all__ = [
     "DataSourceService", 
@@ -22,5 +23,6 @@ __all__ = [
     "RankingService",
     "QuestionAndAnswerService",
     "MessageService",
-    "ChunkingService"
+    "ChunkingService",
+    "CitationService"
 ]
