@@ -10,7 +10,7 @@ from .file_collection import FileCollection
 from .record_lock import RecordLock, RecordType
 from .collection import ChromaCollection
 from .question_and_answer import QuestionAndAnswer
-
+from .citation import Citation
 
 __all__ = [
     "Base",
@@ -27,5 +27,6 @@ __all__ = [
     "RecordType",
     "ChromaCollection",
     "QuestionAndAnswer",
-    "Sender"
+    "Sender",
+    "Citation"
 ]
