@@ -15,6 +15,7 @@ class ProjectRequest(BaseModel):
     docs_embedding_model: str = settings.DOCS_EMBEDDING_MODEL
     
     lob: Optional[str] = "N/A"
+    description: Optional[str] = ""
     meta_data: Optional[List[str]] = []
     dependent_projects: Optional[List[UUID]] = []
 

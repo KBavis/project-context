@@ -40,6 +40,7 @@ class Project(Base):
 
     lob: Mapped[str] = mapped_column(nullable=False, comment="Line of Business")
     meta_data: Mapped[List[str]] = mapped_column(ARRAY(String))
+    description: Mapped[str] = mapped_column(nullable=True)
 
     # TODO: Create association table for Team and Project
 
