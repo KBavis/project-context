@@ -286,7 +286,7 @@ class MessageService:
             conversation_id=conversation_id
         )
 
-        logger.debug(f"Saved User & Model Messages for Conversation={conversation_id} and User Prompt='{query_result.user_prompt}' and Model Response='{query_result.model_response}'")
+        logger.debug(f"Saved User & Model Messages for Conversation={conversation_id} and User Prompt='{query_result.user_prompt}' and Model Response='{query_result.model_response[:50]}...'")
 
         return user_msg, model_msg
 
