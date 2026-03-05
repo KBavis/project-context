@@ -1,6 +1,6 @@
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import String, UUID, ForeignKey
+from sqlalchemy import String, UUID, ForeignKey, text
 from typing import List
 from sqlalchemy.orm import relationship
 from typing import TYPE_CHECKING
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 class Citation(Base):
     __tablename__: str = "citation"
 
-    id: Mapped[UUID] = mapped_column(UUID, primary_key=True)
+    id: Mapped[UUID] = mapped_column(UUID, primary_key=True, server_default=text("gen_random_uuid()"))
 
     file_id: Mapped[UUID] = mapped_column(
         ForeignKey("file.id"),
