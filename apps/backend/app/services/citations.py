@@ -101,10 +101,11 @@ class CitationService:
 
         Args:
             citations (list[Citation]): A list of citations.
+            message_id (UUID): The ID of the message.
         """
         logger.debug(f"Saving Citations: {citations}")
 
-        records_to_save = [self.map_to_record(citation, message_id) for citation in citations]
+        records_to_save = [await self.map_to_record(citation, message_id) for citation in citations]
 
         self.db.add_all(records_to_save)
         await self.db.commit() 
