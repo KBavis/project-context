@@ -1,6 +1,6 @@
 from .base import Base 
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 from uuid import UUID
 from enum import Enum
 
@@ -10,6 +10,7 @@ from sqlalchemy import ForeignKey, text, String, Text, Enum as SQLEnum
 
 if TYPE_CHECKING:
     from .conversation import Conversation
+    from .citation import Citation
 
 # enum for determing who sent a particular message
 class Sender(Enum):
@@ -49,6 +50,11 @@ class Message(Base):
         nullable=False,
         server_default="text/markdown",
         comment="The desired format to use when storing content"
+    )
+
+    # one to many relationship with Citation
+    citations: Mapped[List["Citation"]] = relationship(
+        back_populates="message", cascade="all, delete-orphan"
     )
 
     # many to one relationship with Conversation

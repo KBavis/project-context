@@ -11,6 +11,7 @@ from uuid import UUID
 if TYPE_CHECKING:
     from .data_source import DataSource
     from .file_collection import FileCollection
+    from .citation import Citation
 
 class File(Base):
 
@@ -57,6 +58,11 @@ class File(Base):
     file_url: Mapped[str] = mapped_column(
         nullable=True, 
         comment="Direct access URL to the file"
+    )
+
+    # one to many relationship with Citation
+    citations: Mapped[List["Citation"]] = relationship(
+        back_populates="file", cascade="all, delete-orphan"
     )
 
     # one to one relationship with IngestionJob 
