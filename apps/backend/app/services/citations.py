@@ -1,8 +1,11 @@
 from app.models import Citation, Message
 from app.pydantic import FileCitation, CitationDto
-from app.services.files import FileService
+from app.services.file import FileService
 
 from uuid import UUID
+import logging 
+
+from llama_index.core.schema import NodeWithScore
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -11,9 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 class CitationService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, file_svc: FileService):
         self.db: AsyncSession = db
-        self.file_svc: FileService = FileService(db)
+        self.file_svc: FileService = file_svc
     
 
 

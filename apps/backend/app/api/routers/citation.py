@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from .svc_deps import get_async_citation_svc
-from app.pydantic import CitationDto
 from uuid import UUID
+
+from app.api.svc_deps import get_async_citation_svc
+from app.pydantic import CitationDto
+from app.services.citations import CitationService
 
 router = APIRouter(prefix="/citation")
 

@@ -48,7 +48,7 @@ async def send_message_stream(
     )
 
 
-@router.get("/{conversation_id}", response_model=list[MessageDto], summary="Get all messages for a conversation")
+@router.get("/{conversation_id}", summary="Get all messages for a conversation")
 async def get_messages(
     conversation_id: UUID,
     message_svc: MessageService = Depends(get_async_message_svc)
