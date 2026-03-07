@@ -30,6 +30,11 @@ class DataSource(Base):
         comment="Name of the data source",
     )
 
+    branch: Mapped[str] = mapped_column(
+        nullable=True,
+        comment="Branch of the data source (i.e main, master, etc) if one is applicable",
+    )
+
     # one to many relationship with IngestionJob
     ingestion_jobs: Mapped[List["IngestionJob"]] = relationship(
         back_populates="data_source", cascade="all, delete-orphan"

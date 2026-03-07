@@ -40,7 +40,9 @@ class DataSourceService:
         self._validate_data_source_request(request)
 
         # create data source
-        data_source = DataSource(provider=request.provider, url=request.url, name=request.name)
+        if request.provider == "GitHub" and not request.branch: #TODO: Make this more Generic (any provider liek Bitbucket same deal)
+            request.branch = "main"
+        data_source = DataSource(provider=request.provider, url=request.url, name=request.name, branch=request.branch)
 
         # persist & flush new record
         self.db.add(data_source)

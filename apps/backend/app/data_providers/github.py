@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
  
 class GithubDataProvider(DataProvider):
 
-    def __init__(self, data_source, job_pk, db_session: AsyncSession, chroma_svc: ChromaService, url: str = "", branch: str = "main"):
+    def __init__(self, data_source, job_pk, db_session: AsyncSession, chroma_svc: ChromaService, url: str = ""):
         super().__init__(data_source, job_pk, chroma_svc, url, db_session=db_session)
         self._validate_url()
 
@@ -25,7 +25,7 @@ class GithubDataProvider(DataProvider):
         parsed_url = self.url.split("/")
         self.repository_user = parsed_url[3]
         self.repository_name = parsed_url[4]
-        self.branch_name = branch
+        self.branch_name = data_source.branch
         self.repository_url = f"https://api.github.com/repos/{self.repository_user}/{self.repository_name}/contents?ref={self.branch_name}"
 
     async def ingest_data(self):
