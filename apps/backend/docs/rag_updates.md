@@ -1,5 +1,7 @@
 # RAG Updates 
 
+_NOTE_: We should look into **LangChain, DataConnectors from LlamaIndex, and AgenticRAG with LllamaIndex** 
+
 
 ## Overview 
 Big issue with the RAG approach currently is that we don't have a sophisitcated way for the model to leverage the code base. We have ingested and chunked the code base,
@@ -30,4 +32,4 @@ and also simply be able to find files based on what the user is asking.
 
 **Approach:** 
 1. Consildate the Chroma DB Collection to simply store Documentation chunks (remove references to CODE vs DOCS, update naming conventions)
-2. Create new model that stores FileContent ()
+2. Create new model that stores FileContent
