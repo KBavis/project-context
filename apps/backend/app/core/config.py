@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     DOCS_EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
 
     CODE_EMBEDDING_PROVIDER: str = "HuggingFace"
-    CODE_EMBEDDING_MODEL: str = "microsoft/codebert-base"
+    CODE_EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
 
     CROSS_ENCODING_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
