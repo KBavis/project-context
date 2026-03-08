@@ -252,6 +252,20 @@
     letter-spacing: 0.05em;
     color: var(--color-accent);
     margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.data-source-branch-badge {
+    font-size: 0.625rem;
+    padding: 1px 6px;
+    background: rgba(var(--color-accent-rgb), 0.1);
+    border: 1px solid var(--color-accent);
+    border-radius: 4px;
+    color: var(--color-accent);
+    text-transform: none;
+    letter-spacing: normal;
 }
 
 .data-source-url {

@@ -124,6 +124,7 @@ export const api = {
                     provider: dataSourceType,
                     url: config.url || '',
                     name: config.name || '',
+                    branch: config.branch || null,
                     project_ids: Array.isArray(projectIds) ? projectIds : [projectIds]
                 }),
             });

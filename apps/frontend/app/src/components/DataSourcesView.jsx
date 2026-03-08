@@ -20,6 +20,7 @@ export default function DataSourcesView({ projectId }) {
         provider: 'GitHub',
         url: '',
         name: '',
+        branch: '',
         projectIds: projectId ? [projectId] : []
     });
 
@@ -96,12 +97,13 @@ export default function DataSourcesView({ projectId }) {
     const handleAddDataSource = async (e) => {
         e.preventDefault();
         try {
-            await createDataSource(newDS.provider, { url: newDS.url, name: newDS.name }, newDS.projectIds);
+            await createDataSource(newDS.provider, { url: newDS.url, name: newDS.name, branch: newDS.branch }, newDS.projectIds);
             setShowAddForm(false);
             setNewDS({
                 provider: 'GitHub',
                 url: '',
                 name: '',
+                branch: '',
                 projectIds: projectId ? [projectId] : []
             });
             showAlert('Data source added successfully', 'success');
@@ -166,6 +168,18 @@ export default function DataSourcesView({ projectId }) {
                                     required
                                 />
                             </div>
+                            {newDS.provider === 'GitHub' && (
+                                <div className="form-field fade-in">
+                                    <label className="input-label">Branch (optional)</label>
+                                    <input
+                                        className="input"
+                                        type="text"
+                                        value={newDS.branch}
+                                        onChange={e => setNewDS({ ...newDS, branch: e.target.value })}
+                                        placeholder="main"
+                                    />
+                                </div>
+                            )}
                             <div className="form-field projects-field">
                                 <label className="input-label">Target Projects</label>
                                 <div className="project-selector-container">
@@ -241,7 +255,10 @@ export default function DataSourcesView({ projectId }) {
                                         <div className="data-source-content">
                                             <div className="data-source-title-row">
                                                 <h3 className="data-source-name">{displayName}</h3>
-                                                <p className="data-source-provider">{ds.provider || ds.type}</p>
+                                                <p className="data-source-provider">
+                                                    {ds.provider || ds.type}
+                                                    {ds.branch && <span className="data-source-branch-badge">{ds.branch}</span>}
+                                                </p>
                                             </div>
                                             <p className="data-source-url" title={url}>{url}</p>
 
