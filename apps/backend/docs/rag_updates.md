@@ -26,10 +26,19 @@ We should try and ask niche questions based on that Documentation and have some 
 
 ## Code
 
-**Goal:** Impelemnt some sort of agentic capabiltiies (similar to Claude Code / Copilot / etc) that our model can transverse the relevant files and get a good 
-sense of where it needs to be looking based on users question. Allow for user to ask questions from a start file and have the model transverse the relevant files, 
-and also simply be able to find files based on what the user is asking. 
+**Goal**: Update our current approach to focus more on the semantic relationship by using proper Embedding & to also account for specific tokens. Upon this, we should consider looking into using Agentic toolings as well so we can jump around in code files and understand the users question 
 
-**Approach:** 
-1. Consildate the Chroma DB Collection to simply store Documentation chunks (remove references to CODE vs DOCS, update naming conventions)
-2. Create new model that stores FileContent
+**Refactoring**
+One key piece s that we may be able to remove CODE vs DOCS collecitons altogether now that they use same embedding, _and_ we may be able to also remove the query decomposition functionality. We can store everything in the same Chroma Collection since same embedding (chunking will still need to be determined by file type). We can use the `QueryFusionRetriever` with `num_queries=3` to decompose a query like _"How do we do chunking"_ into better questions 
+
+**Implemetation**
+- Change Embedding Collections to leverage BGE instead of BERT. This is because we need the embedding to understand that the users query is a _request for information_ and the code is the answer. BERT will typically only focus on the relationship between tokens 
+- Utilize `QueryFusionRetriever` instead of `index.as_retriever` in our function `get_chunks()` in `ChunkingService` -- this willperform a _dual search_, finding code that performs tasks similar to the query, and BM25 Retriever which will find specific tokens 
+- RRF (Reciporacl Rank Fusion) will combine results and returned highest ranked chunks 
+- **NOTE**: We will need access to textnodes for BM25, so these need to be in memory instead of simply querying Chroma 
+
+**Agentic Approach**
+- Along with updating our Chunk retrieval flow via RAG, we should also consider making this Agentic RAG 
+- This flow will leverage the `search_code` tool and find context it's looking for and determine if its enough to answer question 
+- This would involve creating an _adjacnecy list_ with our code file content (i.e `FileContent` with FK to `File`)
+- We should look into `pg_vector` from Llama Index and see if we need Chroma at all
