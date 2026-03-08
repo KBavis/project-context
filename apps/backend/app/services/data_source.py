@@ -75,6 +75,7 @@ class DataSourceService:
             "id": data_source.id,
             "provider": data_source.provider,
             "name": data_source.name,
+            "branch": data_source.branch,
             "config": {"url": data_source.url},
             "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
         }
@@ -96,6 +97,7 @@ class DataSourceService:
                 "id": data_source.id,
                 "provider": data_source.provider,
                 "name": data_source.name,
+                "branch": data_source.branch,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data]
             }
@@ -114,6 +116,7 @@ class DataSourceService:
                 "id": data_source.id,
                 "provider": data_source.provider,
                 "name": data_source.name,
+                "branch": data_source.branch,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data]
             }
