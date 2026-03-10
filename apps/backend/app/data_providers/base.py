@@ -23,7 +23,7 @@ class DataProvider(ABC):
     
 
     @classmethod
-    async def run_ingestion(provider_class: Type, data_source: DataSource, job_pk: UUID, chroma_svc: ChromaService):
+    async def run_ingestion(cls: Type, data_source: DataSource, job_pk: UUID, chroma_svc: ChromaService):
 
         # create async DB session for data retrieval 
         session_maker = get_async_session_maker()
@@ -32,7 +32,7 @@ class DataProvider(ABC):
             try:
 
                 # instantiate concrete provider
-                provider_instance = provider_class(
+                provider_instance = cls(
                     data_source=data_source, 
                     url=data_source.url, 
                     job_pk=job_pk,
@@ -40,7 +40,7 @@ class DataProvider(ABC):
                     chroma_svc=chroma_svc 
                 )
 
-                logger.info(f"Ingesting data from DataProvider={provider_class} for IngestionJob={job_pk}")
+                logger.info(f"Ingesting data from DataProvider={cls} for IngestionJob={job_pk}")
                 await provider_instance.ingest_data() 
 
                 await session.commit() 
