@@ -375,18 +375,14 @@ class IngestionJobService:
         # retrieve data based on provider & store within temp directory
         match data_source.provider:
             case "GitHub":
-                logger.info(
-                    f"Attempting to retrieve data from GitHub provider for URL: {data_source.url}"
-                )
-                #TODO: This logic needs to use same DB transaction as original call
-                # if not, we could successfully download files / store in relational DB, BUT fail during chunking/storing in Chroma DHB 
-                # if we re-run ingestion job, we will see files persisted and note these as "UNCHANGED" and skip processing (even though they require processing)
-                await GithubDataProvider.run_ingestion(data_source=data_source, job_pk=job_pk, chroma_svc=self.chroma_svc) 
+                provider = GithubDataProvider(data_source=data_source, job_pk=job_pk, file_svc=self.file_svc)
             case _:
                 logger.error(
                     f"The specified Data Source provider is not configured for this application"
                 )
+            
 
+        await provider.ingest_data() 
         return code_path, docs_path
     
 
