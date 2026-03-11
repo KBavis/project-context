@@ -33,7 +33,7 @@ class ChromaService:
         self.db: Session = db
         self.async_db: AsyncSession = async_db
         self.client: ClientAPI = chroma_manager.get_sync_client() # NOTE: LlamaIndex doesn't support working with Async Client when creating VectorStore/Index
-        self.async_client: AsyncClientAPI = chroma_manager.get_async_client()
+        self.chroma_manager = chroma_manager
     
 
     async def download_and_cache_collection_embeddings(self, project_id):
@@ -142,8 +142,9 @@ class ChromaService:
             chroma_collections = result.scalars().all()
 
             # remove Chunks from Chroma that are assocaited with stale file ID
+            async_client = await self.chroma_manager.get_async_client()
             for chroma_collection in chroma_collections:
-                curr_chroma_collection = await self.async_client.get_collection(chroma_collection.name)
+                curr_chroma_collection = await async_client.get_collection(chroma_collection.name)
 
                 for file_id in file_ids:
                     await curr_chroma_collection.delete(where={"file_id": str(file_id)})
