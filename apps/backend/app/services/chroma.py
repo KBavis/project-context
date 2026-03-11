@@ -2,13 +2,14 @@ import logging
 from uuid import UUID
 import asyncio
 
-from chromadb.api import ClientAPI
+from chromadb.api import AsyncClientAPI, ClientAPI
 from chromadb.api.models.Collection import Collection
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 
+from app.models.file_collection import FileCollection
 from app.services.util import get_normalized_project_name
 from app.core import ChromaClientManager
 from app.pydantic import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse
@@ -32,6 +33,7 @@ class ChromaService:
         self.db: Session = db
         self.async_db: AsyncSession = async_db
         self.client: ClientAPI = chroma_manager.get_sync_client() # NOTE: LlamaIndex doesn't support working with Async Client when creating VectorStore/Index
+        self.async_client: AsyncClientAPI = chroma_manager.get_async_client()
     
 
     async def download_and_cache_collection_embeddings(self, project_id):
@@ -103,7 +105,6 @@ class ChromaService:
 
         return list(self.db.execute(stmt).scalars().all())
 
-
     async def get_collection_by_project_and_type(self, project_id: UUID, content_type: str) -> ChromaCollection:
         """
         Get ChromaCollection by Project and Content Type
@@ -119,6 +120,37 @@ class ChromaService:
         )
         result = await self.async_db.execute(stmt)
         return result.scalars().one()
+
+
+    async def adelete_nodes_associated_with_files(self, file_ids: list[UUID]):
+        """
+        Asynchronously delete nodes associated with a particular file
+
+        Args:
+            file_ids (list[UUID]): file IDs that were removed
+        """
+
+        # retrieve FileCollection records associated with file
+        try:
+            # retrieve ChromaCollections assocaited with the "stale" files
+            stmt = (
+                select(ChromaCollection)
+                .join(ChromaCollection.id == FileCollection.chroma_collection_id)
+                .where(FileCollection.file_id.in_(file_ids))
+            )
+            result = await self.async_db.execute(stmt)
+            chroma_collections = result.scalars().all()
+
+            # remove Chunks from Chroma that are assocaited with stale file ID
+            for chroma_collection in chroma_collections:
+                curr_chroma_collection = await self.async_client.get_collection(chroma_collection.name)
+
+                for file_id in file_ids:
+                    await curr_chroma_collection.delete(where={"file_id": str(file_id)})
+
+        except Exception as e:
+            logger.error(f"Failure occurred while attempting to delete nodes associated with file_id={file_id}", exc_info=True)
+            raise e
 
 
     def get_total_number_of_collections(self) -> dict[str, int]:

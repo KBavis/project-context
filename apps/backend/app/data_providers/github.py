@@ -42,8 +42,6 @@ class GithubDataProvider(DataProvider):
         # cleanup any files assocaited with DataSource not processed via current job
         await self.file_svc.cleanup(self.data_source.id, self.job_pk)
 
-        # TODO: Along with cleaning up stale files from relational DB, we should also cleanup stale files from Chroma DB.
-        #           - This can be done by first querying for files not seen, and then removing textnodes associated from Chroma based on meta data 
 
     def _get_request_headers(self) -> dict[str, str] | None:
         """
@@ -151,7 +149,7 @@ class GithubDataProvider(DataProvider):
                 hash=hashed_content,
                 file_url=url
             )
-            file_status = await self.file_service.process_file(file, self.data_source, self.job_pk)
+            file_status = await self.file_svc.process_file(file, self.data_source, self.job_pk)
 
             # skip files already processed & unchanged 
             if file_status == FileProcesingStatus.UNCHANGED:

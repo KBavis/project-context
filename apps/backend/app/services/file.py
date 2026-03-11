@@ -57,10 +57,11 @@ class FileService:
         if status != FileProcesingStatus.NEW:
             await self.update_last_seen_job_pk(job_pk, data_source.id, [persisted_file])
         
-        # Step 5. If the file has changed since last ingestion, update corresponding file record 
+        # Step 5. If the file has changed since last ingestion, a) update corresponding file record hash, b) remove "stale" chunks from Chroma 
         if status == FileProcesingStatus.CHANGED:
-            logger.debug(f"File with path={file.path} has changed since last ingestion, updating file record with relevant hash")
+            logger.debug(f"File with path={file.path} has changed since last ingestion, updating file record with relevant hash & remove stale chunks from VectorDB")
             await self.update_existing_file(file=file, data_source=data_source)
+            await self.chroma_svc.adelete_nodes_associated_with_files([persisted_file.id])
 
 
         # Step 6. Return status back to calling function
@@ -128,7 +129,17 @@ class FileService:
             job_pk (UUID): the ID corresponding to current IngestionJob
         """
 
-        await self.delete_stale_files(data_source_id, job_pk)
+        stale_file_ids = await self.get_stale_files(data_source_id, job_pk)
+        if not stale_file_ids:
+            logger.info(f"No stale files found in DB for DataSource={data_source_id} & IngestionJob={job_pk}")
+            return
+
+        # remove stale Nodes from Chroma 
+        self.chroma_svc.adelete_nodes_associated_with_files(stale_file_ids)
+
+        # remove stale File's from DB 
+        await self.delete_stale_files_from_db(data_source_id, job_pk)
+
 
 
     def hash_file_content(self, response: Response, buffer: BytesIO):
@@ -209,27 +220,44 @@ class FileService:
 
         _ = await session.execute(stmt)
         await session.flush()
-
     
-    async def delete_stale_files(self, data_source_id: UUID, ingestion_job_id: UUID):
+
+    async def get_stale_files(self, data_source_id: UUID, ingestion_job_id: UUID) -> list[UUID] | None: 
         """
-        Remove Files from DB that we did not see/process during current IngestionJob 
+        Retrieve files from database that we did not see/process during IngestionJob (i.e stale files that we should remove)
+
 
         Args:
             data_source_id (UUID): PK of the data source this file corresponds to
             ingestion_job_id (UUID): PK of the current ingestion job
         """
-
-        session = self.session
-
-        stmt = (
-            delete(File)
+        
+        select_stmt = (
+            select(File)
             .where(File.data_source_id == data_source_id, File.last_ingestion_job_id != ingestion_job_id)
         )
+        res = await self.session.execute(select_stmt)
+        stale_files = res.scalars().all() 
 
-        _ = await session.execute(stmt)
+        return [file.id for file in stale_files] if stale_files else []
 
-        logger.debug(f"Successfully removed files associated with DataSource={data_source_id}, but were not processed by IngestionJob={ingestion_job_id}")
+    
+    async def delete_stale_files_from_db(self, stale_file_ids: list[UUID]) -> list[UUID] | None:
+        """
+        Remove Files from DB that we did not see/process during current IngestionJob 
+
+        Args:
+            stale_file_ids (list(UUID)): IDs of files that are considered stale 
+        """
+
+        # remove sale files if need be 
+        stmt = (
+            delete(File)
+            .where(File.id.in_(stale_file_ids))
+        )
+        _ = await self.session.execute(stmt)
+
+        logger.debug(f"Successfully removed the following 'stale' File's from the Database:\n\t{stale_file_ids}")
     
     
     async def get_files_by_hash_and_data_source(self, hash: str, data_source_id: UUID) -> List[File]:
@@ -295,15 +323,20 @@ class FileService:
 
 
         # attempt to find file by either path OR hash, and the respective DataSource ID
-        files = await session.query(File).filter(
-            and_(
-                or_(
-                    File.hash == file.hash,
-                    File.path == file.path
-                ),
-                File.data_source_id == data_source.id
+        stmt = (
+            select(File)
+            .where(
+                and_(
+                    or_(
+                        File.hash == file.hash,
+                        File.path == file.path
+                    ),
+                    File.data_source_id == data_source.id
+                )
             )
-        ).all() 
+        )
+        res = await session.execute(stmt)
+        files = res.scalars().all() 
 
         if not files:
             logger.debug(f"No files found corresponding to file_hash={file.hash} or file_path={file.path} in DB")
