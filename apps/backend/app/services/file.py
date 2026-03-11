@@ -43,6 +43,10 @@ class FileService:
         # Step 2: Insert file into relational DB if needed
         if status == FileProcesingStatus.NEW:
                 persisted_file = await self.add_new_file(file=file, data_source=data_source, job_pk=job_pk)
+        
+        if not persisted_file:
+            # NOTE: This should never happen given above logic
+            raise Exception(f'Failed to retrieve/create File associated with path={file.path}')
 
         
         # Step 3. Determine if this File is currently not ingested for a particular Project, even if Project Status indicates we can skip further processing
