@@ -56,9 +56,14 @@ class FileService:
         # Step 4. Mark this File's "last_ingestion_job_id" with relevant ingestion_job that is currently being ran (if needed)
         if status != FileProcesingStatus.NEW:
             await self.update_last_seen_job_pk(job_pk, data_source.id, [persisted_file])
+        
+        # Step 5. If the file has changed since last ingestion, update corresponding file record 
+        if status == FileProcesingStatus.CHANGED:
+            logger.debug(f"File with path={file.path} has changed since last ingestion, updating file record with relevant hash")
+            await self.update_existing_file(file=file, data_source=data_source)
 
 
-        # Step 5. Return status back to calling function
+        # Step 6. Return status back to calling function
         return status
 
 
