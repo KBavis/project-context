@@ -353,6 +353,8 @@ class FileService:
         existing_file.size = file.size 
         existing_file.path = file.path
         existing_file.file_extension = file.file_type
+
+        logger.info(f"Successfully updated existing File corresponding to path={file.path}")
         
         await session.flush()
             

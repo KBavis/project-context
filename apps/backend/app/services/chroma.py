@@ -135,7 +135,7 @@ class ChromaService:
             # retrieve ChromaCollections assocaited with the "stale" files
             stmt = (
                 select(ChromaCollection)
-                .join(ChromaCollection.id == FileCollection.chroma_collection_id)
+                .join(FileCollection, ChromaCollection.id == FileCollection.chroma_collection_id)
                 .where(FileCollection.file_id.in_(file_ids))
             )
             result = await self.async_db.execute(stmt)
@@ -148,9 +148,11 @@ class ChromaService:
 
                 for file_id in file_ids:
                     await curr_chroma_collection.delete(where={"file_id": str(file_id)})
+            
+            logger.debug(f"Successfully removed Chunks from ChromaDB associated with FileIds={file_ids}")
 
         except Exception as e:
-            logger.error(f"Failure occurred while attempting to delete nodes associated with file_id={file_id}", exc_info=True)
+            logger.error(f"Failure occurred while attempting to delete nodes associated with file_ids={file_ids}", exc_info=True)
             raise e
 
 
