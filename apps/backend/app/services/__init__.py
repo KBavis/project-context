@@ -21,7 +21,6 @@ __all__ = [
     "RecordLockService",
     "QueryService",
     "MessageService",
-    "ChunkingService",
     "CitationService",
     "ChunkRetrievalService",
     "ChunkInsertionService"

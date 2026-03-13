@@ -16,6 +16,7 @@ from app.embeddings import EmbeddingManager
 from app.models.collection import ChromaCollection
 from app.models.data_source import DataSource
 from app.models.project import Project
+from app.services.file import FileService
 from app.services.util import get_normalized_project_name
 
 from docling_core.transforms.chunker.doc_chunk import DocChunk, DocMeta
@@ -43,9 +44,10 @@ class ChunkInsertionService:
     Service class responsible for chunking and storing data within ChromaDB collection during file Ingestion 
     """
 
-    def __init__(self, db: AsyncSession, chroma_svc: ChromaService):
+    def __init__(self, db: AsyncSession, chroma_svc: ChromaService, file_svc: FileService):
         self.db: AsyncSession = db
         self.chroma_svc: ChromaService = chroma_svc
+        self.file_svc: FileService = file_svc
 
     async def code_chunk_and_store(
             self, 
