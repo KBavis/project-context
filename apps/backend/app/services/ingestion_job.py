@@ -30,10 +30,6 @@ from docling.datamodel.document import ConversionResult
 logger = logging.getLogger(__name__)
 
 class IngestionJobService:
-    """
-    TODO: Consider shifting over some of this chunking logic over to the Chunking Service and then removing the dependency on the 
-    Chroma Service and adding the Chunking Service as a dependency
-    """
 
     def __init__(
             self, 
@@ -295,6 +291,7 @@ class IngestionJobService:
 
         return code_path, docs_path
 
+
     def _convert_docs_files_to_docling(self, job_pk: UUID) -> Iterator[ConversionResult] | None:
         """
         Convert each temporary document downloaded to a markdown file
@@ -400,6 +397,7 @@ class IngestionJobService:
                     base_dir.rmdir()
                 except OSError:
                     logger.debug(f"Base directory {base_dir} still in use by another job, skipping removal")
+
 
     def is_dir_not_empty(self, path: Path):
         """

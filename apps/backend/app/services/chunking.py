@@ -269,7 +269,7 @@ class ChunkingService:
         logger.info(f"Chunking and storing downloaded Code files")
 
         # chunk & convert relevant code files (using CodeSplitter from LlamaIndex)
-        nodes = await self.chunking_svc._chunk_code(data_source, project_id, job_pk)
+        nodes = await self.chunk_code(data_source, project_id, job_pk)
 
         # save LlamaIndex nodes to ChromaDB collection
         await asyncio.to_thread(

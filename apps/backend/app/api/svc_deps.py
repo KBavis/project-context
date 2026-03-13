@@ -6,7 +6,6 @@ from app.services import (
     FileService,
     RecordLockService, 
     QueryService, 
-    QuestionAndAnswerService,
     ConversationService,
     ChunkingService,
     MessageService,
@@ -93,18 +92,6 @@ def get_data_source_svc(
 # Async Service Dependencies 
 ###########################
 
-def get_async_q_and_a_svc(
-        db: AsyncSession = Depends(get_async_db_session)
-):
-    """
-    Setup QAndAService dependency
-
-    Args:
-        db (AsyncSession): current DB session
-    """
-
-    return QuestionAndAnswerService(db=db)
-
 
 def get_async_chunking_svc(
         db: AsyncSession = Depends(get_async_db_session),
@@ -125,7 +112,6 @@ def get_async_chunking_svc(
 
 def get_async_query_svc(
         db: AsyncSession = Depends(get_async_db_session),
-        q_and_a_svc: QuestionAndAnswerService = Depends(get_async_q_and_a_svc),
         chunking_svc: ChunkingService = Depends(get_async_chunking_svc)
 ):
     """
@@ -135,7 +121,7 @@ def get_async_query_svc(
         db (AsyncSession): async DB session
     """
 
-    return QueryService(db=db, q_and_a_svc=q_and_a_svc, chunking_svc=chunking_svc)
+    return QueryService(db=db, chunking_svc=chunking_svc)
 
 def get_async_file_svc(
         db: AsyncSession = Depends(get_async_db_session),
