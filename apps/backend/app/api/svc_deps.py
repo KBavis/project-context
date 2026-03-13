@@ -9,7 +9,8 @@ from app.services import (
     ConversationService,
     ChunkingService,
     MessageService,
-    CitationService
+    CitationService,
+    ChunkRetrievalService
 )
 
 from app.core import (
@@ -168,6 +169,20 @@ def get_async_ingestion_job_svc(
         record_lock_svc=record_lock_svc,
         file_svc=file_svc
     )
+
+def get_async_chunk_retrieval_svc(
+        db: AsyncSession = Depends(get_async_db_session),
+        chroma_svc: ChromaService = Depends(get_chroma_svc)
+):
+    """
+    Setup async ChunkRetrievalService dependency 
+
+    Args:
+        db (AsyncSession): async DB session
+        chroma_svc (ChromaService): async chroma service dependency
+    """
+
+    return ChunkRetrievalService(db=db, chroma_svc=chroma_svc)
 
 
 def get_async_conversation_svc(

@@ -1,13 +1,11 @@
 from app.services.chroma import ChromaService
-from app.services.chunking import ChunkingService
+from app.services.chunk_retrieval import ChunkRetrievalService
 from app.pydantic import ProcessingStatus, QueryResponse
 from app.llm import LLMManager, LLMBase
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import logging
-from datetime import datetime
-from zoneinfo import ZoneInfo
 from uuid import UUID
 from typing import Any, AsyncGenerator, Tuple
 from llama_index.core.schema import NodeWithScore
@@ -20,10 +18,10 @@ class QueryService:
     def __init__(
         self,
         db: AsyncSession,
-        chunking_svc: ChunkingService,
+        chunk_retrieval_svc: ChunkRetrievalService,
     ):
         self.db: AsyncSession = db
-        self.chunking_svc: ChunkingService = chunking_svc
+        self.chunk_retrieval_svc: ChunkRetrievalService = chunk_retrieval_svc
 
 
     async def execute_query(self, query: str, project_id: UUID, llm_manager: LLMManager, decomposition: dict[str, Any] | None = None, existing_messages: str = "", existing_tokens: int = 0) -> QueryResponse: 
@@ -49,8 +47,8 @@ class QueryService:
 
         user_prompt_tokens = len(await llm.tokenize(query))
 
-        chunks = await self.chunking_svc.get_relevant_chunks(query, project_id)
-        nodes = await self.chunking_svc.get_rankings(
+        chunks = await self.chunk_retrieval_svc.get_relevant_chunks(query, project_id)
+        nodes = await self.chunk_retrieval_svc.get_rankings(
             chunks=chunks,
             query=query,
             top_k=5 # TODO: Make this a configuration 
@@ -107,7 +105,7 @@ class QueryService:
         ll_model = llm.get_llama_idx_instance()
         
         # retrieve relevant chunks based on decomposed query 
-        relevant_chunks = await self.chunking_svc.retrieve_chunks_by_decomposition(
+        relevant_chunks = await self.chunk_retrieval_svc.retrieve_chunks_by_decomposition(
             decomposition, 
             project_id,
             original_query = query

@@ -7,8 +7,9 @@ from .file import FileService
 from .record_lock import RecordLockService
 from .query import QueryService
 from .message import MessageService
-from .chunking import ChunkingService
 from .citations import CitationService
+from .chunk_retrieval import ChunkRetrievalService
+from .chunk_insertion import ChunkInsertionService
 
 __all__ = [
     "DataSourceService", 
@@ -21,5 +22,7 @@ __all__ = [
     "QueryService",
     "MessageService",
     "ChunkingService",
-    "CitationService"
+    "CitationService",
+    "ChunkRetrievalService",
+    "ChunkInsertionService"
 ]

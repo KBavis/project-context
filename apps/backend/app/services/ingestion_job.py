@@ -3,7 +3,6 @@ from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from uuid import UUID, uuid4
-from collections.abc import Iterator
 import shutil
 
 from sqlalchemy import select
@@ -15,16 +14,7 @@ from app.data_providers import GithubDataProvider
 from app.core import settings, get_async_session_maker
 from app.services.record_lock import RecordLockService
 from app.services.file import FileService
-from app.services.chunking import ChunkingService
-
-from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling.datamodel.base_models import InputFormat
-from docling.exceptions import ConversionError
-from docling.pipeline.threaded_standard_pdf_pipeline import ThreadedStandardPdfPipeline
-from docling.datamodel.pipeline_options import ThreadedPdfPipelineOptions
-from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
-from docling.datamodel.document import ConversionResult
-
+from app.services.chunk_insertion import ChunkInsertionService
 
 
 logger = logging.getLogger(__name__)
@@ -36,12 +26,21 @@ class IngestionJobService:
             db: AsyncSession, 
             record_lock_svc: RecordLockService,
             file_svc: FileService,
-            chunking_svc: ChunkingService
+            chunk_insertion_service: ChunkInsertionService
     ):
+        """
+        Initialize IngestionJobService with necessary dependencies
+
+        Args:
+            db (AsyncSession): Database session for ORM operations
+            record_lock_svc (RecordLockService): Service for managing record locks
+            file_svc (FileService): Service for file operations
+            chunk_insertion_service (ChunkInsertionService): Service for chunking and storing data
+        """
         self.db: AsyncSession = db
         self.record_lock_svc: RecordLockService = record_lock_svc
         self.file_svc: FileService = file_svc
-        self.chunking_svc: ChunkingService = chunking_svc
+        self.chunk_insertion_service: ChunkInsertionService = chunk_insertion_service
 
     
     async def init_ingestion_job(self, data_source_id: UUID, job_start_time: datetime): 
@@ -129,13 +128,13 @@ class IngestionJobService:
 
                 # TODO: Consider thread pool based on available resources to user (CPU cores, GPU, etc)
                 # run Docling conversion, chunking, and ChromaDB persistence 
-                await self.chunking_svc.docs_convert_chunk_and_store(data_source, project_id, job_pk)
+                await self.chunk_insertion_service.docs_convert_chunk_and_store(data_source, project_id, job_pk)
 
 
             # code files were ingested 
             if has_code:
                 logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
-                await self.chunking_svc.code_chunk_and_store(data_source, project_id, job_pk)
+                await self.chunk_insertion_service.code_chunk_and_store(data_source, project_id, job_pk)
 
 
             self._cleanup_tmp_dirs(job_pk)
@@ -292,72 +291,6 @@ class IngestionJobService:
         return code_path, docs_path
 
 
-    def _convert_docs_files_to_docling(self, job_pk: UUID) -> Iterator[ConversionResult] | None:
-        """
-        Convert each temporary document downloaded to a markdown file
-
-        TODO: Configure onnxruntime
-        """
-
-        # convert configured docs file extensions to docling InputFormats
-        allowed_formats = [
-            InputFormat(allowed_format.lower())
-            for allowed_format in settings.DOCS_FILE_EXTENSIONS
-        ]
-
-        # setup pipeline pipeline options
-        try:
-            # TODO: Consider toggling on OCR for extracting text from image-based content
-            pipeline_options = ThreadedPdfPipelineOptions(
-                accelerator_options=AcceleratorOptions(
-                    device=AcceleratorDevice(settings.DOCLING_ACCELERATOR_DEVICE)
-                ),
-                table_batch_size=4,
-                layout_batch_size=64,
-            )
-            pipeline_options.do_table_structure = True
-        except ValueError as e:
-            logger.error(f"Failed to created ThreadStandardPdfPipeline", exc_info=True)
-            raise e
-
-        # create converter for creating Docling Documents from our local files
-        docs_converter = DocumentConverter(
-            allowed_formats=allowed_formats,
-            format_options={
-                InputFormat.PDF: PdfFormatOption(
-                    pipeline_cls=ThreadedStandardPdfPipeline,
-                    pipeline_options=pipeline_options,
-                )
-            },
-        )
-
-        # retrieve list of files from tmp docs
-        tmp_docs = Path(f"{settings.TMP_DOCS}/{job_pk}") 
-        input_files = list(tmp_docs.glob("**/*"))
-        filtered_doc_files = [
-            f for f in input_files if f.is_file()
-        ]  # only retrieve files
-
-        # skip conversion if no new document files retrieved
-        if not filtered_doc_files:
-            logger.debug(
-                f"No new Documentation files downloaded; skipping Docling conversion"
-            )
-            return None
-
-        # convert all docs files to Docling Docs
-        try:
-            conv_results = docs_converter.convert_all(filtered_doc_files)
-            logger.info(f"Successfully converted ingested Documentation files to Docling files")
-        except ConversionError as e:
-            logger.error(f"Failed to convert all documents ingested", exc_info=True)
-            raise e
-
-
-        return conv_results
-
-
-
     def _cleanup_tmp_dirs(self, job_pk: UUID):
         """
         Recursively remove all files and subdirectories from the job-specific
@@ -410,22 +343,6 @@ class IngestionJobService:
             raise Exception("Invalid directory path specified")
 
         return any(path.iterdir())
-        
 
-
-    def _clean_file_path(self, file_path: str): 
-        """
-        Clean file path to remove the temporary directory path
-
-        Args:
-            file_path (str): absolute file path to clean
-            job_pk (UUID): unique ID of current ingestion job
-        """
-
-        file_path_split = file_path.split("/")
-        if len(file_path_split) < 5:
-            raise Exception(f"Unable to clean file path: {file_path}: Expected at least 5 components in file path")
-        
-        return "/".join(file_path_split[5:])
 
 
