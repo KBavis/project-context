@@ -40,7 +40,7 @@ class QueryService:
             existing_tokens (int): The total number of tokens in the conversation.
         """
 
-        logger.info()
+        logger.info(f"Executing query for project {project_id}: {query}")
 
         llm = llm_manager.get_llm()
         ll_model = llm.get_llama_idx_instance()

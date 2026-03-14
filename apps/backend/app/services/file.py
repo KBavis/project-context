@@ -388,11 +388,8 @@ class FileService:
         # get all relevant project IDs corresponding to data source
         data_source_project_ids = [source.project_id for source in data_source.project_data]
 
-        # determine what type of content this is 
-        content_type = "DOCS" if file.file_type in settings.DOCS_FILE_EXTENSIONS else "CODE"
-
         # get all ChromaCollections corresponding to file type for each relevant project 
-        chroma_collections = [await self.chroma_svc.get_collection_by_project_and_type(project_id, content_type) for project_id in data_source_project_ids]
+        chroma_collections = [await self.chroma_svc.aget_collection_by_project(project_id) for project_id in data_source_project_ids]
 
         # create FileCollections records 
         collections = [

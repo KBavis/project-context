@@ -40,35 +40,23 @@ class ProjectService:
             self.db.flush()
 
             # create records for ChromaCollections
-            docs_collection, code_collection = self.chroma_svc.create_collections(
+            chroma_collection = self.chroma_svc.create_collection(
                 project_id=project.id,
                 project_name=project.project_name,
-                docs_embedding_provider=request.docs_embedding_provider,
-                docs_embedding_model=request.docs_embedding_model,
-                code_embedding_provider=request.code_embedding_provider,
-                code_embedding_model=request.code_embedding_model
+                embedding_provider=request.embedding_provider,
+                embedding_model=request.embedding_model
             )
 
             return {
                 "id": project.id,
                 "name": project.project_name,
                 "description": project.description,
-                "collections": [
-                    {
-                        "id": code_collection.id,
-                        "name": code_collection.name,
-                        "type": code_collection.content_type,
-                        "provider": code_collection.embedding_provider,
-                        "model": code_collection.embedding_model
-                    },
-                    {
-                        "id": docs_collection.id,
-                        "name": docs_collection.name,
-                        "type": docs_collection.content_type,
-                        "provider": docs_collection.embedding_provider,
-                        "model": docs_collection.embedding_model
-                    },
-                ],
+                "collection": {
+                    "id": chroma_collection.id,
+                    "name": chroma_collection.name,
+                    "provider": chroma_collection.embedding_provider,
+                    "model": chroma_collection.embedding_model
+                }
             }
         except Exception as e:
             logger.exception(f"Failure occurred while attempting to create project: {str(e)}")

@@ -24,11 +24,6 @@ class ChromaCollection(Base):
         comment="Name of the ChromaCollection"
     )
 
-    content_type: Mapped[str] = mapped_column(
-        nullable=False,
-        comment="Type of collection (i.e code, docs, etc)"
-    )
-
     embedding_provider: Mapped[str] = mapped_column(
         nullable=False,
         comment="The embedidng provider configured for this ChromaCollection"

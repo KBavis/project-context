@@ -43,14 +43,10 @@ class Project(Base):
 
     # TODO: Create association table for Team and Project
 
-    chroma_collections: Mapped[List["ChromaCollection"]] = relationship(
+    chroma_collection: Mapped["ChromaCollection"] = relationship(
         "ChromaCollection",
         back_populates="project"
     )
-
-    @property
-    def collections_by_type(self) -> Dict[str, "ChromaCollection"]:
-        return {c.content_type: c for c in self.chroma_collections}
 
     # many to many relationship with DataSource
     project_data: Mapped[List["ProjectData"]] = relationship(

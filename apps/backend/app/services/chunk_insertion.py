@@ -72,7 +72,6 @@ class ChunkInsertionService:
         await asyncio.to_thread(
             self._save_to_chroma, 
             nodes, 
-            CODE, 
             data_source
         )
 
@@ -128,7 +127,6 @@ class ChunkInsertionService:
         await asyncio.to_thread(
             self._save_to_chroma, 
             nodes, 
-            DOCS, 
             data_source
         )
 
@@ -370,9 +368,9 @@ class ChunkInsertionService:
         for project in projects:
             
             # get chunker based on configured embedding model for the current project
-            embedding_manager = EmbeddingManager(project.collections_by_type)
+            embedding_manager = EmbeddingManager(project.chroma_collection)
             chunker = HybridChunker(
-                tokenizer=embedding_manager.get_docs_tokenizer(), 
+                tokenizer=embedding_manager.get_tokenizer(), 
                 #TODO: Consider setting maximum length of tokens = 512 
             )
 
@@ -431,16 +429,14 @@ class ChunkInsertionService:
         return nodes 
 
 
-    def _save_to_chroma(self, project_chunks: dict[str | UUID, list[TextNode]], source_type: str, data_source: DataSource) -> None: 
+    def _save_to_chroma(self, project_chunks: dict[str | UUID, list[TextNode]],  data_source: DataSource) -> None: 
         """
         Save context-rich ingested documentation and code to our relevant Chroma collections based on Projects 
         this ingested job is being ran for 
 
-        TODO: Consider moving this to Chroma Service 
-
         Args:
             project_chunks (dict): relevant chunked docs/code 
-            source_type (str): the content type of the files being saved 
+            data_source (DataSource): data source we are ingesting docs for 
         """
         
         # create mapping of project name to Project model 
@@ -452,7 +448,7 @@ class ChunkInsertionService:
             curr_project = project_mapping[str(project)]
 
             # get embedding manager for project
-            embedding_manager = EmbeddingManager(curr_project.collections_by_type)
+            embedding_manager = EmbeddingManager(curr_project.coll)
 
             # retrieve Chroma DB collection 
             collection = self.chroma_svc.get_real_chroma_collection(

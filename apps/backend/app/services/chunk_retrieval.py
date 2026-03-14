@@ -108,16 +108,12 @@ class ChunkRetrievalService:
 
 
         # retreive relevant Chroma Collections corresponding to Project 
-        collections = self.chroma_svc.get_collections_by_project(project_id)
-        if not collections:
+        collection = self.chroma_svc.get_collection_by_project(project_id)
+        if not collection:
             raise Exception(f"No ingested data found for Project ID: {project_id}")
-
-        collections_by_type = {collection.content_type: collection for collection in collections}
-        if CODE not in collections_by_type or DOCS not in collections_by_type:
-            raise Exception(f"Both Code and Documentation collections must be present for Project ID: {project_id}")
         
         # Create embedding manager with project_id for caching
-        embedding_manager = EmbeddingManager(collections_by_type, project_id=project_id)
+        embedding_manager = EmbeddingManager(collection, project_id=project_id)
 
         # load required embedding models (with caching)
         embedding_docs = None
