@@ -10,7 +10,6 @@ if TYPE_CHECKING:
     from .project_data import ProjectData
     from .conversation import Conversation
     from .collection import ChromaCollection
-    from .question_and_answer import QuestionAndAnswer
 
 
 project_dependencies = Table(
@@ -43,11 +42,6 @@ class Project(Base):
     description: Mapped[str] = mapped_column(nullable=True)
 
     # TODO: Create association table for Team and Project
-
-    questions_and_answers: Mapped[List["QuestionAndAnswer"]] = relationship(
-        "QuestionAndAnswer", 
-        back_populates="project"
-    )
 
     chroma_collections: Mapped[List["ChromaCollection"]] = relationship(
         "ChromaCollection",
