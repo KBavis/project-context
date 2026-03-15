@@ -49,7 +49,7 @@ class ChromaCollection(Base):
     # many to one relationship with Project
     project: Mapped["Project"] = relationship(
         "Project",
-        back_populates="chroma_collections"
+        back_populates="chroma_collection"
     )
 
 

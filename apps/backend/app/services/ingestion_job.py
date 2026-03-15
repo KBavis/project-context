@@ -57,7 +57,7 @@ class IngestionJobService:
                 .options( 
                     selectinload(DataSource.project_data) 
                     .selectinload(ProjectData.project) 
-                    .selectinload(Project.chroma_collections)
+                    .selectinload(Project.chroma_collection)
                 ) 
                 .where(DataSource.id == data_source_id)
         )

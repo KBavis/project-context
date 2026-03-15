@@ -197,8 +197,7 @@ class ChromaService:
                 project_id=project_id,
                 name=PROJECT,
                 embedding_provider=embedding_provider,
-                embedding_model=embedding_model,
-                content_type="N/A"
+                embedding_model=embedding_model
             )
 
             self.db.add(collection)

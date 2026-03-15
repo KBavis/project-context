@@ -104,6 +104,6 @@ def sample_project():
         project = MagicMock(spec=Project)
         project.id = uuid4()
         project.project_name = name
-        project.chroma_collections = []
+        project.chroma_collection = []
         return project
     return _create

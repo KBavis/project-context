@@ -30,7 +30,7 @@ from pathlib import Path
 from collections import defaultdict
 import logging
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 import asyncio
 from collections.abc import Iterator
 
@@ -146,7 +146,7 @@ class ChunkInsertionService:
         for project, chunked_data in chunks.items():
 
             project_nodes[project] = []
-            for i, data in enumerate(chunked_data):
+            for data in chunked_data:
 
                 # extract DocChunk & ContextChunk from mapping
                 doc_chunk = data['doc_chunk']
@@ -155,9 +155,9 @@ class ChunkInsertionService:
 
                 project_nodes[project].append(
                     TextNode(
-                        _id=f"{doc_chunk.meta.origin.filename}_{i}", 
+                        _id=f"{doc_chunk.meta.origin.filename}_{uuid4()}", 
                         text=context_chunk,
-                        metadata=await self._get_doc_chunk_meta_data(doc_chunk, i, project, data_source_id, file_path)
+                        metadata=await self._get_doc_chunk_meta_data(doc_chunk, project, data_source_id, file_path)
                     )
                 )
         
@@ -166,7 +166,6 @@ class ChunkInsertionService:
     async def _get_doc_chunk_meta_data(
         self, 
         chunk: DocChunk, 
-        i: int, 
         project: str,
         data_source_id: UUID,
         file_path: str
@@ -201,7 +200,7 @@ class ChunkInsertionService:
 
             # TODO: Add file name, file path, file hash too
             return {
-                "chunk_idx": f"{get_normalized_project_name(project)}_{i}",
+                "chunk_idx": f"{get_normalized_project_name(project)}_{uuid4()}",
                 "source": origin_file,
                 "file_path": file_path,
                 "mimetype": mimetype,
