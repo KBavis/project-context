@@ -157,13 +157,13 @@ class ChunkInsertionService:
                     TextNode(
                         _id=f"{doc_chunk.meta.origin.filename}_{i}", 
                         text=context_chunk,
-                        metadata=await self._get_chunk_meta_data(doc_chunk, i, project, data_source_id, file_path)
+                        metadata=await self._get_doc_chunk_meta_data(doc_chunk, i, project, data_source_id, file_path)
                     )
                 )
         
         return project_nodes
 
-    async def _get_chunk_meta_data(
+    async def _get_doc_chunk_meta_data(
         self, 
         chunk: DocChunk, 
         i: int, 
@@ -208,6 +208,7 @@ class ChunkInsertionService:
                 "headings": " > ".join(headings) if headings else "No Headings",
                 "document_hash": document_hash,
                 "content_types": content_types,
+                "source_type": DOCS,
                 "file_id": str(file.id)
             }
 
@@ -251,6 +252,7 @@ class ChunkInsertionService:
 
                     # add meta data for file ID 
                     doc.metadata["file_id"] = str(file.id)
+                    doc.metadata['source_type'] = CODE
 
                     # get file extension and determine file type
                     ext = Path(doc.metadata["file_name"]).suffix.lower().lstrip(".")
