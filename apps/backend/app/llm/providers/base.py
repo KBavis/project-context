@@ -50,7 +50,7 @@ class LLMBase(ABC):
         return len(total_input_tokens) + current_token_count <= max_tokens
     
 
-    async def decompose_query(self, prompt: str, existing_messages: str) -> dict:
+    async def decompoGse_query(self, prompt: str, existing_messages: str) -> dict:
         """
         Decompose a complex query into simpler sub-queries that can be answered individually.
 
@@ -66,9 +66,8 @@ class LLMBase(ABC):
             decompose_query_prompt = f"""
                         You are a query decomposition and routing assistant. Analyze the user's question using the conversation history and return a structured JSON result.
 
-                        AVAILABLE COLLECTIONS:
-                        - "docs": markdown documentation, guides, conceptual explanations, API references
-                        - "code": source code files, function definitions, implementation examples
+                        AVAILABLE COLLECTION DATA: 
+                            - markdown documentation, guides, conceptual explanations, API references, source code files, function definitions, implementation examples
 
                         MESSAGES FORMAT: "sender:<message>", ordered oldest to latest.
 
@@ -81,14 +80,13 @@ class LLMBase(ABC):
                         - Return "requires_retrieval": false ONLY if you are highly confident the question can be fully answered from existing messages. When in doubt, set to true.
                         - Only decompose when sub-topics would likely live in different documents or sections. Do not split unnecessarily.
                         - Each sub-query should be self-contained and independently retrievable.
-                        - Route to "code" for implementation/function-level questions, "docs" for conceptual/explanatory questions, both when the question needs grounding in code AND explanation.
 
                         OUTPUT FORMAT (strict JSON, no extra text):
                         {{
                             "requires_retrieval": true | false,
                             "queries": [
-                                {{"query": "<resolved_query>", "collections": ["docs"] }},
-                                {{"query": "<resolved_query2>", "collections": ["code", "docs"] }}
+                                {{"query": "<resolved_query>"}},
+                                {{"query": "<resolved_query2>" }}
                             ]
                         }}
 

@@ -1,8 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from llama_index.core.schema import NodeWithScore
 from llama_index.vector_stores.chroma import ChromaVectorStore # type: ignore
-from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core import VectorStoreIndex
 from llama_index.core.node_parser import CodeSplitter
 from llama_index.core.readers import SimpleDirectoryReader
@@ -13,7 +11,6 @@ from llama_index.core.schema import TextNode
 from app.services.chroma import ChromaService
 from app.core import DOCS, CODE, settings
 from app.embeddings import EmbeddingManager
-from app.models.collection import ChromaCollection
 from app.models.data_source import DataSource
 from app.models.project import Project
 from app.services.file import FileService
@@ -136,14 +133,14 @@ class ChunkInsertionService:
         self, 
         chunks: dict[str, list[dict[str, Any]]], 
         data_source_id: UUID
-    ) -> dict[str, list[TextNode]]:
+    ) -> dict[str | UUID, list[TextNode]]:
         """
         Convert Docling chunks to TextNodes in order to store within ChromaDB 
 
         Args:
             chunks (dict): mapping of a Project to a list of Docling chunks for relevant ingested Documents 
         """
-        project_nodes = {}
+        project_nodes: dict[str | UUID, list[TextNode]] = {}
 
         logger.debug(f"Converting Chunks to LlamaIndex TextNodes in order to store in ChromaDB")
         for project, chunked_data in chunks.items():
@@ -398,37 +395,6 @@ class ChunkInsertionService:
         return chunked_docs
     
 
-    async def _get_chunks(
-        self, 
-        query: str, 
-        collection: ChromaCollection, 
-        embedding: BaseEmbedding
-    ) -> list[NodeWithScore]:
-        """
-        Retrieve chunks directly from ChromaDB based on the query and specified collection
-
-        Args:
-            query (str): user passed in query
-            collection (ChromaCollection): the Chroma collection to query against
-            embedding: the LlamaIndex embedding model to use for querying
-        """
-
-        # get actual Chroma Collection 
-        chroma_collection = self.chroma_svc.get_real_chroma_collection(collection_name=collection.name)
-
-        # configure LlamaIndex retriever from Chroma collection 
-        vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-        index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embedding) # pass embed_model explicitly to avoid race conditions with global Settings
-        retriever = index.as_retriever(similarity_top_k=5) # TODO: Make this configurable 
-
-        # retrieve relevant chunks from collection
-        nodes = await retriever.aretrieve(query)
-
-        logger.debug(f"Retrieved {len(nodes)} chunks from collection {collection.name} for query: {query}")
-
-        return nodes 
-
-
     def _save_to_chroma(self, project_chunks: dict[str | UUID, list[TextNode]],  data_source: DataSource) -> None: 
         """
         Save context-rich ingested documentation and code to our relevant Chroma collections based on Projects 
@@ -448,11 +414,11 @@ class ChunkInsertionService:
             curr_project = project_mapping[str(project)]
 
             # get embedding manager for project
-            embedding_manager = EmbeddingManager(curr_project.coll)
+            embedding_manager = EmbeddingManager(curr_project.chroma_collection)
 
             # retrieve Chroma DB collection 
             collection = self.chroma_svc.get_real_chroma_collection(
-                f"{get_normalized_project_name(str(project))}_{source_type}"
+                f"{get_normalized_project_name(str(project))}"
             )
 
             # get chroma vector store corresponding to our projects DOCS collection
@@ -460,10 +426,10 @@ class ChunkInsertionService:
             storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
             # store nodes within Chroma 
-            index = VectorStoreIndex(
+            _ = VectorStoreIndex(
                 nodes=nodes, # NOTE: Instead of using LlamaIndex's Document object, we will use our manually generated nodes
                 storage_context=storage_context,
-                embed_model=embedding_manager.get_embedding_model(source_type) # use configured embedding model for current Project
+                embed_model=embedding_manager.get_embedding_model() # use configured embedding model for current Project
             )
 
             # TODO: Update ChromaDB Collection with Document Count OR Remove Doc Count entirely from DB 
