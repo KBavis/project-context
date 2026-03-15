@@ -144,22 +144,32 @@ class ChunkInsertionService:
 
         logger.debug(f"Converting Chunks to LlamaIndex TextNodes in order to store in ChromaDB")
         for project, chunked_data in chunks.items():
-
             project_nodes[project] = []
+            
+            file_chunk_counters = defaultdict(int)
             for data in chunked_data:
-
                 # extract DocChunk & ContextChunk from mapping
                 doc_chunk = data['doc_chunk']
                 context_chunk = data['contextualized_chunk']
                 file_path = data['file_path']
 
-                project_nodes[project].append(
-                    TextNode(
-                        _id=f"{doc_chunk.meta.origin.filename}_{uuid4()}", 
-                        text=context_chunk,
-                        metadata=await self._get_doc_chunk_meta_data(doc_chunk, project, data_source_id, file_path)
-                    )
+                metadata = await self._get_doc_chunk_meta_data(doc_chunk, project, data_source_id, file_path)
+                file_id = metadata['file_id']
+                curr_idx = file_chunk_counters[file_id]
+
+                chunk_hash = hashlib.sha256(context_chunk.encode("utf-8")).hexdigest()
+                new_node = TextNode(
+                    id_=f"{file_id}_{chunk_hash}_{curr_idx}",
+                    text=context_chunk,
+                    metadata=metadata
                 )
+
+                file_chunk_counters[file_id] += 1
+
+                # ensure that we have a 'glue' between all chunks for same file 
+                new_node.relationships[NodeRelationship.SOURCE] = RelatedNodeInfo(node_id=str(file_id))
+
+                project_nodes[project].append(new_node)
         
         return project_nodes
 
@@ -198,7 +208,6 @@ class ChunkInsertionService:
                 for item in chunks_meta_data.doc_items 
             ])))
 
-            # TODO: Add file name, file path, file hash too
             return {
                 "chunk_idx": f"{get_normalized_project_name(project)}_{uuid4()}",
                 "source": origin_file,
@@ -208,7 +217,10 @@ class ChunkInsertionService:
                 "document_hash": document_hash,
                 "content_types": content_types,
                 "source_type": DOCS,
-                "file_id": str(file.id)
+                "file_id": str(file.id),
+                "file_hash": str(file.hash),
+                "ref_doc_id": str(file.id),
+                "doc_id": str(file.id),
             }
 
     async def chunk_code(
@@ -249,8 +261,12 @@ class ChunkInsertionService:
                     if not file:
                         raise Exception(f"Unable to find File for the DataSource={data_source.id} and Path={file_path}")
 
+                    # update doc_id to be our internal `file_id` TO ENSURE that we have a 'glue' between all chunks for same file 
+                    doc.id_ = str(file.id)
+
                     # add meta data for file ID 
                     doc.metadata["file_id"] = str(file.id)
+                    doc.metadata["file_hash"] = str(file.hash)
                     doc.metadata['source_type'] = CODE
 
                     # get file extension and determine file type
@@ -275,6 +291,17 @@ class ChunkInsertionService:
 
             logger.debug(f"Successfully chunked ingested code files for language={file_type} into {len(nodes)} nodes")
         
+
+        # manually update ID of nodes to be unique (ensuring no duplication)
+        file_chunk_counters = defaultdict(int)
+        for node in nodes:
+            file_id = node.metadata['file_id']
+            curr_idx = file_chunk_counters[file_id]
+            chunk_hash = hashlib.sha256(node.get_content().encode("utf-8")).hexdigest()
+            node.id_ = f"{file_id}_{chunk_hash}_{curr_idx}"
+            file_chunk_counters[file_id] += 1
+
+
 
         # setup mapping for project to corresponding nodes 
         project_nodes: dict[str | UUID, list[TextNode]] = {record.project.project_name: nodes for record in data_source.project_data} if not project_id else {project_id: nodes}
