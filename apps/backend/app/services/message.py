@@ -82,11 +82,12 @@ class MessageService:
         if not existing_messages:
             logger.warning(f"No existing messages found for conversation {conversation_id}")
 
-
+        # decompose query
         llm = llm_manager.get_llm()
         decomposition_result = await llm.decompose_query(message.content, existing_messages)
         logger.debug(f"Decomposition Result for the Conversation={conversation_id} and Message={message.content}: {decomposition_result}")
 
+        # execute query
         query_result = await self.query_svc.execute_query(
             query=message.content, 
             project_id=conversation.project_id, 
