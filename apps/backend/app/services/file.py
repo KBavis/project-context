@@ -52,6 +52,11 @@ class FileService:
             if unlinked_project_ids:
                 status = FileProcesingStatus.MISSING_PROJECT_LINKS # update status to indicate further processing required 
 
+                # TODO: We need to account for this, we either a) should specify this only needs to be reingested for a
+                #       particular project, or b) we should just reingest for all projects. If we go with 
+                #       option b, we need to remove the chunks from Chroma / Docstore (maybe just Chroma)
+                
+
 
         # Step 4. Mark this File's "last_ingestion_job_id" with relevant ingestion_job that is currently being ran (if needed)
         if status != FileProcesingStatus.NEW:
@@ -62,6 +67,8 @@ class FileService:
             logger.debug(f"File with path={file.path} has changed since last ingestion, updating file record with relevant hash & remove stale chunks from VectorDB")
             await self.update_existing_file(file=file, data_source=data_source)
             await self.chroma_svc.adelete_nodes_associated_with_files([persisted_file.id])
+
+            # TODO: Delete these Nodes from Postgres Doc Store as well 
 
 
         # Step 6. Return status back to calling function
