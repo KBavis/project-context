@@ -1,3 +1,4 @@
+from __future__ import annotations
 import uvicorn
 import os
 from .base import create_app

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from uuid import UUID
 
 from app.models.data_source import DataSource

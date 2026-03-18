@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import ForeignKey, text, Index, Enum as SQLEnum, DateTime
@@ -19,11 +20,11 @@ class IngestionJob(Base):
         Index("ix_ingestion_job_data_source_status", "data_source_id", "processing_status"),
     )
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped["UUID"] = mapped_column(
         primary_key=True, index=True, server_default=text("gen_random_uuid()")
     )
-    processing_status: Mapped[ProcessingStatus] = mapped_column(SQLEnum(ProcessingStatus), nullable=False)
-    data_source_id: Mapped[UUID] = mapped_column(ForeignKey("data_source.id"))
+    processing_status: Mapped["ProcessingStatus"] = mapped_column(SQLEnum(ProcessingStatus), nullable=False)
+    data_source_id: Mapped["UUID"] = mapped_column(ForeignKey("data_source.id"))
 
 
     start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="Start time of IngestionJob processing")

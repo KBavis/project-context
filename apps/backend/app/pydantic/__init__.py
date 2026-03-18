@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .chat import ChatRequest
 from .data_source import DataSourceRequest
 from .project import ProjectRequest

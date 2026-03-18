@@ -1,3 +1,4 @@
+from __future__ import annotations
 from app.models import RecordLock, RecordType
 from app.core import get_async_session_maker
 

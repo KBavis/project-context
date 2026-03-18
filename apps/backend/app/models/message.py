@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .base import Base 
 
 from typing import TYPE_CHECKING, List
@@ -21,9 +22,9 @@ class Sender(Enum):
 class Message(Base):
     __tablename__: str = "message"
 
-    id: Mapped[UUID] = mapped_column(primary_key=True, index=True, server_default=text("gen_random_uuid()"))
+    id: Mapped["UUID"] = mapped_column(primary_key=True, index=True, server_default=text("gen_random_uuid()"))
 
-    sender: Mapped[Sender] = mapped_column(
+    sender: Mapped["Sender"] = mapped_column(
         SQLEnum(Sender), 
         nullable=False,
         comment="The origin of who sent this particular message, which is either the user or LLM"
@@ -58,5 +59,5 @@ class Message(Base):
     )
 
     # many to one relationship with Conversation
-    conversation_id: Mapped[UUID] = mapped_column(ForeignKey("conversation.id"))
+    conversation_id: Mapped["UUID"] = mapped_column(ForeignKey("conversation.id"))
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")

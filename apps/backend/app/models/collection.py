@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .base import Base
 from sqlalchemy import text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -12,7 +13,7 @@ class ChromaCollection(Base):
 
     __tablename__: str = "chroma_collection"
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped["UUID"] = mapped_column(
         primary_key=True,
         index=True,
         server_default=text("gen_random_uuid()")
@@ -46,7 +47,7 @@ class ChromaCollection(Base):
         comment="Number of Documents (i.e files) ingested into this collection"
     )
 
-    project_id: Mapped[UUID] = mapped_column(
+    project_id: Mapped["UUID"] = mapped_column(
         ForeignKey("project.id", ondelete="CASCADE"),
         nullable=False,
         comment="FK to Project that this collection belongs to"

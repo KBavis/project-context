@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .manager import EmbeddingManager
 from .lru_cache import (
     get_cached_embedding,

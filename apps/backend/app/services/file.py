@@ -1,3 +1,4 @@
+from __future__ import annotations
 from sqlalchemy import select, or_, and_, update, delete
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
