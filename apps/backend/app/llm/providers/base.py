@@ -50,7 +50,7 @@ class LLMBase(ABC):
         return len(total_input_tokens) + current_token_count <= max_tokens
     
 
-    async def decompoGse_query(self, prompt: str, existing_messages: str) -> dict:
+    async def decompose_query(self, prompt: str, existing_messages: str) -> dict:
         """
         Decompose a complex query into simpler sub-queries that can be answered individually.
 
