@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     ###########################
     SYNC_REL_DB_URL: str = ""
     ASYNC_REL_DB_URL: str = ""
+    CHUNKS_DOC_STORE: str = "chunks_docstore"
 
     ###########################
     # Vector Database Configurations 
