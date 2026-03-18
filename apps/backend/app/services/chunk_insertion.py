@@ -67,7 +67,7 @@ class ChunkInsertionService:
 
         # save LlamaIndex nodes to ChromaDB collection
         await asyncio.to_thread(
-            self._save_to_chroma, 
+            self._persist_chunks, 
             nodes, 
             data_source
         )
@@ -122,7 +122,7 @@ class ChunkInsertionService:
 
         # store results within Chroma DB, using embedding specified DataSource
         await asyncio.to_thread(
-            self._save_to_chroma, 
+            self._persist_chunks, 
             nodes, 
             data_source
         )
@@ -423,10 +423,9 @@ class ChunkInsertionService:
         return chunked_docs
     
 
-    def _save_to_chroma(self, project_chunks: dict[str | UUID, list[TextNode]],  data_source: DataSource) -> None: 
+    def _persist_chunks(self, project_chunks: dict[str | UUID, list[TextNode]],  data_source: DataSource) -> None: 
         """
-        Save context-rich ingested documentation and code to our relevant Chroma collections based on Projects 
-        this ingested job is being ran for 
+        Save context-rich ingested documentation and code to our relevant VectorDB & Docstore
 
         Args:
             project_chunks (dict): relevant chunked docs/code 
