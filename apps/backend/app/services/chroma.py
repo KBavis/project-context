@@ -2,12 +2,12 @@ import logging
 from uuid import UUID
 import asyncio
 
-from chromadb.api import AsyncClientAPI, ClientAPI
+from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.models.file_collection import FileCollection
 from app.services.util import get_normalized_project_name
@@ -124,6 +124,34 @@ class ChromaService:
             raise Exception(f"No ChromaCollection found for Project ID: {project_id}")
         return collection
 
+    def update_collection_counts(self, collection: Collection):
+        """
+        Update the document count and chunk counts for a Chroma Collection
+
+        Args:
+            collection (Collection): the Chroma Collection to update
+        """
+        try:
+            # determine Chunk (total embedded pieces of information) count
+            total_chunks = collection.count()
+
+            # determine Document (File) count
+            docs = collection.get()
+            total_documents = len(docs['ids'])
+
+            # update counts in ChromaCollection record
+            stmt = (
+                update(ChromaCollection)
+                .where(ChromaCollection.id == collection.id)
+                .values(total_chunks=total_chunks, total_documents=total_documents)
+            )
+            self.db.execute(stmt)
+            self.db.commit()
+            logger.debug(f"Successfully updated document and chunk counts for collection={collection.name}")
+        except Exception as e:
+            logger.error(f"Failure occurred while attempting to update document and chunk counts for collection={collection.name}", exc_info=True)
+            raise e
+        
 
     async def adelete_nodes_associated_with_files(self, file_ids: list[UUID]):
         """

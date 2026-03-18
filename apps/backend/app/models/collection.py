@@ -34,10 +34,16 @@ class ChromaCollection(Base):
         comment="The embedding model configured for this ChromaCollection"
     )
 
-    doc_count: Mapped[int] = mapped_column(
+    total_chunks: Mapped[int] = mapped_column(
         nullable=False,
         server_default=text("0"),
-        comment="Number of Documents ingested into this collection"
+        comment="Number of Chunks ingested into this collection"
+    )
+
+    total_documents: Mapped[int] = mapped_column(
+        nullable=False,
+        server_default=text("0"),
+        comment="Number of Documents (i.e files) ingested into this collection"
     )
 
     project_id: Mapped[UUID] = mapped_column(
