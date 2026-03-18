@@ -142,7 +142,7 @@ class ChromaService:
             # update counts in ChromaCollection record
             stmt = (
                 update(ChromaCollection)
-                .where(ChromaCollection.id == collection.id)
+                .where(ChromaCollection.name == collection.name)
                 .values(total_chunks=total_chunks, total_documents=total_documents)
             )
             self.db.execute(stmt)
