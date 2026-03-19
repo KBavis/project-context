@@ -1,12 +1,12 @@
+from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from llama_index.vector_stores.chroma import ChromaVectorStore # type: ignore
-from llama_index.core import VectorStoreIndex
+from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import CodeSplitter
 from llama_index.core.readers import SimpleDirectoryReader
+from llama_index.core.schema import NodeRelationship, RelatedNodeInfo, TextNode
+from llama_index.storage.docstore.postgres import PostgresDocumentStore
 from llama_index.vector_stores.chroma import ChromaVectorStore # type: ignore
-from llama_index.core import StorageContext, VectorStoreIndex
-from llama_index.core.schema import TextNode
 
 from app.services.chroma import ChromaService
 from app.core import DOCS, CODE, settings
@@ -31,6 +31,7 @@ from collections import defaultdict
 import logging
 from typing import Any
 from uuid import UUID, uuid4
+import hashlib
 import asyncio
 from collections.abc import Iterator
 
@@ -65,9 +66,13 @@ class ChunkInsertionService:
         # chunk & convert relevant code files (using CodeSplitter from LlamaIndex)
         nodes = await self.chunk_code(data_source, project_id, job_pk)
 
-        # save LlamaIndex nodes to ChromaDB collection
+        # persist to DocStore (async, on the event loop) before handing off to thread
+        first_project_nodes = list(nodes.values())[0]
+        await self._add_nodes_to_docstore(first_project_nodes, data_source)
+
+        # save LlamaIndex nodes to ChromaDB collection (blocking, runs in thread pool)
         await asyncio.to_thread(
-            self._persist_chunks, 
+            self._save_to_chroma_db, 
             nodes, 
             data_source
         )
@@ -120,9 +125,13 @@ class ChunkInsertionService:
         nodes = await self._convert_to_text_nodes(project_chunks, data_source.id)
         logger.debug(f"Successfully convert DocChunks to LlamaIndex TextNode's")
 
-        # store results within Chroma DB, using embedding specified DataSource
+        # persist to DocStore (async, on the event loop) before handing off to thread
+        first_project_nodes = list(nodes.values())[0]
+        await self._add_nodes_to_docstore(first_project_nodes, data_source)
+
+        # store results within Chroma DB, using embedding specified DataSource (blocking, runs in thread pool)
         await asyncio.to_thread(
-            self._persist_chunks, 
+            self._save_to_chroma_db, 
             nodes, 
             data_source
         )
@@ -133,14 +142,14 @@ class ChunkInsertionService:
         self, 
         chunks: dict[str, list[dict[str, Any]]], 
         data_source_id: UUID
-    ) -> dict[str | UUID, list[TextNode]]:
+    ) -> dict[str | UUID, list["TextNode"]]:
         """
         Convert Docling chunks to TextNodes in order to store within ChromaDB 
 
         Args:
             chunks (dict): mapping of a Project to a list of Docling chunks for relevant ingested Documents 
         """
-        project_nodes: dict[str | UUID, list[TextNode]] = {}
+        project_nodes: dict[str | UUID, list["TextNode"]] = {}
 
         logger.debug(f"Converting Chunks to LlamaIndex TextNodes in order to store in ChromaDB")
         for project, chunked_data in chunks.items():
@@ -228,7 +237,7 @@ class ChunkInsertionService:
         data_source: DataSource, 
         project_id: UUID | None, 
         job_pk: UUID
-    ) -> dict[str | UUID, list[TextNode]]:
+    ) -> dict[str | UUID, list["TextNode"]]:
         """
         Functionality to chunk code files via LlamaIndex (using CodeSplitter)
 
@@ -304,7 +313,7 @@ class ChunkInsertionService:
 
 
         # setup mapping for project to corresponding nodes 
-        project_nodes: dict[str | UUID, list[TextNode]] = {record.project.project_name: nodes for record in data_source.project_data} if not project_id else {project_id: nodes}
+        project_nodes: dict[str | UUID, list["TextNode"]] = {record.project.project_name: nodes for record in data_source.project_data} if not project_id else {project_id: nodes}
         return project_nodes
 
         
@@ -423,7 +432,7 @@ class ChunkInsertionService:
         return chunked_docs
     
 
-    def _persist_chunks(self, project_chunks: dict[str | UUID, list[TextNode]],  data_source: DataSource) -> None: 
+    def _save_to_chroma_db(self, project_chunks: dict[str | UUID, list["TextNode"]],  data_source: DataSource) -> None: 
         """
         Save context-rich ingested documentation and code to our relevant VectorDB & Docstore
 
@@ -448,18 +457,77 @@ class ChunkInsertionService:
                 f"{get_normalized_project_name(str(project))}"
             )
 
-            # get chroma vector store corresponding to our projects DOCS collection
+            # get chroma vector store based on current project
             vector_store = ChromaVectorStore(chroma_collection=collection)
-            storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
-            # store nodes within Chroma 
+            # configure storage context to account for DocStore & VectorStore
+            storage_context = StorageContext.from_defaults(
+                vector_store=vector_store
+            )
+
+            # store nodes within Chroma & DocStore
             _ = VectorStoreIndex(
                 nodes=nodes, # NOTE: Instead of using LlamaIndex's Document object, we will use our manually generated nodes
                 storage_context=storage_context,
                 embed_model=embedding_manager.get_embedding_model() # use configured embedding model for current Project
             )
 
-            # TODO: Update ChromaDB Collection with Document Count OR Remove Doc Count entirely from DB 
+            # update ChromaCollection record 
+            self.chroma_svc.update_collection_counts(collection)
+    
+
+    async def _add_nodes_to_docstore(self, nodes: list["TextNode"], data_source: DataSource) -> None:
+        """
+        Async method to add nodes to the PostgreSQL DocStore.
+
+        # NOTE: chunks are currently stored in format ProjectName: list[TextNode] -- given this is a storage of plain text nodes, store this 
+        # TODO: Check what happens when we ingest and determine that a Project hasn't "ingested" this documentation before 
+        # This will likely be "reingested", but shouldn't necessarily be inserted into DocStore again, only Chroma
+        # We should have some filtering mechanism in place to account for this 
+        # We should also check how using a different "embedding" model while chunking affects the individual chunks (do we care for Docstore?)
+
+        NOTE: Chroma Collections are project-scoped, while DocStores are data-source-scoped,
+        hence the reason for the "one-time" insert into the DocStore.
+
+        Args:
+            nodes (list["TextNode"]): nodes to add to the DocStore
+            data_source (DataSource): data source corresponding to current ingestion job
+        """
+        try:
+            if not nodes:
+                logger.warning(f"Nodes list for DocStore is EMPTY for DataSource={data_source.id}")
+                return
+
+            logger.debug(f"Adding {len(nodes)} nodes to DocStore for DataSource={data_source.id}")
+
+            # avoid circular dependencies
+            from app.core.relational_db import sync_engine, async_engine
+            from llama_index.storage.kvstore.postgres import PostgresKVStore
+
+            kv_store = PostgresKVStore(
+                table_name=settings.CHUNKS_DOC_STORE,
+                engine=sync_engine,
+                async_engine=async_engine,
+                use_jsonb=True, 
+                perform_setup=True
+            )
+            
+            doc_store = PostgresDocumentStore(
+                kv_store, 
+                namespace=str(data_source.id)
+            )
+
+            # use async_add_documents — commits via asyncpg on the live event loop
+            await doc_store.async_add_documents(nodes)
+
+            logger.info(f"Successfully persisted {len(nodes)} nodes to DocStore for DataSource={data_source.id}")
+
+        except Exception as e:
+            logger.error(f"Failed to add nodes to DocStore for DataSource={data_source.id}", exc_info=True)
+            raise
+
+            
+
 
     def _clean_file_path(self, file_path: str): 
         """
