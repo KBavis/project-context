@@ -10,7 +10,7 @@ from .file_collection import FileCollection
 from .record_lock import RecordLock, RecordType
 from .collection import ChromaCollection
 from .citation import Citation
-from .docstore import DocstoreChunk
+from .docstore_chunk import DocstoreChunk
 
 __all__ = [
     "Base",
