@@ -3,13 +3,9 @@ from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from .base import Base
 
-class DocstoreBase(DeclarativeBase):
-    """Simple base for external tables that don't have our audit columns"""
-    pass
-
-class DocstoreChunk(DocstoreBase):
+class DocstoreChunk(Base):
     """
     Model representing a record within the LlamaIndex Postgres DocStore table.
     """
@@ -22,11 +18,11 @@ class DocstoreChunk(DocstoreBase):
     value: Mapped[dict] = mapped_column(JSONB)
 
     @property
-    def text(self) -> str | None:
+    def node_text(self) -> str | None:
         """Helper to access nested text content"""
         return self.value.get("__data__", {}).get("text")
 
     @property
-    def metadata(self) -> dict:
+    def node_metadata(self) -> dict:
         """Helper to access nested metadata"""
         return self.value.get("__data__", {}).get("metadata", {})

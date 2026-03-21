@@ -562,7 +562,7 @@ class ChunkInsertionService:
         # determine which file ids that we should skip in processing (i.e any chunk that has a file_id that is in doc_store_chunks)
         file_ids_to_skip = set() 
         for chunk in doc_store_chunks:
-            file_ids_to_skip.add(chunk.value['__data__']['metadata']['file_id'])
+            file_ids_to_skip.add(chunk.node_metadata.get('file_id'))
         
 
         # filter out nodes that have already been added to the DocStore 
