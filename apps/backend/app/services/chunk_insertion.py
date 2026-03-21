@@ -1,5 +1,6 @@
 from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import CodeSplitter
@@ -15,6 +16,7 @@ from app.models.data_source import DataSource
 from app.models.project import Project
 from app.services.file import FileService
 from app.services.util import get_normalized_project_name
+from app.models.docstore_chunk import DocstoreChunk
 
 from docling_core.transforms.chunker.doc_chunk import DocChunk, DocMeta
 from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
@@ -498,7 +500,12 @@ class ChunkInsertionService:
                 logger.warning(f"Nodes list for DocStore is EMPTY for DataSource={data_source.id}")
                 return
 
-            logger.debug(f"Adding {len(nodes)} nodes to DocStore for DataSource={data_source.id}")
+            # filter out nodes that have already been ingested
+            # NOTE: This is because a particular project may need to ingest these nodes in Chroma, but not for Docstore 
+            filtered_nodes = await self._filter_nodes(nodes, data_source.id)
+            
+
+            logger.debug(f"Adding {len(filtered_nodes)} nodes to DocStore for DataSource={data_source.id}")
 
             # avoid circular dependencies
             from app.core.relational_db import sync_engine, async_engine
@@ -518,14 +525,54 @@ class ChunkInsertionService:
             )
 
             # use async_add_documents — commits via asyncpg on the live event loop
-            await doc_store.async_add_documents(nodes)
+            await doc_store.async_add_documents(filtered_nodes)
 
-            logger.info(f"Successfully persisted {len(nodes)} nodes to DocStore for DataSource={data_source.id}")
+            logger.info(f"Successfully persisted {len(filtered_nodes)} nodes to DocStore for DataSource={data_source.id}")
 
         except Exception as e:
             logger.error(f"Failed to add nodes to DocStore for DataSource={data_source.id}", exc_info=True)
             raise
 
+
+
+    async def _filter_nodes(self, nodes: list["TextNode"], data_source_id: UUID) -> list["TextNode"]: 
+        """
+        Filter out nodes that have already been added to the DocStore 
+
+        NOTE: If there is new content for the particular file, then we would have already removed these 
+        values from our DocStore. This is to account for situation where we are ingesting this data source 
+        for a new project (and it requires Chroma insertion)
+
+        Args:
+            nodes (list["TextNode"]): nodes to filter
+            data_source_id (UUID): data source ID corresponding to current ingestion job
+        """
+
+        # retrieve file IDs tied to current data source 
+        file_ids = await self.file_svc.get_files_by_data_source_id(data_source_id)
+
+        # retrieve chunks that are tied to this data source
+        stmt = (
+            select(DocstoreChunk)
+            .where(DocstoreChunk.value['__data__']['metadata']['file_id'].astext.in_([str(file_id) for file_id in file_ids]))
+        )
+        res = await self.db.execute(stmt)
+        doc_store_chunks = res.scalars().all()
+
+        # determine which file ids that we should skip in processing (i.e any chunk that has a file_id that is in doc_store_chunks)
+        file_ids_to_skip = set() 
+        for chunk in doc_store_chunks:
+            file_ids_to_skip.add(chunk.value['__data__']['metadata']['file_id'])
+        
+
+        # filter out nodes that have already been added to the DocStore 
+        filtered_nodes: list["TextNode"] = []
+        for node in nodes:
+            if node.metadata['file_id'] in file_ids_to_skip:
+                continue
+            filtered_nodes.append(node)
+
+        return filtered_nodes
             
 
 

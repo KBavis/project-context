@@ -386,7 +386,20 @@ class FileService:
         
         await session.flush()
             
-        
+    async def get_files_by_data_source_id(self, data_source_id: UUID):
+        """
+        Retrieve all files corresponding to a particular data source ID
+        """
+
+        session = self.session
+
+        stmt = (
+            select(File)
+            .where(File.data_source_id == data_source_id)
+        )
+
+        res = await session.execute(stmt)
+        return res.scalars().all()
     
 
     async def add_new_file(self, file: FilePydantic, data_source: DataSource, job_pk: UUID):
