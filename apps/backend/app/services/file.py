@@ -68,7 +68,7 @@ class FileService:
             logger.debug(f"File with path={file.path} has changed since last ingestion, updating file record with relevant hash & remove stale chunks from VectorDB")
             await self.update_existing_file(file=file, data_source=data_source)
             await self.chroma_svc.adelete_nodes_associated_with_files([persisted_file.id])
-            await self.remove_chunks_from_docstore(persisted_file.id)
+            await self.remove_chunks_from_docstore([persisted_file.id])
 
             # TODO: Delete these Nodes from Postgres Doc Store as well 
 
@@ -77,17 +77,17 @@ class FileService:
         return status
 
     
-    async def remove_chunks_from_docstore(self, file_id: UUID):
+    async def remove_chunks_from_docstore(self, file_ids: list[UUID]):
         """
         Remove chunks from DocStore that are associated with the specified file_id 
 
         Args:
-            file_id (UUID): the ID of the file to remove chunks for 
+            file_ids (list[UUID]): the list of file IDs to remove chunks for 
         """
 
         stmt = (
             delete(DocstoreChunk)
-            .where(DocstoreChunk.value['__data__']['metadata']['file_id'].astext == str(file_id))
+            .where(DocstoreChunk.value['__data__']['metadata']['file_id'].astext.in_([str(file_id) for file_id in file_ids]))
         )
 
         await self.session.execute(stmt)
@@ -160,10 +160,13 @@ class FileService:
             return
 
         # remove stale Nodes from Chroma 
-        self.chroma_svc.adelete_nodes_associated_with_files(stale_file_ids)
+        await self.chroma_svc.adelete_nodes_associated_with_files(stale_file_ids)
+
+        # remove stale chunks from DocStore 
+        await self.remove_chunks_from_docstore(stale_file_ids)
 
         # remove stale File's from DB 
-        await self.delete_stale_files_from_db(data_source_id, job_pk)
+        await self.delete_stale_files_from_db(stale_file_ids)
 
 
 
