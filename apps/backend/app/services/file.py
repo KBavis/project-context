@@ -6,6 +6,7 @@ from app.models import File, DataSource, FileCollection
 from app.pydantic import FileProcesingStatus, File as FilePydantic
 from app.core import settings
 from app.services.chroma import ChromaService
+from app.models.docstore_chunk import DocstoreChunk
 
 from typing import List
 from uuid import UUID
@@ -62,11 +63,12 @@ class FileService:
         if status != FileProcesingStatus.NEW:
             await self.update_last_seen_job_pk(job_pk, data_source.id, [persisted_file])
         
-        # Step 5. If the file has changed since last ingestion, a) update corresponding file record hash, b) remove "stale" chunks from Chroma 
+        # Step 5. If the file has changed since last ingestion, a) update corresponding file record hash, b) remove "stale" chunks from Chroma , c) remove stale chunks from Docstore
         if status == FileProcesingStatus.CHANGED:
             logger.debug(f"File with path={file.path} has changed since last ingestion, updating file record with relevant hash & remove stale chunks from VectorDB")
             await self.update_existing_file(file=file, data_source=data_source)
             await self.chroma_svc.adelete_nodes_associated_with_files([persisted_file.id])
+            await self.remove_chunks_from_docstore(persisted_file.id)
 
             # TODO: Delete these Nodes from Postgres Doc Store as well 
 
@@ -74,6 +76,22 @@ class FileService:
         # Step 6. Return status back to calling function
         return status
 
+    
+    async def remove_chunks_from_docstore(self, file_id: UUID):
+        """
+        Remove chunks from DocStore that are associated with the specified file_id 
+
+        Args:
+            file_id (UUID): the ID of the file to remove chunks for 
+        """
+
+        stmt = (
+            delete(DocstoreChunk)
+            .where(DocstoreChunk.value['__data__']['metadata']['file_id'].astext == str(file_id))
+        )
+
+        await self.session.execute(stmt)
+        await self.session.flush()
 
     async def get_file_status(self, hashed_content: str, file_path: str, data_source_id: UUID) -> tuple[FileProcesingStatus, File | None]:
         """
