@@ -1,15 +1,16 @@
 import logging
 import re
 import asyncio
+from uuid import UUID
 from pathlib import Path
 import httpx
-from sqlalchemy.ext.asyncio import AsyncSession
 from io import BytesIO
 
 from .base import DataProvider
 from app.core import settings
 from app.pydantic import File, FileProcesingStatus
-from app.services.chroma import ChromaService
+from app.models.data_source import DataSource
+from app.services.file import FileService
 
 
 logger = logging.getLogger(__name__)
@@ -17,8 +18,8 @@ logger = logging.getLogger(__name__)
  
 class GithubDataProvider(DataProvider):
 
-    def __init__(self, data_source, job_pk, db_session: AsyncSession, chroma_svc: ChromaService, url: str = ""):
-        super().__init__(data_source, job_pk, chroma_svc, url, db_session=db_session)
+    def __init__(self, data_source: DataSource, job_pk: UUID, file_svc: FileService):
+        super().__init__(data_source, job_pk, file_svc)
         self._validate_url()
 
         # deconstruct URL 
@@ -39,10 +40,8 @@ class GithubDataProvider(DataProvider):
         await self._get_repository_data(self.repository_url)
 
         # cleanup any files assocaited with DataSource not processed via current job
-        await self.file_service.cleanup(self.data_source.id, self.job_pk)
+        await self.file_svc.cleanup(self.data_source.id, self.job_pk)
 
-        # TODO: Along with cleaning up stale files from relational DB, we should also cleanup stale files from Chroma DB.
-        #           - This can be done by first querying for files not seen, and then removing textnodes associated from Chroma based on meta data 
 
     def _get_request_headers(self) -> dict[str, str] | None:
         """
@@ -139,7 +138,7 @@ class GithubDataProvider(DataProvider):
 
             # hash file content & store in buffer 
             buffer = BytesIO()
-            hashed_content = await asyncio.to_thread(self.file_service.hash_file_content, response, buffer)
+            hashed_content = await asyncio.to_thread(self.file_svc.hash_file_content, response, buffer)
 
             # determine file status 
             file = File(
@@ -150,7 +149,7 @@ class GithubDataProvider(DataProvider):
                 hash=hashed_content,
                 file_url=url
             )
-            file_status = await self.file_service.process_file(file, self.data_source, self.job_pk)
+            file_status = await self.file_svc.process_file(file, self.data_source, self.job_pk)
 
             # skip files already processed & unchanged 
             if file_status == FileProcesingStatus.UNCHANGED:

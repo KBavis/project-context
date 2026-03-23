@@ -10,7 +10,6 @@ if TYPE_CHECKING:
     from .project_data import ProjectData
     from .conversation import Conversation
     from .collection import ChromaCollection
-    from .question_and_answer import QuestionAndAnswer
 
 
 project_dependencies = Table(
@@ -44,19 +43,10 @@ class Project(Base):
 
     # TODO: Create association table for Team and Project
 
-    questions_and_answers: Mapped[List["QuestionAndAnswer"]] = relationship(
-        "QuestionAndAnswer", 
-        back_populates="project"
-    )
-
-    chroma_collections: Mapped[List["ChromaCollection"]] = relationship(
+    chroma_collection: Mapped["ChromaCollection"] = relationship(
         "ChromaCollection",
         back_populates="project"
     )
-
-    @property
-    def collections_by_type(self) -> Dict[str, "ChromaCollection"]:
-        return {c.content_type: c for c in self.chroma_collections}
 
     # many to many relationship with DataSource
     project_data: Mapped[List["ProjectData"]] = relationship(

@@ -7,8 +7,9 @@ from chromadb.api.models.Collection import Collection
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import select
+from sqlalchemy import select, update
 
+from app.models.file_collection import FileCollection
 from app.services.util import get_normalized_project_name
 from app.core import ChromaClientManager
 from app.pydantic import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse
@@ -32,6 +33,7 @@ class ChromaService:
         self.db: Session = db
         self.async_db: AsyncSession = async_db
         self.client: ClientAPI = chroma_manager.get_sync_client() # NOTE: LlamaIndex doesn't support working with Async Client when creating VectorStore/Index
+        self.chroma_manager = chroma_manager
     
 
     async def download_and_cache_collection_embeddings(self, project_id):
@@ -47,24 +49,18 @@ class ChromaService:
 
         try:
             # retreive relevant Chroma Collections corresponding to Project 
-            collections = self.get_collections_by_project(project_id)
-            if not collections:
+            collection = self.get_collection_by_project(project_id)
+            if not collection:
                 logger.warning(f"No ingested data found for Project ID: {project_id}")
-                return
-
-            collections_by_type = {collection.content_type: collection for collection in collections}
-            if CODE not in collections_by_type or DOCS not in collections_by_type:
-                logger.warning(f"Both Code and Documentation collections must be present for Project ID: {project_id}")
                 return
             
             # Create embedding manager with project_id for caching
-            embedding_manager = EmbeddingManager(collections_by_type, project_id=project_id)
+            embedding_manager = EmbeddingManager(collection, project_id=project_id)
 
             # Pre-load and cache both embedding models in parallel
             logger.info(f"Pre-loading and caching embeddings for project {project_id}...")
-            await asyncio.gather(
-                embedding_manager.aget_embedding_model_cached(DOCS),
-                embedding_manager.aget_embedding_model_cached(CODE)
+            await asyncio.to_thread(
+                embedding_manager.aget_embedding_model_cached
             )
             logger.info(f"Successfully cached embeddings for project {project_id}")
             
@@ -88,9 +84,30 @@ class ChromaService:
             raise e
 
 
-    def get_collections_by_project(self, project_id: UUID) -> list["ChromaCollection"]:
+    def get_collection_by_project(self, project_id: UUID) -> ChromaCollection:
         """
-        Get all collections corresponding to a particular Project 
+        Get the ChromaCollection corresponding to a particular Project 
+
+        Args:
+            project_id (UUID): the project ID to fetch collections for 
+        """
+        stmt = (
+            select(ChromaCollection)
+            .options(selectinload(ChromaCollection.project))
+            .where(ChromaCollection.project_id == project_id)
+        )
+        
+        res = self.db.execute(stmt)
+        collection = res.scalars().one_or_none()
+
+        if not collection:
+            raise Exception(f"No ChromaCollection found for Project ID: {project_id}")
+
+        return collection
+    
+    async def aget_collection_by_project(self, project_id: UUID) -> ChromaCollection:
+        """
+        Get ChromaCollection by Project 
 
         Args:
             project_id (UUID): the project ID to fetch collections for 
@@ -101,24 +118,73 @@ class ChromaService:
             .where(ChromaCollection.project_id == project_id)
         )
 
-        return list(self.db.execute(stmt).scalars().all())
+        result = await self.async_db.execute(stmt)
+        collection = result.scalars().one_or_none()
+        if not collection:
+            raise Exception(f"No ChromaCollection found for Project ID: {project_id}")
+        return collection
 
-
-    async def get_collection_by_project_and_type(self, project_id: UUID, content_type: str) -> ChromaCollection:
+    def update_collection_counts(self, collection: Collection):
         """
-        Get ChromaCollection by Project and Content Type
+        Update the document count and chunk counts for a Chroma Collection
 
         Args:
-            project_id (UUID): the project ID to fetch collections for 
-            content_type (str): the type of content
+            collection (Collection): the Chroma Collection to update
         """
-        stmt = (
-            select(ChromaCollection)
-            .options(selectinload(ChromaCollection.project))
-            .where(ChromaCollection.project_id == project_id, ChromaCollection.content_type == content_type)
-        )
-        result = await self.async_db.execute(stmt)
-        return result.scalars().one()
+        try:
+            # determine Chunk (total embedded pieces of information) count
+            total_chunks = collection.count()
+
+            # determine Document (File) count
+            docs = collection.get()
+            total_documents = len(docs['ids'])
+
+            # update counts in ChromaCollection record
+            stmt = (
+                update(ChromaCollection)
+                .where(ChromaCollection.name == collection.name)
+                .values(total_chunks=total_chunks, total_documents=total_documents)
+            )
+            self.db.execute(stmt)
+            self.db.commit()
+            logger.debug(f"Successfully updated document and chunk counts for collection={collection.name}")
+        except Exception as e:
+            logger.error(f"Failure occurred while attempting to update document and chunk counts for collection={collection.name}", exc_info=True)
+            raise e
+        
+
+    async def adelete_nodes_associated_with_files(self, file_ids: list[UUID]):
+        """
+        Asynchronously delete nodes associated with a particular file
+
+        Args:
+            file_ids (list[UUID]): file IDs that were removed
+        """
+
+        # retrieve FileCollection records associated with file
+        try:
+            # retrieve ChromaCollections assocaited with the "stale" files
+            stmt = (
+                select(ChromaCollection)
+                .join(FileCollection, ChromaCollection.id == FileCollection.chroma_collection_id)
+                .where(FileCollection.file_id.in_(file_ids))
+            )
+            result = await self.async_db.execute(stmt)
+            chroma_collections = result.scalars().all()
+
+            # remove Chunks from Chroma that are assocaited with stale file ID
+            async_client = await self.chroma_manager.get_async_client()
+            for chroma_collection in chroma_collections:
+                curr_chroma_collection = await async_client.get_collection(chroma_collection.name)
+
+                for file_id in file_ids:
+                    await curr_chroma_collection.delete(where={"file_id": str(file_id)})
+            
+            logger.debug(f"Successfully removed Chunks from ChromaDB associated with FileIds={file_ids}")
+
+        except Exception as e:
+            logger.error(f"Failure occurred while attempting to delete nodes associated with file_ids={file_ids}", exc_info=True)
+            raise e
 
 
     def get_total_number_of_collections(self) -> dict[str, int]:
@@ -129,25 +195,21 @@ class ChromaService:
         return {"total": len(self.client.list_collections())}
     
 
-    def create_collections(
+    def create_collection(
         self, 
         project_id: UUID, 
         project_name: str, 
-        docs_embedding_provider: str, 
-        docs_embedding_model: str, 
-        code_embedding_provider: str, 
-        code_embedding_model: str
+        embedding_provider: str, 
+        embedding_model: str, 
     ):
         """
-        Create collections for a particular project
+        Create collection for a particular project
 
         Args:
             project_id (UUID): specific project id to create collections for 
             project_name (str): project name 
-            docs_embedding_provider (str): embedding provider for documents 
-            docs_embedding_model (str): embedding model for documents 
-            code_embedding_provider (str): embedding provider for code 
-            code_embedding_model (str): embedding model for code 
+            embedding_provider (str): embedding provider for documents 
+            embedding_model (str): embedding model for documents 
         """
 
         PROJECT = get_normalized_project_name(project_name)
@@ -156,35 +218,20 @@ class ChromaService:
 
         try:
             # create collections in ChromaDB
-            _ = self.client.create_collection(
-                name=f"{PROJECT}_CODE",
-            )
-            _ = self.client.create_collection(
-                name=f"{PROJECT}_DOCS"
-            )
+            _ = self.client.create_collection(name=PROJECT)
 
             # create relational DB records 
-            docs_collection = ChromaCollection(
+            collection = ChromaCollection(
                 project_id=project_id,
-                name=f"{PROJECT}_DOCS",
-                embedding_provider=docs_embedding_provider,
-                embedding_model=docs_embedding_model,
-                content_type="DOCS"
+                name=PROJECT,
+                embedding_provider=embedding_provider,
+                embedding_model=embedding_model
             )
 
-            code_collection = ChromaCollection(
-                project_id=project_id,
-                name=f"{PROJECT}_CODE",
-                embedding_provider=code_embedding_provider,
-                embedding_model=code_embedding_model,
-                content_type="CODE"
-            )
-
-            self.db.add(docs_collection)
-            self.db.add(code_collection)
+            self.db.add(collection)
             self.db.flush()
 
-            return docs_collection, code_collection          
+            return collection      
 
         except Exception as e:
             logger.error(f"Failure occurred while attempting to create ChromaDB Collections for Project={project_name}: {str(e)}")
@@ -204,14 +251,7 @@ class ChromaService:
 
         # attempt to retrieve docs chroma db collection
         try:
-            _ = self.client.get_collection(f"{project_name}_DOCS")
-            project_dne = False
-        except Exception as e:
-            pass
-
-        # attempt to retrieve code chromadb collection
-        try:
-            _ = self.client.get_collection(f"{project_name}_CODE")
+            _ = self.client.get_collection(f"{project_name}")
             project_dne = False
         except Exception as e:
             pass
@@ -221,156 +261,104 @@ class ChromaService:
             raise Exception(f"Project with the name {original_name} already exists")
 
 
-    def delete_collection(self, project_id: UUID, source_type: str | None = "N/A"):
+    def delete_collection(self, project_id: UUID):
         """
         Delete collection(s) associated with particular project
 
         Args:
             project_id (UUID): specific project id to retrieve files for 
-            source_type (str): optional source type speciifc to get files for 
         """
 
         # fetch all ChromaCollections corresponding to ProjectID 
-        collections = self.get_collections_by_project(project_id)
-        if not collections:
+        collection = self.get_collection_by_project(project_id)
+        if not collection:
             logger.warning(f"No ChromaCollections found corresponding to ProjectId={project_id}")
             return
     
-        project = collections[0].project
+        project = collection.project
         project_name = get_normalized_project_name(project_name=project.project_name)
 
-
-        match source_type:
-            case "DOCS":
-                self._delete_collection(project_name, "DOCS")
-            case "CODE":
-                return self._delete_collection(project_name, "CODE")
-            case "N/A":
-                collections = ["CODE", "DOCS"]
-                for c in collections:
-                    self._delete_collection(project_name, c)
-            case _:
-                raise Exception("Unknown source_type specified")
+        self._delete_collection(project_name)
     
 
     def delete_collection_documents(
             self, 
             delete_collections: DeleteCollectionDocsRequest,
-            project_id: UUID, 
-            source_type: str | None = "N/A"
+            project_id: UUID 
         ):
         """
         Delete documents from a particular collection 
 
         Args:
             project_id (UUID): specific project id to retrieve files for 
-            source_type (str): optional source type speciifc to get files for 
             document_ids (List): list of document ids to delete 
         """
 
         # fetch all ChromaCollections corresponding to ProjectID 
-        collections = self.get_collections_by_project(project_id)
-        if not collections:
-            logger.warning(f"No ChromaCollections found corresponding to ProjectId={project_id}")
+        collection = self.get_collection_by_project(project_id)
+        if not collection:
+            logger.warning(f"No ChromaCollection found corresponding to ProjectId={project_id}")
             return
     
-        project = collections[0].project
+        project = collection.project
         project_name = get_normalized_project_name(project_name=project.project_name)
 
-        match source_type:
-            case "DOCS":
-                self._delete_documents(project_name, "DOCS", delete_collections.doc_ids)
-            case "CODE":
-                return self._delete_documents(project_name, "CODE", delete_collections.doc_ids)
-            case "N/A":
-                collections = ["CODE", "DOCS"]
-                for c in collections:
-                    self._delete_documents(project_name, c, delete_collections.doc_ids)
-            case _:
-                raise Exception("Unknown source_type specified")
-
+        self._delete_documents(project_name, delete_collections.doc_ids)
 
         return {"message": f"Successfully deleted documents from collections for Project={project_id}"}
 
-    def get_all_files(self, project_id: UUID, source_type: str | None = "N/A") -> CollectionFilesResponse | MessageResponse | dict[str, CollectionFilesResponse] | None:
+    def get_all_files(self, project_id: UUID) -> CollectionFilesResponse | MessageResponse | dict[str, CollectionFilesResponse] | None:
         """
         Retrieve all files stored within collections corresponding to a particular Project
 
         Args:
             project_id (UUID): specific project id to retrieve files for 
-            source_type (str): optional source type speciifc to get files for 
         """
         
         # fetch all ChromaCollections corresponding to ProjectID 
-        collections = self.get_collections_by_project(project_id)
-        if not collections:
-            logger.warning(f"No ChromaCollections found corresponding to ProjectId={project_id}")
+        collection = self.get_collection_by_project(project_id)
+        if not collection:
+            logger.warning(f"No ChromaCollection found corresponding to ProjectId={project_id}")
             return
     
-        project = collections[0].project
+        project = collection.project
         project_name = get_normalized_project_name(project_name=project.project_name)
-        
-        match source_type:
-            case "DOCS":
-                res = self._get_files_from_collection(project_name, "DOCS")
-                return res if res else {"message": f"No Documents found in collection {project_name}_DOCS"}
-            case "CODE":
-                res = self._get_files_from_collection(project_name, "CODE")
-                return res if res else {"message": f"No Documents found in collection {project_name}_CODE"}
-            case "N/A":
-                collections = ["CODE", "DOCS"]
-                all_files: dict[str, CollectionFilesResponse] = {} 
 
-                for c in collections:
-                    files = self._get_files_from_collection(project_name, c)
-                    # Only add if it's actual file data (CollectionFilesResponse), not a message
-                    if files and "doc_ids" in files:
-                        all_files[c] = files
-                    
-                if not all_files:
-                    return {"message": f"No Documents found in CODE or DOCS collection for Project={project_name}"}
+        return self._get_files_from_collection(project_name)
 
-                return all_files
 
-            case _:
-                raise Exception("Unknown source_type specified")
-            
-    
-
-    def _delete_documents(self, project_name: str, source_type: str, doc_ids: list[str]):
+    def _delete_documents(self, project_name: str, doc_ids: list[str]):
         """
         Delete Documents from ChromaDB collection
 
         Args:
             project_name (str): normalized project name corresponding to collection
-            source_type (str): relevant source type to delete documents for 
             doc_ids (list[str]): list of document ids to delete from DB
         """
 
-        collection = self.client.get_collection(f"{project_name}_{source_type}")
+        collection = self.client.get_collection(f"{project_name}")
         collection.delete(ids=doc_ids)
-        logger.info(f"Successfully deleted documents with ids={doc_ids} from collection={project_name}_{source_type}")
+        logger.info(f"Successfully deleted documents with ids={doc_ids} from collection={project_name}")
 
 
         
     
-    def _get_files_from_collection(self, project_name: str, source_type: str) -> CollectionFilesResponse | MessageResponse | None:
+    def _get_files_from_collection(self, project_name: str) -> CollectionFilesResponse | MessageResponse | None:
         """
         Get Documents ffrom ChromaDB collection
 
         Args:
             project_name (str): normalized project name corresponding to collection
-            source_type (str): relevant source type to get documents for 
         """
 
         try:
-            collection = self.client.get_collection(f"{project_name}_{source_type}")
+            collection = self.client.get_collection(f"{project_name}")
         except Exception as e:
-            logger.debug(f"Collection {project_name}_{source_type} does not exist: {e}")
+            logger.debug(f"Collection {project_name} does not exist: {e}")
             return None
 
         if collection.count() == 0:
-            logger.debug(f"No Documents currently ingested for Project={project_name} and SourceType={source_type}")
+            logger.debug(f"No Documents currently ingested for Project={project_name}")
             return {"message": "No documents found"}
 
         docs = collection.get()
@@ -379,7 +367,7 @@ class ChromaService:
         metadatas = docs['metadatas']  
         embeddings = docs.get('embeddings')  
 
-        logger.info(f"Successfully retrieved {len(document_ids)} documents from collection {project_name}_{source_type}")
+        logger.info(f"Successfully retrieved {len(document_ids)} documents from collection {project_name}")
 
         # Explicitly construct the response to match our TypedDict
         response: CollectionFilesResponse = {
@@ -391,17 +379,16 @@ class ChromaService:
         return response 
 
 
-    def _delete_collection(self, project_name: str, source_type: str):
+    def _delete_collection(self, project_name: str):
         """
         Delete collection from ChromaDB
 
         Args:
             project_name (str): normalized project name corresponding to collection
-            source_type (str): relevant source type corresponding to collection to remove 
         """
 
-        self.client.delete_collection(name=f"{project_name}_{source_type}")
-        logger.info(f"Successfully deleted the collection {project_name}_{source_type}")
+        self.client.delete_collection(name=f"{project_name}")
+        logger.info(f"Successfully deleted the collection {project_name}")
     
 
     def delete_collection_by_names(self, collection_names: list[str]):

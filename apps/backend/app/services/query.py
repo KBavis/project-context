@@ -1,14 +1,11 @@
 from app.services.chroma import ChromaService
-from app.services.q_and_a import QuestionAndAnswerService
-from app.services.chunking import ChunkingService
+from app.services.chunk_retrieval import ChunkRetrievalService
 from app.pydantic import ProcessingStatus, QueryResponse
 from app.llm import LLMManager, LLMBase
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import logging
-from datetime import datetime
-from zoneinfo import ZoneInfo
 from uuid import UUID
 from typing import Any, AsyncGenerator, Tuple
 from llama_index.core.schema import NodeWithScore
@@ -21,68 +18,10 @@ class QueryService:
     def __init__(
         self,
         db: AsyncSession,
-        q_and_a_svc: QuestionAndAnswerService,
-        chunking_svc: ChunkingService,
+        chunk_retrieval_svc: ChunkRetrievalService,
     ):
         self.db: AsyncSession = db
-        self.q_and_a_svc: QuestionAndAnswerService = q_and_a_svc
-        self.chunking_svc: ChunkingService = chunking_svc
-    
-
-    async def execute_q_and_a_query(self, query: str, project_id: UUID, q_and_a_record_id: UUID, start_time: datetime, llm_manager: LLMManager) -> None:
-        """
-        Execute a one-time query against the ingested documentation and code for a specified Project
-
-        NOTE: This is a placeholder implementation. Down the line, relevant logic will be setup 
-        to create a Converation and have multiple interactions with the LLM in one singular session.
-
-        Args:
-            query (str): The query string to execute.
-            project_id (UUID): The ID of the Project to query against.
-            q_and_a_record_id (UUID): The ID of the Q&A record to update.
-            start_time (datetime): The start time of the query.
-            llm_manager (LLMManager): The LLM Manager to use for the query.
-        """
-
-        try:
-            # Execute query using the generic implementation (no existing messages or tokens for simple query)
-            response: QueryResponse = await self.execute_query(
-                query=query,
-                project_id=project_id,
-                llm_manager=llm_manager,
-                existing_messages="",  # No conversation history for simple queries
-                existing_tokens=0  # Starting from zero tokens
-            )
-
-            logger.debug(f"LLM Response: {response.model_response}")
-            logger.debug(f"Total Token Count: {response.total_tokens}")
-
-            end_time = datetime.now(ZoneInfo("America/New_York")) 
-
-            await self.q_and_a_svc.update_q_and_a_record(
-                id=q_and_a_record_id,
-                output_tokens=response.model_output_tokens,
-                end_time=end_time,
-                status=ProcessingStatus.SUCCESS, 
-                answer=response.model_response, 
-                total_processing_time_ms=(end_time - start_time).microseconds
-            )
-
-        except Exception as e:
-            logger.error(f"Error executing query for project_id={project_id} with query='{query}': {str(e)}")
-
-            end_time = datetime.now(ZoneInfo("America/New_York")) 
-
-            await self.q_and_a_svc.update_q_and_a_record(
-                id=q_and_a_record_id,
-                output_tokens=0,
-                end_time=end_time,
-                status=ProcessingStatus.FAILED,
-                answer="",
-                total_processing_time_ms=(end_time - start_time).microseconds
-            )
-
-            raise e
+        self.chunk_retrieval_svc: ChunkRetrievalService = chunk_retrieval_svc
 
 
     async def execute_query(self, query: str, project_id: UUID, llm_manager: LLMManager, decomposition: dict[str, Any] | None = None, existing_messages: str = "", existing_tokens: int = 0) -> QueryResponse: 
@@ -101,15 +40,15 @@ class QueryService:
             existing_tokens (int): The total number of tokens in the conversation.
         """
 
-        logger.info()
+        logger.info(f"Executing query for project {project_id}: {query}")
 
         llm = llm_manager.get_llm()
         ll_model = llm.get_llama_idx_instance()
 
         user_prompt_tokens = len(await llm.tokenize(query))
 
-        chunks = await self.chunking_svc.get_relevant_chunks(query, project_id)
-        nodes = await self.chunking_svc.get_rankings(
+        chunks = await self.chunk_retrieval_svc.get_relevant_chunks(query, project_id)
+        nodes = await self.chunk_retrieval_svc.get_rankings(
             chunks=chunks,
             query=query,
             top_k=5 # TODO: Make this a configuration 
@@ -166,7 +105,7 @@ class QueryService:
         ll_model = llm.get_llama_idx_instance()
         
         # retrieve relevant chunks based on decomposed query 
-        relevant_chunks = await self.chunking_svc.retrieve_chunks_by_decomposition(
+        relevant_chunks = await self.chunk_retrieval_svc.retrieve_chunks_by_decomposition(
             decomposition, 
             project_id,
             original_query = query

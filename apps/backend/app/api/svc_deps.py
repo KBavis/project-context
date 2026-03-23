@@ -6,11 +6,11 @@ from app.services import (
     FileService,
     RecordLockService, 
     QueryService, 
-    QuestionAndAnswerService,
     ConversationService,
-    ChunkingService,
     MessageService,
-    CitationService
+    CitationService,
+    ChunkRetrievalService,
+    ChunkInsertionService
 )
 
 from app.core import (
@@ -93,49 +93,6 @@ def get_data_source_svc(
 # Async Service Dependencies 
 ###########################
 
-def get_async_q_and_a_svc(
-        db: AsyncSession = Depends(get_async_db_session)
-):
-    """
-    Setup QAndAService dependency
-
-    Args:
-        db (AsyncSession): current DB session
-    """
-
-    return QuestionAndAnswerService(db=db)
-
-
-def get_async_chunking_svc(
-        db: AsyncSession = Depends(get_async_db_session),
-        chroma_svc: ChromaService = Depends(get_chroma_svc)
-):
-    """
-    Setup async ChunkingService dependency 
-
-    Args:
-        db (AsyncSession): async DB session
-    """
-
-    return ChunkingService(
-        db=db,
-        chroma_svc = chroma_svc
-    )
-
-
-def get_async_query_svc(
-        db: AsyncSession = Depends(get_async_db_session),
-        q_and_a_svc: QuestionAndAnswerService = Depends(get_async_q_and_a_svc),
-        chunking_svc: ChunkingService = Depends(get_async_chunking_svc)
-):
-    """
-    Setup async QueryService dependency 
-
-    Args:
-        db (AsyncSession): async DB session
-    """
-
-    return QueryService(db=db, q_and_a_svc=q_and_a_svc, chunking_svc=chunking_svc)
 
 def get_async_file_svc(
         db: AsyncSession = Depends(get_async_db_session),
@@ -151,6 +108,44 @@ def get_async_file_svc(
 
     return FileService(db_session=db, chroma_svc=chroma_svc)
 
+def get_async_chunk_insertion_svc(
+        db: AsyncSession = Depends(get_async_db_session),
+        chroma_svc: ChromaService = Depends(get_chroma_svc),
+        file_svc: FileService = Depends(get_async_file_svc)
+):
+    """
+    Setup async ChunkInsertionService dependency 
+    """
+    return ChunkInsertionService(
+        db=db,
+        chroma_svc=chroma_svc,
+        file_svc=file_svc
+    )
+
+def get_async_chunk_retrieval_svc(
+        db: AsyncSession = Depends(get_async_db_session),
+        chroma_svc: ChromaService = Depends(get_chroma_svc)
+):
+    """
+    Setup async ChunkRetrievalService dependency 
+    """
+    return ChunkRetrievalService(db=db, chroma_svc=chroma_svc)
+
+def get_async_query_svc(
+        db: AsyncSession = Depends(get_async_db_session),
+        chunk_retrieval_svc: ChunkRetrievalService = Depends(get_async_chunk_retrieval_svc)
+):
+    """
+    Setup async QueryService dependency 
+
+    Args:
+        db (AsyncSession): async DB session
+    """
+
+    return QueryService(db=db, chunk_retrieval_svc=chunk_retrieval_svc)
+
+
+
 def get_async_record_lock_svc():
     """
     Setup async RecordLockService dependency 
@@ -164,9 +159,9 @@ def get_async_record_lock_svc():
 
 def get_async_ingestion_job_svc(
         db: AsyncSession = Depends(get_async_db_session),
-        chroma_svc: ChromaService = Depends(get_chroma_svc),
         record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc),
-        file_svc: FileService = Depends(get_async_file_svc)
+        file_svc: FileService = Depends(get_async_file_svc),
+        chunk_insertion_service: ChunkInsertionService = Depends(get_async_chunk_insertion_svc)
 ):
     """
     Setup async IngestionJobService dependency 
@@ -174,14 +169,16 @@ def get_async_ingestion_job_svc(
     Args:
         db (AsyncSession): async db session
         file_svc (FileService): async file service dependency
-        chroma_mnger (ChromaClientManager): async chroma manager dependency
+        chunk_insertion_service (ChunkInsertionService): async chunk insertion service dependency
     """
     return IngestionJobService(
         db=db, 
-        chroma_svc=chroma_svc,
         record_lock_svc=record_lock_svc,
-        file_svc=file_svc
+        file_svc=file_svc,
+        chunk_insertion_service=chunk_insertion_service
     )
+
+
 
 
 def get_async_conversation_svc(

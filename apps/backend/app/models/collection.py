@@ -24,11 +24,6 @@ class ChromaCollection(Base):
         comment="Name of the ChromaCollection"
     )
 
-    content_type: Mapped[str] = mapped_column(
-        nullable=False,
-        comment="Type of collection (i.e code, docs, etc)"
-    )
-
     embedding_provider: Mapped[str] = mapped_column(
         nullable=False,
         comment="The embedidng provider configured for this ChromaCollection"
@@ -39,10 +34,16 @@ class ChromaCollection(Base):
         comment="The embedding model configured for this ChromaCollection"
     )
 
-    doc_count: Mapped[int] = mapped_column(
+    total_chunks: Mapped[int] = mapped_column(
         nullable=False,
         server_default=text("0"),
-        comment="Number of Documents ingested into this collection"
+        comment="Number of Chunks ingested into this collection"
+    )
+
+    total_documents: Mapped[int] = mapped_column(
+        nullable=False,
+        server_default=text("0"),
+        comment="Number of Documents (i.e files) ingested into this collection"
     )
 
     project_id: Mapped[UUID] = mapped_column(
@@ -54,7 +55,7 @@ class ChromaCollection(Base):
     # many to one relationship with Project
     project: Mapped["Project"] = relationship(
         "Project",
-        back_populates="chroma_collections"
+        back_populates="chroma_collection"
     )
 
 

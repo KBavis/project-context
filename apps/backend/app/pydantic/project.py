@@ -2,6 +2,8 @@ from pydantic import BaseModel
 from typing import List, Optional
 from uuid import UUID
 
+from torch import embedding
+
 from app.core import settings
 
 
@@ -9,10 +11,8 @@ class ProjectRequest(BaseModel):
     name: str
 
     # allow for model configuration during project creation
-    code_embedding_provider: str = settings.CODE_EMBEDDING_PROVIDER
-    code_embedding_model: str = settings.CODE_EMBEDDING_MODEL
-    docs_embedding_provider: str = settings.DOCS_EMBEDDING_PROVIDER
-    docs_embedding_model: str = settings.DOCS_EMBEDDING_MODEL
+    embedding_provider: str = settings.EMBEDDING_PROVIDER
+    embedding_model: str = settings.EMBEDDING_MODEL
     
     lob: Optional[str] = "N/A"
     description: Optional[str] = ""

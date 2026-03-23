@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     ###########################
     SYNC_REL_DB_URL: str = ""
     ASYNC_REL_DB_URL: str = ""
+    CHUNKS_DOC_STORE: str = "chunks_docstore"
 
     ###########################
     # Vector Database Configurations 
@@ -48,11 +49,8 @@ class Settings(BaseSettings):
     ###########################
     # Embedding Specifications 
     ###########################
-    DOCS_EMBEDDING_PROVIDER: str = "HuggingFace"
-    DOCS_EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
-
-    CODE_EMBEDDING_PROVIDER: str = "HuggingFace"
-    CODE_EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
+    EMBEDDING_PROVIDER: str = "HuggingFace"
+    EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
 
     CROSS_ENCODING_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 

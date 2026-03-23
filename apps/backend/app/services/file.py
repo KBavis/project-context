@@ -6,6 +6,7 @@ from app.models import File, DataSource, FileCollection
 from app.pydantic import FileProcesingStatus, File as FilePydantic
 from app.core import settings
 from app.services.chroma import ChromaService
+from app.models.docstore_chunk import DocstoreChunk
 
 from typing import List
 from uuid import UUID
@@ -56,15 +57,45 @@ class FileService:
             if unlinked_project_ids:
                 status = FileProcesingStatus.MISSING_PROJECT_LINKS # update status to indicate further processing required 
 
+                # TODO: We need to account for this, we either a) should specify this only needs to be reingested for a
+                #       particular project, or b) we should just reingest for all projects. If we go with 
+                #       option b, we need to remove the chunks from Chroma / Docstore (maybe just Chroma)
+                
+
 
         # Step 4. Mark this File's "last_ingestion_job_id" with relevant ingestion_job that is currently being ran (if needed)
         if status != FileProcesingStatus.NEW:
             await self.update_last_seen_job_pk(job_pk, data_source.id, [persisted_file])
+        
+        # Step 5. If the file has changed since last ingestion, a) update corresponding file record hash, b) remove "stale" chunks from Chroma , c) remove stale chunks from Docstore
+        if status == FileProcesingStatus.CHANGED:
+            logger.debug(f"File with path={file.path} has changed since last ingestion, updating file record with relevant hash & remove stale chunks from VectorDB")
+            await self.update_existing_file(file=file, data_source=data_source)
+            await self.chroma_svc.adelete_nodes_associated_with_files([persisted_file.id])
+            await self.remove_chunks_from_docstore([persisted_file.id])
+
+            # TODO: Delete these Nodes from Postgres Doc Store as well 
 
 
-        # Step 5. Return status back to calling function
+        # Step 6. Return status back to calling function
         return status
 
+    
+    async def remove_chunks_from_docstore(self, file_ids: list[UUID]):
+        """
+        Remove chunks from DocStore that are associated with the specified file_id 
+
+        Args:
+            file_ids (list[UUID]): the list of file IDs to remove chunks for 
+        """
+
+        stmt = (
+            delete(DocstoreChunk)
+            .where(DocstoreChunk.value['__data__']['metadata']['file_id'].astext.in_([str(file_id) for file_id in file_ids]))
+        )
+
+        await self.session.execute(stmt)
+        await self.session.flush()
 
     async def get_file_status(self, hashed_content: str, file_path: str, data_source_id: UUID) -> tuple[FileProcesingStatus, File | None]:
         """
@@ -127,7 +158,20 @@ class FileService:
             job_pk (UUID): the ID corresponding to current IngestionJob
         """
 
-        await self.delete_stale_files(data_source_id, job_pk)
+        stale_file_ids = await self.get_stale_files(data_source_id, job_pk)
+        if not stale_file_ids:
+            logger.info(f"No stale files found in DB for DataSource={data_source_id} & IngestionJob={job_pk}")
+            return
+
+        # remove stale Nodes from Chroma 
+        await self.chroma_svc.adelete_nodes_associated_with_files(stale_file_ids)
+
+        # remove stale chunks from DocStore 
+        await self.remove_chunks_from_docstore(stale_file_ids)
+
+        # remove stale File's from DB 
+        await self.delete_stale_files_from_db(stale_file_ids)
+
 
 
     def hash_file_content(self, response: Response, buffer: BytesIO):
@@ -208,27 +252,44 @@ class FileService:
 
         _ = await session.execute(stmt)
         await session.flush()
-
     
-    async def delete_stale_files(self, data_source_id: UUID, ingestion_job_id: UUID):
+
+    async def get_stale_files(self, data_source_id: UUID, ingestion_job_id: UUID) -> list[UUID] | None: 
         """
-        Remove Files from DB that we did not see/process during current IngestionJob 
+        Retrieve files from database that we did not see/process during IngestionJob (i.e stale files that we should remove)
+
 
         Args:
             data_source_id (UUID): PK of the data source this file corresponds to
             ingestion_job_id (UUID): PK of the current ingestion job
         """
-
-        session = self.session
-
-        stmt = (
-            delete(File)
+        
+        select_stmt = (
+            select(File)
             .where(File.data_source_id == data_source_id, File.last_ingestion_job_id != ingestion_job_id)
         )
+        res = await self.session.execute(select_stmt)
+        stale_files = res.scalars().all() 
 
-        _ = await session.execute(stmt)
+        return [file.id for file in stale_files] if stale_files else []
 
-        logger.debug(f"Successfully removed files associated with DataSource={data_source_id}, but were not processed by IngestionJob={ingestion_job_id}")
+    
+    async def delete_stale_files_from_db(self, stale_file_ids: list[UUID]) -> list[UUID] | None:
+        """
+        Remove Files from DB that we did not see/process during current IngestionJob 
+
+        Args:
+            stale_file_ids (list(UUID)): IDs of files that are considered stale 
+        """
+
+        # remove sale files if need be 
+        stmt = (
+            delete(File)
+            .where(File.id.in_(stale_file_ids))
+        )
+        _ = await self.session.execute(stmt)
+
+        logger.debug(f"Successfully removed the following 'stale' File's from the Database:\n\t{stale_file_ids}")
     
     
     async def get_files_by_hash_and_data_source(self, hash: str, data_source_id: UUID) -> List[File]:
@@ -294,15 +355,20 @@ class FileService:
 
 
         # attempt to find file by either path OR hash, and the respective DataSource ID
-        files = await session.query(File).filter(
-            and_(
-                or_(
-                    File.hash == file.hash,
-                    File.path == file.path
-                ),
-                File.data_source_id == data_source.id
+        stmt = (
+            select(File)
+            .where(
+                and_(
+                    or_(
+                        File.hash == file.hash,
+                        File.path == file.path
+                    ),
+                    File.data_source_id == data_source.id
+                )
             )
-        ).all() 
+        )
+        res = await session.execute(stmt)
+        files = res.scalars().all() 
 
         if not files:
             logger.debug(f"No files found corresponding to file_hash={file.hash} or file_path={file.path} in DB")
@@ -319,10 +385,25 @@ class FileService:
         existing_file.size = file.size 
         existing_file.path = file.path
         existing_file.file_extension = file.file_type
+
+        logger.info(f"Successfully updated existing File corresponding to path={file.path}")
         
         await session.flush()
             
-        
+    async def get_files_by_data_source_id(self, data_source_id: UUID):
+        """
+        Retrieve all files corresponding to a particular data source ID
+        """
+
+        session = self.session
+
+        stmt = (
+            select(File)
+            .where(File.data_source_id == data_source_id)
+        )
+
+        res = await session.execute(stmt)
+        return res.scalars().all()
     
 
     async def add_new_file(self, file: FilePydantic, data_source: DataSource, job_pk: UUID):
@@ -352,11 +433,8 @@ class FileService:
         # get all relevant project IDs corresponding to data source
         data_source_project_ids = [source.project_id for source in data_source.project_data]
 
-        # determine what type of content this is 
-        content_type = "DOCS" if file.file_type in settings.DOCS_FILE_EXTENSIONS else "CODE"
-
         # get all ChromaCollections corresponding to file type for each relevant project 
-        chroma_collections = [await self.chroma_svc.get_collection_by_project_and_type(project_id, content_type) for project_id in data_source_project_ids]
+        chroma_collections = [await self.chroma_svc.aget_collection_by_project(project_id) for project_id in data_source_project_ids]
 
         # create FileCollections records 
         collections = [
