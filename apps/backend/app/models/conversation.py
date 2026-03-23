@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .base import Base 
 from uuid import UUID
 from typing import TYPE_CHECKING, List
@@ -15,7 +16,7 @@ class Conversation(Base):
     __tablename__: str = "conversation"
 
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped["UUID"] = mapped_column(
         primary_key=True, index=True, server_default=text("gen_random_uuid()")
     )
     summary: Mapped[str] = mapped_column(
@@ -47,7 +48,7 @@ class Conversation(Base):
     )
 
     # many to one relationship with Project 
-    project_id: Mapped[UUID] = mapped_column(
+    project_id: Mapped["UUID"] = mapped_column(
         ForeignKey("project.id")
     )
     project: Mapped["Project"] = relationship(back_populates="conversations")

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .providers import LLMBase, OllamaLLM, OpenAIProvider
 from .manager import LLMManager
 

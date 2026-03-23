@@ -1,8 +1,9 @@
+from __future__ import annotations
 
 from app.pydantic import CreateConversationRequest, UpdateConversationRequest
 from app.models import Conversation
 from app.llm.providers.base import LLMBase
-from app.base import settings
+from app.core import settings
 from app.llm import LLMManager
 from app.services.query import QueryService
 

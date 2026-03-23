@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 def get_normalized_project_name(project_name: str):
     """

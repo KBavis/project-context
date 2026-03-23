@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .base import LLMBase
 from llama_index.llms.ollama import Ollama
 

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 from sentence_transformers import CrossEncoder
 
@@ -37,7 +38,7 @@ class ChunkRetrievalService:
         decomposition: dict[str, Any], 
         project_id: UUID,
         original_query: str
-    ) -> list[NodeWithScore]:
+    ) -> list["NodeWithScore"]:
         """
         Retrieve chunks by the decompositon of the User's Query 
 
@@ -47,14 +48,14 @@ class ChunkRetrievalService:
             original_query (str): The original query the user passed in
 
         Returns:
-            list[NodeWithScore]: The chunks retrieved by the decomposition
+            list["NodeWithScore"]: The chunks retrieved by the decomposition
         """
 
         if not decomposition['requires_retrieval']:
             return []
 
         # retrieve all chunks for each query (decomposition of users original query)
-        all_chunks: list[NodeWithScore] = []
+        all_chunks: list["NodeWithScore"] = []
 
         for item in decomposition['queries']:
             logger.info(f"Retrieving chunks for query: {item['query']}")
@@ -89,7 +90,7 @@ class ChunkRetrievalService:
         self, 
         query: str, 
         project_id: UUID
-    ) -> list[NodeWithScore]: 
+    ) -> list["NodeWithScore"]: 
         """
         Retrieve relevant code and documentation chunks from Chroma based on the query and project ID.
 
@@ -117,13 +118,13 @@ class ChunkRetrievalService:
 
     async def deduplicate_chunks_by_type(
         self, 
-        chunks: list[NodeWithScore]
-    ) -> list[NodeWithScore]:
+        chunks: list["NodeWithScore"]
+    ) -> list["NodeWithScore"]:
         """
         Deduplicate chunks based on their content.
 
         Args:
-            chunks (list[NodeWithScore]): The chunks to deduplicate
+            chunks (list["NodeWithScore"]): The chunks to deduplicate
         """
 
         # deduplicate doc chunks 
@@ -141,12 +142,12 @@ class ChunkRetrievalService:
         return unique_chunks
     
 
-    async def get_rankings(self, chunks: list[NodeWithScore], query: str, top_k: int = 5) -> list[NodeWithScore]:
+    async def get_rankings(self, chunks: list["NodeWithScore"], query: str, top_k: int = 5) -> list["NodeWithScore"]:
         """
         Rank code and documentation chunks based on relevance to query 
 
         Args:
-            chunks (list[NodeWithScore]): The chunks to rank.
+            chunks (list["NodeWithScore"]): The chunks to rank.
             query (str): The query to rank chunks against.
             top_k (int): The number of chunks to return.
         """
@@ -196,7 +197,7 @@ class ChunkRetrievalService:
         query: str, 
         collection: ChromaCollection, 
         embedding: BaseEmbedding
-    ) -> list[NodeWithScore]:
+    ) -> list["NodeWithScore"]:
         """
         Retrieve chunks directly from ChromaDB based on the query and specified collection
 

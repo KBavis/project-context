@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import TYPE_CHECKING, List, Dict
@@ -23,7 +24,7 @@ project_dependencies = Table(
 class Project(Base):
     __tablename__: str = "project"
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped["UUID"] = mapped_column(
         primary_key=True, server_default=text("gen_random_uuid()")
     )
     project_name: Mapped[str] = mapped_column(nullable=False)

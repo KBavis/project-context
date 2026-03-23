@@ -1,3 +1,4 @@
+from __future__ import annotations
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import (
     AsyncSession, 

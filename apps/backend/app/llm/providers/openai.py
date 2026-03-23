@@ -1,3 +1,4 @@
+from __future__ import annotations
 from app.llm.providers.base import LLMBase
 from llama_index.llms.openai import OpenAI
 

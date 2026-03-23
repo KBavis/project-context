@@ -1,3 +1,4 @@
+from __future__ import annotations
 from fastapi import APIRouter
 
 from .data_source import router as data_source_router

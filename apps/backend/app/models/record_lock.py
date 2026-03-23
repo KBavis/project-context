@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .base import Base 
 
 from sqlalchemy.orm import Mapped, mapped_column
@@ -14,13 +15,13 @@ class RecordLock(Base):
 
     __tablename__: str = "record_lock"
 
-    record_id: Mapped[UUID] = mapped_column(
+    record_id: Mapped["UUID"] = mapped_column(
         primary_key=True,
         nullable=False,
         comment="Primary key of record that is being locked"
     )
 
-    record_type: Mapped[RecordType] = mapped_column(
+    record_type: Mapped["RecordType"] = mapped_column(
         SQLEnum(RecordType),
         primary_key=True,
         nullable=False,

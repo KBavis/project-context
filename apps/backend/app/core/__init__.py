@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .config import settings, setup_logging
 from .relational_db import (
     get_sync_db_session, 

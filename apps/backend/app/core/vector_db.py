@@ -1,5 +1,6 @@
+from __future__ import annotations
 import chromadb
-from app.core import settings
+from .config import settings
 from chromadb.api import ClientAPI
 from chromadb.api import AsyncClientAPI
 from typing import Optional, cast

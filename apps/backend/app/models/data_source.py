@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import List, TYPE_CHECKING
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
 class DataSource(Base):
     __tablename__: str = "data_source"
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped["UUID"] = mapped_column(
         primary_key=True, index=True, server_default=text("gen_random_uuid()")
     )
     provider: Mapped[str] = mapped_column(

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from app.services.chroma import ChromaService
 from app.services.chunk_retrieval import ChunkRetrievalService
 from app.pydantic import ProcessingStatus, QueryResponse
@@ -86,7 +87,7 @@ class QueryService:
         decomposition: dict[str, Any], 
         existing_messages: str = "", 
         existing_tokens: int = 0
-    ) -> Tuple[list[NodeWithScore], AsyncGenerator[str, None]]:
+    ) -> Tuple[list["NodeWithScore"], AsyncGenerator[str, None]]:
         """
         Send user's decomposed query to the configured LLM, utilizing the Conversation History & 
         chunked ingested Code/Documentation files as context, and stream the response 
@@ -134,7 +135,7 @@ class QueryService:
 
 
     
-    def get_prompt(self, query: str, nodes: list[NodeWithScore] | None = None, previous_messages: str = "") -> str:
+    def get_prompt(self, query: str, nodes: list["NodeWithScore"] | None = None, previous_messages: str = "") -> str:
         """
         Get the prompt template to use for querying the LLM.
 

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from app.models import Citation, Message
 from app.pydantic import FileCitation, CitationDto
 from app.services.file import FileService
@@ -20,12 +21,12 @@ class CitationService:
     
 
 
-    async def generate_citations(self, chunks: list[NodeWithScore]) -> list[FileCitation]:
+    async def generate_citations(self, chunks: list["NodeWithScore"]) -> list[FileCitation]:
         """
         Generate citations based on the utilized chunks.
 
         Args:
-            chunks (list[NodeWithScore]): The chunks utilized in the query response.
+            chunks (list["NodeWithScore"]): The chunks utilized in the query response.
 
         Returns:
             list[FileCitation]: A list of file citations.

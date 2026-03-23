@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .base import Base
 from typing import TYPE_CHECKING
 from sqlalchemy.orm import mapped_column, Mapped, relationship
@@ -12,8 +13,8 @@ if TYPE_CHECKING:
 class ProjectData(Base):
     __tablename__: str = "project_data"
 
-    project_id: Mapped[UUID] = mapped_column(ForeignKey("project.id"), primary_key=True)
-    data_source_id: Mapped[UUID] = mapped_column(
+    project_id: Mapped["UUID"] = mapped_column(ForeignKey("project.id"), primary_key=True)
+    data_source_id: Mapped["UUID"] = mapped_column(
         ForeignKey("data_source.id"), primary_key=True
     )
 

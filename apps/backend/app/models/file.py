@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .base import Base
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -25,7 +26,7 @@ class File(Base):
         Index("ix_file_data_source_fk", "data_source_id", "id"),
     )
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped["UUID"] = mapped_column(
         primary_key=True, index=True, server_default=text("gen_random_uuid()")
     )
 
@@ -66,12 +67,12 @@ class File(Base):
     )
 
     # one to one relationship with IngestionJob 
-    last_ingestion_job_id: Mapped[UUID] = mapped_column(
+    last_ingestion_job_id: Mapped["UUID"] = mapped_column(
         ForeignKey("ingestion_job.id")
     )
     
     # many to one relationship with DataSource
-    data_source_id: Mapped[UUID] = mapped_column(
+    data_source_id: Mapped["UUID"] = mapped_column(
         ForeignKey("data_source.id")
     )
     data_source: Mapped["DataSource"] = relationship(

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from app.models.collection import ChromaCollection
 from app.embeddings.lru_cache import get_cached_embedding, cache_embedding
 

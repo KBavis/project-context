@@ -1,4 +1,6 @@
+from __future__ import annotations
 import asyncio
+from typing import Optional
 from llama_index.core.embeddings import BaseEmbedding
 import logging
 
@@ -10,8 +12,8 @@ class EmbeddingCacheNode():
     def __init__(self, key: str, value: BaseEmbedding | None):
         self.key = key 
         self.value = value 
-        self.prev: EmbeddingCacheNode | None = None 
-        self.next: EmbeddingCacheNode | None = None 
+        self.prev: Optional["EmbeddingCacheNode"] = None 
+        self.next: Optional["EmbeddingCacheNode"] = None 
 
 
 _embedding_cache: dict[str, EmbeddingCacheNode] = {} 
@@ -25,7 +27,7 @@ _mru.prev = _lru
     
 
     
-def add_embedding_node(node: EmbeddingCacheNode):
+def add_embedding_node(node: "EmbeddingCacheNode"):
     """
     Insert a new embedding node into Doubly Linked List 
 
@@ -41,7 +43,7 @@ def add_embedding_node(node: EmbeddingCacheNode):
     node.prev = prev_node
     node.next = _mru
 
-def remove_embedding_node(node: EmbeddingCacheNode):
+def remove_embedding_node(node: "EmbeddingCacheNode"):
     """
     Remove an embedding node from Doubly Linked List 
 
