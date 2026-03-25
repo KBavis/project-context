@@ -60,9 +60,7 @@ class ChromaService:
 
             # Pre-load and cache both embedding models in parallel
             logger.info(f"Pre-loading and caching embeddings for project {project_id}...")
-            await asyncio.to_thread(
-                embedding_manager.aget_embedding_model_cached
-            )
+            await embedding_manager.aget_embedding_model_cached()
             logger.info(f"Successfully cached embeddings for project {project_id}")
             
         except Exception as e:

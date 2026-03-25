@@ -111,7 +111,7 @@ class ChunkRetrievalService:
         # load required embeddin models (with caching)
         embedding_docs = await embedding_manager.aget_embedding_model_cached()
 
-        chunks = asyncio.to_thread(self._get_chunks, query, collection, embedding_docs)
+        chunks = await self._get_chunks(query, collection, embedding_docs)
 
         return chunks
 
