@@ -65,38 +65,30 @@ class LLMBase(ABC):
         try:
 
             decompose_query_prompt = f"""
-                        You are a query decomposition and routing assistant. Analyze the user's question using the conversation history and return a structured JSON result.
+                        TASK: You are a Query Decomposition Engine. Analyze the user's question and history to prepare search queries.
 
-                        AVAILABLE COLLECTION DATA: 
-                            - markdown documentation, guides, conceptual explanations, API references, source code files, function definitions, implementation examples
+                        CRITICAL RULES:
+                        1. **DO NOT answer the user's question yourself.** Your ONLY output should be a valid JSON plan.
+                        2. If the answer is already fully contained in the conversation history, set "requires_retrieval": false and "queries": [].
+                        3. Resolving Ambiguity: Turn fragmented questions like "What about that?" into standalone search queries based on previous context.
+                        4. Output MUST be a single, strict JSON block.
 
-                        MESSAGES FORMAT: "sender:<message>", ordered oldest to latest.
-
-                        YOUR TASKS:
-                        1. Resolve any ambiguous or incomplete questions using conversation history (e.g. "What about projects?" → "How are projects created?" based on prior context).
-                        2. Determine if the question requires retrieving new context, or can be answered from existing messages alone.
-                        3. If new context is needed, decompose the query if necessary and assign each sub-query to the appropriate collection(s).
-
-                        RULES:
-                        - Return "requires_retrieval": false ONLY if you are highly confident the question can be fully answered from existing messages. When in doubt, set to true.
-                        - Only decompose when sub-topics would likely live in different documents or sections. Do not split unnecessarily.
-                        - Each sub-query should be self-contained and independently retrievable.
-
-                        OUTPUT FORMAT (strict JSON, no extra text):
+                        OUTPUT_FORMAT:
                         {{
-                            "requires_retrieval": true | false,
+                            "requires_retrieval": boolean,
                             "queries": [
-                                {{"query": "<resolved_query>"}},
-                                {{"query": "<resolved_query2>" }}
+                                {{"query": "string"}}
                             ]
                         }}
 
-                        - If "requires_retrieval" is false, return an empty queries array.
-                        - "queries" must always have at least one entry when requires_retrieval is true.
+                        EXAMPLES:
+                        - History has the answer: {{"requires_retrieval": false, "queries": []}}
+                        - More info needed: {{"requires_retrieval": true, "queries": [{{"query": "explanation of project implementation and architecture"}}]}}
 
-                        User Question: {prompt}
-                        Existing Messages: {existing_messages}
+                        USER_QUESTION: {prompt}
+                        CONVERSATION_HISTORY (sender:<message>): {existing_messages}
             """
+
 
             # validate context length 
             valid = await self.validate_context_length(decompose_query_prompt)

@@ -137,40 +137,49 @@ class QueryService:
     
     def get_prompt(self, query: str, nodes: list["NodeWithScore"] | None = None, previous_messages: str = "") -> str:
         """
-        Get the prompt template to use for querying the LLM.
-
-        TODO: Make the system prompt configurable and also consider alternative prompt template and way of providing context to LLM as this is a very basic implementation.
+        Constructs the hierarchical prompt for the LLM, clearly separating 
+        instructions, conversation history, and retrieved context.
         """
 
-        system_prompt = """
-        You are a specialized AI software engineering assistant. Your primary goal is to help users understand their specific codebase using the provided "Context" and "Previous Messages".
+        system_instructions = """
+        You are a specialized AI software engineering assistant. Your role is to help users navigate and understand their specific codebase and documentation.
 
-        GUIDELINES:
-        1. **Codebase Specifics (Priority)**: When asked about the implementation, architecture, or logic of this specific project, you MUST strictly rely on the provided Context. If the Context is insufficient for a project-specific question, say: "I don't have enough specific context from the codebase to answer this project-specific question."
-        2. **General Technical Knowledge**: If a user asks a general conceptual or technical question (e.g., "What is Docker?", "How does a vector database work?"), you should provide a clear and helpful explanation using your general knowledge, even if it is not in the provided Context.
-        3. **Context Sensitivity**: Use the Context to ground your answers whenever possible. If the user asks about a general concept in the context of their project, relate your general knowledge back to the information provided in the codebase snippets.
-        4. **Markdown Formatting**:
-           - Use triple backticks with the language identifier (e.g., ```python) for all code snippets.
-           - Use **bold** for file paths, variable names, and key technical concepts.
-           - Use headers and lists to structure complex explanations.
-        5. **Tone**: Professional, concise, and technically accurate.
+        ### OPERATIONAL GUIDELINES:
+        1. **Codebase-Specific Questions**: 
+           - Prioritize information found in the <RETRIEVED_CONTEXT> section.
+           - If the provided context is completely unrelated or empty, state: "I don't have enough specific context from the codebase to answer this."
+           - If the context provides partial or relevant information, answer to the best of your ability using those snippets, noting any gaps if necessary.
+        2. **General Technical Knowledge**: 
+           - For conceptual questions (e.g., "What is a vector database?"), provide clear explanations from your general knowledge.
+           - Relate general concepts back to the <RETRIEVED_CONTEXT> whenever applicable.
+        3. **Tone & Format**:
+           - Professional, technically accurate, and concise.
+           - Use triple backticks (e.g., ```python) for code.
+           - Use **bold** for file paths and key technical terms.
         """
 
+        # 1. Add Conversation History if it exists
         if previous_messages:
-            system_prompt += f"\n\n<context>\nPrevious Messages in this Conversation (in format user:<message> and model:<message> and sorted in oldest to latest order):\n{previous_messages}\n</context>"
+            system_instructions += f"\n\n### CONVERSATION HISTORY:\n<conversation_history>\n{previous_messages}\n</conversation_history>"
 
+        # 2. Format Retrieved Context
         if nodes:
-            context = "\n\n---\n\n".join([
-                f"Source: {node.metadata.get('source', 'Unknown')}\n{node.get_text()}" 
-                for node in nodes
-            ])
+            context_blocks = []
+            for node in nodes:
+                source = node.metadata.get('source') or node.metadata.get('file_path') or "Unknown Source"
+                context_blocks.append(f"Source: {source}\n---\n{node.get_text()}")
+            
+            context_text = "\n\n================================================================\n\n".join(context_blocks)
+            retrieved_context = f"### RETRIEVED CONTEXT:\n<retrieved_context>\n{context_text}\n</retrieved_context>"
         else:
-            context = "No context provided"
+            retrieved_context = "### RETRIEVED CONTEXT:\nNo relevant documentation or code found."
 
-        full_prompt = f"{system_prompt}\n\nContext:\n{context}\n\nUser Query: {query}\n\nAnswer:"
+        # 3. Assemble Full Prompt
+        full_prompt = f"{system_instructions}\n\n{retrieved_context}\n\nUSER_QUERY: {query}\n\nAI_RESPONSE:"
+        
         logger.debug(f"Complete prompt being executed: \n{full_prompt}")
-
         return full_prompt
+
 
 
 
