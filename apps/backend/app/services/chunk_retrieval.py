@@ -6,14 +6,19 @@ from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core.schema import NodeWithScore
 from llama_index.vector_stores.chroma import ChromaVectorStore # type: ignore
 from llama_index.core import VectorStoreIndex
+from llama_index.core.retrievers import BaseRetriever, QueryFusionRetriever
+from llama_index.retrievers.bm25 import BM25Retriever
+from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
+from llama_index.storage.docstore.postgres import PostgresDocumentStore
+from llama_index.storage.kvstore.postgres import PostgresKVStore
 
 from app.services.chroma import ChromaService
+from app.services.data_source import DataSourceService
 from app.core import DOCS, CODE, settings
 from app.models.collection import ChromaCollection
 
 from app.embeddings import EmbeddingManager
 
-from collections import defaultdict
 import logging
 from typing import Any
 from uuid import UUID
@@ -27,9 +32,10 @@ class ChunkRetrievalService:
     users query
     """
     
-    def __init__(self, db: AsyncSession, chroma_svc: ChromaService):
+    def __init__(self, db: AsyncSession, chroma_svc: ChromaService, data_source_svc: DataSourceService):
         self.db: AsyncSession = db
         self.chroma_svc: ChromaService = chroma_svc
+        self.data_source_svc: DataSourceService = data_source_svc
 
 
 
@@ -206,6 +212,70 @@ class ChunkRetrievalService:
             collection (ChromaCollection): the Chroma collection to query against
             embedding: the LlamaIndex embedding model to use for querying
         """
+        
+        # configure the retrievers
+        chroma_retriever = await self.get_chroma_retreiver(collection, embedding)
+        bm25_retriever = await self.get_bm25_retriever(collection)
+
+        # configure the fusion retriever (hybrid cordinator for both seamtnic and direct comparisons)
+        fusion_retriever = QueryFusionRetriever(
+            [chroma_retriever, bm25_retriever], 
+            similarity_top_k=5,
+            num_queries=3, # TODO: Determine if this is needed
+            mode=FUSION_MODES.RECIPROCAL_RANK,
+            use_async=True
+        )
+
+        nodes = await fusion_retriever.aretrieve(query)
+
+        return nodes 
+
+
+    async def get_bm25_retriever(self, collection: ChromaCollection) -> BaseRetriever:
+        """
+        Configure BM25 Retriever for Hybrid Search functionality based on all 
+        nodes assocaited with Project in Postgres KV Store 
+
+        Args:
+            collection (ChromaCollection): the Chroma collection to retrieve retriever from
+        """
+
+        # configure Postgres KV Store
+        from app.core.relational_db import sync_engine, async_engine
+        kv_store = PostgresKVStore(
+            table_name=settings.CHUNKS_DOC_STORE,
+            engine=sync_engine,
+            async_engine=async_engine,
+            use_jsonb=True, 
+            perform_setup=True
+        )
+
+        # retrieve all nodes associated with the project (PLAIN TEXT)
+        all_nodes = []
+        data_source_ids = await self.get_data_source_ids_by_project(collection.project_id)
+        for id in data_source_ids:
+            doc_store = PostgresDocumentStore(
+                kv_store, 
+                namespace=str(id)
+            )
+
+            all_nodes.extend(doc_store.docs.values())
+        
+        # configure BM25 retreiver based on all nodes 
+        return BM25Retriever.from_defaults(
+            nodes=all_nodes,
+            similarity_top_k=5
+        )
+        
+
+    async def get_chroma_retreiver(self, collection: ChromaCollection, embedding: BaseEmbedding) -> BaseRetriever:
+        """
+        Get retriever associated with relevant Chroma Collection 
+
+        Args:
+            collection (ChromaCollection): the Chroma collection to retrieve retriever from
+            embedding (BaseEmbedding): the LlamaIndex embedding model to use for querying
+        """
 
         # get actual Chroma Collection 
         chroma_collection = self.chroma_svc.get_real_chroma_collection(collection_name=collection.name)
@@ -213,12 +283,18 @@ class ChunkRetrievalService:
         # configure LlamaIndex retriever from Chroma collection 
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
         index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embedding) # pass embed_model explicitly to avoid race conditions with global Settings
-        retriever = index.as_retriever(similarity_top_k=5) # TODO: Make this configurable 
+        return index.as_retriever(similarity_top_k=5) # TODO: Make this configurable 
+        
 
-        # retrieve relevant chunks from collection
-        nodes = await retriever.aretrieve(query)
+    async def get_data_source_ids_by_project(self, project_id: UUID) -> list[object]:
+        """
+        Get all data source IDs for a given project.
 
-        logger.debug(f"Retrieved {len(nodes)} chunks from collection {collection.name} for query: {query}")
+        Args:
+            project_id (UUID): The project ID.
+        """
 
-        return nodes 
+        data_sources = self.data_source_svc.get_project_data_sources(project_id)
+        data_source_ids = [data_source['id'] for data_source in data_sources]
+        return data_source_ids
 
