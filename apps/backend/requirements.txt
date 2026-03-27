@@ -25,6 +25,7 @@ llama-index-embeddings-huggingface==0.6.1
 llama-index-llms-ollama==0.9.0
 llama-index-llms-openai==0.6.13
 llama-index-storage-docstore-postgres==0.5.0
+llama-index-retrievers-bm25==0.7.1
 
 docling==2.61.1 
 transformers==4.57.1
