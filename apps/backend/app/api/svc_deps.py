@@ -125,12 +125,13 @@ def get_async_chunk_insertion_svc(
 
 def get_async_chunk_retrieval_svc(
         db: AsyncSession = Depends(get_async_db_session),
-        chroma_svc: ChromaService = Depends(get_chroma_svc)
+        chroma_svc: ChromaService = Depends(get_chroma_svc),
+        data_source_svc: DataSourceService = Depends(get_data_source_svc)
 ):
     """
     Setup async ChunkRetrievalService dependency 
     """
-    return ChunkRetrievalService(db=db, chroma_svc=chroma_svc)
+    return ChunkRetrievalService(db=db, chroma_svc=chroma_svc, data_source_svc=data_source_svc)
 
 def get_async_query_svc(
         db: AsyncSession = Depends(get_async_db_session),
