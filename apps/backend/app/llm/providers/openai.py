@@ -81,7 +81,7 @@ class OpenAIProvider(LLMBase):
         Returns the LlamaIndex instance for the OpenAI model.
         """
 
-        return OpenAI(model=self.model_name, api_key=settings.OPEN_AI_API_KEY) # TODO: Setup additional configurations 
+        return OpenAI(model=self.model_name, api_key=settings.OPENAI_API_KEY) # TODO: Setup additional configurations 
     
 
 

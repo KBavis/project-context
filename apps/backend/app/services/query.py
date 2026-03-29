@@ -48,7 +48,7 @@ class QueryService:
 
         user_prompt_tokens = len(await llm.tokenize(query))
 
-        chunks = await self.chunk_retrieval_svc.get_relevant_chunks(query, project_id)
+        chunks = await self.chunk_retrieval_svc.get_relevant_chunks(query, project_id, llm=ll_model)
         nodes = await self.chunk_retrieval_svc.get_rankings(
             chunks=chunks,
             query=query,
@@ -109,7 +109,8 @@ class QueryService:
         relevant_chunks = await self.chunk_retrieval_svc.retrieve_chunks_by_decomposition(
             decomposition, 
             project_id,
-            original_query = query
+            original_query = query,
+            llm=ll_model
         )
 
         # generate prompt using additional context & conversation history 

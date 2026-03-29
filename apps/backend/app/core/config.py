@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     ###########################
     GITHUB_SECRET_TOKEN: str | None = None
     HUGGING_FACE_API_KEY: str | None = None
-    OPEN_AI_API_KEY: str | None = None
+    OPENAI_API_KEY: str | None = None
 
     ###########################
     # File Paths 

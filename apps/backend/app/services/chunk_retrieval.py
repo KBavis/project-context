@@ -43,7 +43,8 @@ class ChunkRetrievalService:
         self, 
         decomposition: dict[str, Any], 
         project_id: UUID,
-        original_query: str
+        original_query: str,
+        llm: Any | None = None
     ) -> list["NodeWithScore"]:
         """
         Retrieve chunks by the decompositon of the User's Query 
@@ -68,7 +69,8 @@ class ChunkRetrievalService:
             
             query_chunks = await self.get_relevant_chunks(
                 query=item['query'], 
-                project_id=project_id
+                project_id=project_id,
+                llm=llm
             )
 
             logger.info(f"Retrieved {len(query_chunks)} chunks for sub-query")
@@ -95,7 +97,8 @@ class ChunkRetrievalService:
     async def get_relevant_chunks(
         self, 
         query: str, 
-        project_id: UUID
+        project_id: UUID,
+        llm: Any | None = None
     ) -> list["NodeWithScore"]: 
         """
         Retrieve relevant code and documentation chunks from Chroma based on the query and project ID.
@@ -117,7 +120,7 @@ class ChunkRetrievalService:
         # load required embeddin models (with caching)
         embedding_docs = await embedding_manager.aget_embedding_model_cached()
 
-        chunks = await self._get_chunks(query, collection, embedding_docs)
+        chunks = await self._get_chunks(query, collection, embedding_docs, llm)
 
         return chunks
 
@@ -202,7 +205,8 @@ class ChunkRetrievalService:
         self, 
         query: str, 
         collection: ChromaCollection, 
-        embedding: BaseEmbedding
+        embedding: BaseEmbedding,
+        llm: Any | None = None
     ) -> list["NodeWithScore"]:
         """
         Retrieve chunks directly from ChromaDB based on the query and specified collection
@@ -223,7 +227,8 @@ class ChunkRetrievalService:
             similarity_top_k=5,
             num_queries=3, # TODO: Determine if this is needed
             mode=FUSION_MODES.RECIPROCAL_RANK,
-            use_async=True
+            use_async=True,
+            llm=llm
         )
 
         nodes = await fusion_retriever.aretrieve(query)
