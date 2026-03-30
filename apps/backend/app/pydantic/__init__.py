@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .chat import ChatRequest
-from .data_source import DataSourceRequest
+from .data_source import DataSourceRequest, CreateDataSourceRequest
 from .project import ProjectRequest
 from .file import File, CodeFileExtension, DocsFileExtension, FileProcesingStatus, FileCitation, CitationDto
 from .chroma import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse, DeleteCollectionRequest
@@ -13,6 +13,7 @@ from .mcp import MCPConfig
 __all__ = [
     "ChatRequest", 
     "DataSourceRequest", 
+    "CreateDataSourceRequest",
     "ProjectRequest", 
     "File", 
     "CodeFileExtension", 

@@ -7,17 +7,19 @@ from sqlalchemy.orm import Session
 
 
 
-from app.pydantic import DataSourceRequest
+from app.pydantic import DataSourceRequest, CreateDataSourceRequest
 from app.models import DataSource, Project, ProjectData
 from app.core import settings
+from app.services.mcp import MCPService
 
 logger = logging.getLogger(__name__)
 
 
 class DataSourceService:
     
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, mcp_service: MCPService):
         self.db: Session = db
+        self.mcp_service: MCPService = mcp_service
 
     def get_data_source_by_id(self, data_source_id: UUID) -> DataSource:
         """
@@ -33,31 +35,35 @@ class DataSourceService:
         return data_source
         
 
-    def create_data_source(self, request: DataSourceRequest) -> dict[str, object]:
+    def create_data_source(self, request: CreateDataSourceRequest) -> dict[str, object]:
         """
         Functionality to persist new DataSource based on specified request
         """
 
-        self._validate_data_source_request(request)
+        # extract data source and MCP config (if any) from request
+        data_source_request = request.data_source
+        mcp_config = request.mcp_config
+
+        self._validate_data_source_request(data_source_request)
 
         # create data source
-        if request.provider == "GitHub" and not request.branch: #TODO: Make this more Generic (any provider liek Bitbucket same deal)
-            request.branch = "main"
-        data_source = DataSource(provider=request.provider, url=request.url, name=request.name, branch=request.branch)
+        if data_source_request.provider == "GitHub" and not data_source_request.branch: #TODO: Make this more Generic (any provider liek Bitbucket same deal)
+            data_source_request.branch = "main"
+        data_source = DataSource(provider=data_source_request.provider, url=data_source_request.url, name=data_source_request.name, branch=data_source_request.branch)
 
         # persist & flush new record
         self.db.add(data_source)
         self.db.flush()
 
         # retrieve Projects corresponding to IDs specified in request
-        project_ids = request.project_ids
+        project_ids = data_source_request.project_ids
         stmt = select(Project).where(Project.id.in_(project_ids))
         projects = self.db.execute(stmt).scalars().all()
 
         # ensure each project retrieved successfully
         if len(projects) != len(project_ids):
             found_ids = {str(project.id) for project in projects}
-            missing_ids = set(request.project_ids) - found_ids
+            missing_ids = set(data_source_request.project_ids) - found_ids
             raise Exception(
                 f"Failed to retrieve all Projects corresponding to follwoing Project Ids: {missing_ids}"
             )
@@ -72,6 +78,10 @@ class DataSourceService:
         # flush to ensure relationships are loaded/persisted
         self.db.flush()
 
+        # create MCP Configuration if provided
+        if mcp_config:
+            mcp_config = self.mcp_service.find_or_create_mcp_config(mcp_config, data_source.id)
+
         return {
             "id": data_source.id,
             "provider": data_source.provider,
@@ -79,6 +89,7 @@ class DataSourceService:
             "branch": data_source.branch,
             "config": {"url": data_source.url},
             "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
+            "mcp_config": mcp_config
         }
 
     def get_project_data_sources(self, project_id: UUID) -> list[dict[str, object]]:

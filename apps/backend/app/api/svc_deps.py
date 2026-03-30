@@ -11,7 +11,8 @@ from app.services import (
     MessageService,
     CitationService,
     ChunkRetrievalService,
-    ChunkInsertionService
+    ChunkInsertionService,
+    MCPService
 )
 
 from app.core import (
@@ -74,9 +75,22 @@ def get_project_svc(
     return ProjectService(db=db, chroma_svc=chroma_svc)
 
 
+def get_mcp_svc(
+        db: Session = Depends(get_sync_db_session)
+):
+    """
+    Setup MCPService dependency
+
+    Args:
+        db (Session): current DB session
+    """
+    
+    return MCPService(db=db)
+
 
 def get_data_source_svc(
-        db: Session = Depends(get_sync_db_session)
+        db: Session = Depends(get_sync_db_session),
+        mcp_service: MCPService = Depends(get_mcp_svc)
 ):
     """
     Setup DataSourceService dependency
@@ -85,7 +99,7 @@ def get_data_source_svc(
         db (Session): current DB session
     """
     
-    return DataSourceService(db=db)
+    return DataSourceService(db=db, mcp_service=mcp_service)
 
 
 
