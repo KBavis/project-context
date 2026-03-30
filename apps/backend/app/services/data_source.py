@@ -46,10 +46,20 @@ class DataSourceService:
 
         self._validate_data_source_request(data_source_request)
 
+        # configure MCP Config if provided 
+        if mcp_config:
+            mcp_config = self.mcp_service.find_or_create_mcp_config(mcp_config)
+
         # create data source
         if data_source_request.provider == "GitHub" and not data_source_request.branch: #TODO: Make this more Generic (any provider liek Bitbucket same deal)
             data_source_request.branch = "main"
-        data_source = DataSource(provider=data_source_request.provider, url=data_source_request.url, name=data_source_request.name, branch=data_source_request.branch)
+        data_source = DataSource(
+            provider=data_source_request.provider, 
+            url=data_source_request.url, 
+            name=data_source_request.name, 
+            branch=data_source_request.branch, 
+            mcp_config_id=mcp_config.id if mcp_config else None
+        )
 
         # persist & flush new record
         self.db.add(data_source)
@@ -78,9 +88,6 @@ class DataSourceService:
         # flush to ensure relationships are loaded/persisted
         self.db.flush()
 
-        # create MCP Configuration if provided
-        if mcp_config:
-            mcp_config = self.mcp_service.find_or_create_mcp_config(mcp_config, data_source.id)
 
         return {
             "id": data_source.id,
@@ -89,7 +96,7 @@ class DataSourceService:
             "branch": data_source.branch,
             "config": {"url": data_source.url},
             "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
-            "mcp_config": mcp_config
+            "mcp_config": mcp_config if mcp_config else None
         }
 
     def get_project_data_sources(self, project_id: UUID) -> list[dict[str, object]]:

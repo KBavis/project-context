@@ -10,10 +10,10 @@ class MCPService:
     def __init__(self, db: Session):
         self.db = db
 
-    def find_or_create_mcp_config(self, mcp_config: PydanticMCPConfig, data_source_id: UUID) -> MCPConfig:
+    def find_or_create_mcp_config(self, mcp_config: PydanticMCPConfig) -> MCPConfig:
         """
         Find an existing MCP Configuration corresponding to the provided MCP Configuration, or 
-        go through and create the MCP Configuration 
+        go through and create the MCP Configuration.
 
         Args:
             mcp_config: The MCP Configuration to find or create
