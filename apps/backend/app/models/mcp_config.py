@@ -1,9 +1,15 @@
 from .base import Base 
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import text, String
-import uuid
 
+from enum import Enum
+from sqlalchemy import Enum as SAEnum
+
+
+class MCPTransportType(Enum):
+    STDIO = "stdio"
+    HTTP = "http"
 
 class MCPConfig(Base):
     
@@ -13,4 +19,19 @@ class MCPConfig(Base):
 
     name: Mapped[str] = mapped_column(String(255), nullable=False, description="The name of the MCP server")
 
-    # TODO: Finish me (include things like URL, Headers, Env Variables, Arguments, Commands , Transport Type, Timeout, etc)
+    transport_type: Mapped[MCPTransportType] = mapped_column(SAEnum(MCPTransportType), nullable=False, description="The transport type of the MCP server (i.e stdio, http)")
+
+    timeout: Mapped[int] = mapped_column(nullable=False, description="The timeout of the MCP server")
+
+    """
+    Local MCP (i.e transport_type = STDIO)
+        - command (i.e npx, python, node)
+        - args (i.e ["-y", "@modelcontextprotocol/server-openai"])
+        - env_variables (i.e {"OPENAI_API_KEY": "sk-1234567890"})
+        - cwd (directory where the command will be executed)
+    
+    Remote MCP (i.e transport_type = HTTP)
+        - url (i.e "https://api.openai.com/v1/mcp")
+        - headers (i.e {"Authorization": "Bearer sk-1234567890"})
+    """
+    config: Mapped[JSONB] = mapped_column(JSONB, nullable=False, description="The configuration of the MCP server (i.e command, url, headers, env variables, arguments, etc)")
