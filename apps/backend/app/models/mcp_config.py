@@ -1,10 +1,15 @@
 from .base import Base 
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import text, String
+from typing import TYPE_CHECKING
 
 from enum import Enum
 from sqlalchemy import Enum as SAEnum
+
+# avoid warning
+if TYPE_CHECKING:
+    from .data_source import DataSource
 
 
 class MCPTransportType(Enum):
@@ -35,3 +40,8 @@ class MCPConfig(Base):
         - headers (i.e {"Authorization": "Bearer sk-1234567890"})
     """
     config: Mapped[JSONB] = mapped_column(JSONB, nullable=False, description="The configuration of the MCP server (i.e command, url, headers, env variables, arguments, etc)")
+
+    # one to one relationship with DataSource
+    data_source: Mapped["DataSource"] = relationship(
+        back_populates="mcp_config"
+    )

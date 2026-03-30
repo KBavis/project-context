@@ -12,6 +12,7 @@ from .record_lock import RecordLock, RecordType
 from .collection import ChromaCollection
 from .citation import Citation
 from .docstore_chunk import DocstoreChunk
+from .mcp_config import MCPConfig
 
 __all__ = [
     "Base",
@@ -29,5 +30,6 @@ __all__ = [
     "ChromaCollection",
     "Sender",
     "Citation",
-    "DocstoreChunk"
+    "DocstoreChunk",
+    "MCPConfig"
 ]

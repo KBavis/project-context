@@ -2,7 +2,7 @@ from __future__ import annotations
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import List, TYPE_CHECKING
-from sqlalchemy import text
+from sqlalchemy import text, ForeignKey
 from uuid import UUID
 
 # avoid warning
@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from .ingestion_job import IngestionJob
     from .project_data import ProjectData
     from .file import File
+    from .mcp_config import MCPConfig
 
 
 class DataSource(Base):
@@ -35,6 +36,13 @@ class DataSource(Base):
         nullable=True,
         comment="Branch of the data source (i.e main, master, etc) if one is applicable",
     )
+
+
+    # one to one relationship with MCPConfig
+    mcp_config_id: Mapped["UUID"] = mapped_column(ForeignKey("mcp_config.id", ondelete="SET NULL"), nullable=True)
+    mcp_config: Mapped["MCPConfig"] = relationship(
+        back_populates="data_source", cascade="all, delete-orphan"
+    ) 
 
     # one to many relationship with IngestionJob
     ingestion_jobs: Mapped[List["IngestionJob"]] = relationship(
