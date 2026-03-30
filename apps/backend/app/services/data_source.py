@@ -33,6 +33,28 @@ class DataSourceService:
             raise Exception(f"Data Source with ID {data_source_id} not found")
 
         return data_source
+
+    def link_mcp_config_to_data_source(self, data_source_id: UUID, mcp_config_id: UUID) -> DataSource:
+        """
+        Functionality to link an MCP Configuration to a Data Source
+
+        Args:
+            data_source_id: The ID of the Data Source to link to
+            mcp_config_id: The ID of the MCP Configuration to link to
+        """
+
+        try:
+            data_source = self.get_data_source_by_id(data_source_id)
+            _ = self.mcp_service.get_mcp_by_id(mcp_config_id) # just validate that the MCP Config exists
+
+            data_source.mcp_config_id = mcp_config_id 
+            self.db.add(data_source)
+            self.db.flush()
+
+            return data_source
+        except Exception as e:
+            raise Exception(f"Failed to link MCP Configuration to Data Source: {e}")
+
         
 
     def create_data_source(self, request: CreateDataSourceRequest) -> dict[str, object]:
