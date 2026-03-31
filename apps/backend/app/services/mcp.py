@@ -6,7 +6,7 @@ from app.models.mcp_config import MCPTransportType
 from app.pydantic import MCPConfig as PydanticMCPConfig, HttpConfig, StdioConfig
 
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import Select, select
 
 
 logger = logging.getLogger(__name__)
@@ -43,31 +43,51 @@ class MCPService:
         """
         Get an MCP Configuration corresponding to the provided MCP Configuration
 
-        TODO: FINISH ME!
+        Args:
+            mcp_config: The MCP Configuration to get
+        """
+
+        # conditionally determine which fields to filter on based on transport type 
+        stmt = self._get_mcp_stmt(mcp_config)
+        
+        res = self.db.execute(stmt)
+        return res.scalar_one_or_none()
+
+    def _get_mcp_stmt(self, mcp_config: PydanticMCPConfig) -> Select[tuple[MCPConfig]]:
+        """
+        Get the statement for retrieving an MCP Configuration
 
         Args:
             mcp_config: The MCP Configuration to get
         """
-        
-        # conditionally determine which fields to filter on based on transport type 
-        stmt = (
-            select(MCPConfig)
-            .where(MCPConfig.name == mcp_config.name)
-            .where(MCPConfig.config.get("url", None) == mcp_config.config.url)
-            .where(MCPConfig.config.get("headers", None) == mcp_config.config.headers)
-        ) if mcp_config.transport_type == MCPTransportType.HTTP else (
-            select(MCPConfig)
-            .where(MCPConfig.name == mcp_config.name)
-            .where(MCPConfig.command == mcp_config.command)
-            .where(MCPConfig.args == mcp_config.args)
-            .where(MCPConfig.env_variables == mcp_config.env_variables)
-            .where(MCPConfig.cwd == mcp_config.cwd)
-        )
 
-        res = self.db.execute(stmt)
-        return res.scalar_one_or_none()
-        
-    
+        if mcp_config.transport_type == MCPTransportType.HTTP:
+            if not isinstance(mcp_config.config, HttpConfig):
+                raise ValueError("Invalid MCP Configuration: HTTP transport type requires HttpConfig")
+
+            http_config: HttpConfig = mcp_config.config 
+            return (
+                select(MCPConfig)
+                .where(MCPConfig.name == mcp_config.name)
+                .where(MCPConfig.config["url"] == http_config.url)
+                .where(MCPConfig.config["headers"] == http_config.headers)
+            )
+        elif mcp_config.transport_type == MCPTransportType.STDIO:
+            if not isinstance(mcp_config.config, StdioConfig):
+                raise ValueError("Invalid MCP Configuration: STDIO transport type requires StdioConfig")
+
+            stdio_config: StdioConfig = mcp_config.config 
+            return (
+                select(MCPConfig)
+                .where(MCPConfig.name == mcp_config.name)
+                .where(MCPConfig.config["command"] == stdio_config.command)
+                .where(MCPConfig.config["args"] == stdio_config.args)
+                .where(MCPConfig.config["env_variables"] == stdio_config.env_variables)
+                .where(MCPConfig.config["cwd"] == stdio_config.cwd)
+            )
+        else:
+            raise ValueError(f"Invalid MCP Configuration: Unknown transport type {mcp_config.transport_type}")
+            
 
     def create_mcp(self, mcp_config: PydanticMCPConfig) -> MCPConfig:
         """
