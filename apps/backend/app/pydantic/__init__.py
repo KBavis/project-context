@@ -8,7 +8,7 @@ from .status import ProcessingStatus
 from .conversation import CreateConversationRequest, UpdateConversationRequest
 from .message import MessageRequest, MessageResponse as PromptResponse, MessageDto
 from .query import QueryRequest, QueryResponse
-from .mcp import MCPConfig
+from .mcp import MCPConfig, HttpConfig, StdioConfig
 
 __all__ = [
     "ChatRequest", 
@@ -33,5 +33,7 @@ __all__ = [
     "PromptResponse",
     "MessageDto",
     "DeleteCollectionRequest",
-    "MCPConfig"
+    "MCPConfig",
+    "HttpConfig",
+    "StdioConfig"
 ]
