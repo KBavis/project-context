@@ -12,6 +12,10 @@ from sqlalchemy import Select, select
 logger = logging.getLogger(__name__)
 
 class MCPService:
+    """
+    Service for handling MCP creation and retrieval 
+
+    """
     def __init__(self, db: Session):
         self.db = db
         
@@ -96,6 +100,21 @@ class MCPService:
         Args:
             mcp_config: The MCP Configuration to create
         """
+        # validate the MCP Configuration request by performing a "happy path" request to the MCP server
+        self._validate_mcp_config_request_happy_path(mcp_config)
+
+        # create the MCP Configuration
+        model = MCPConfig(
+            name=mcp_config.name,
+            transport_type=mcp_config.transport_type,
+            config=mcp_config.config.model_dump(),
+            timeout=mcp_config.timeout,
+        )
+
+        self.db.add(model)
+        self.db.flush()
+
+        return model
 
     def get_mcp_configs(self) -> list[MCPConfig]:
         """
@@ -123,21 +142,23 @@ class MCPService:
         Args:
             mcp_config: The MCP Configuration request to validate
         """
+        if (mcp_config.transport_type == MCPTransportType.HTTP and not isinstance(mcp_config.config, HttpConfig)):
+            raise ValueError("Invalid MCP Configuration: HTTP transport type requires HttpConfig")
         
+        if (mcp_config.transport_type == MCPTransportType.STDIO and not isinstance(mcp_config.config, StdioConfig)):
+            raise ValueError("Invalid MCP Configuration: STDIO transport type requires StdioConfig")
     
 
     def _validate_mcp_config_request_happy_path(self, mcp_config: PydanticMCPConfig):
         """
         Validate the provided MCP Configuration request by performing a "happy path" request to the MCP server
 
+        TODO: Implement me 
+
         Args:
             mcp_config: The MCP Configuration request to validate
         """
 
-        if (mcp_config.transport_type == MCPTransportType.HTTP and not isinstance(mcp_config.config, HttpConfig)):
-            raise ValueError("Invalid MCP Configuration: HTTP transport type requires HttpConfig")
-        
-        if (mcp_config.transport_type == MCPTransportType.STDIO and not isinstance(mcp_config.config, StdioConfig)):
-            raise ValueError("Invalid MCP Configuration: STDIO transport type requires StdioConfig")
+        return
 
         
