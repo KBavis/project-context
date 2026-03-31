@@ -1,5 +1,6 @@
 from uuid import UUID
 import logging 
+import asyncio
 
 from app.models import MCPConfig
 from app.models.mcp_config import MCPTransportType
@@ -7,6 +8,9 @@ from app.pydantic import MCPConfig as PydanticMCPConfig, HttpConfig, StdioConfig
 
 from sqlalchemy.orm import Session
 from sqlalchemy import Select, select
+
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 
 logger = logging.getLogger(__name__)
@@ -101,7 +105,7 @@ class MCPService:
             mcp_config: The MCP Configuration to create
         """
         # validate the MCP Configuration request by performing a "happy path" request to the MCP server
-        self._validate_mcp_config_request_happy_path(mcp_config)
+        asyncio.run(self._validate_mcp_server_handshake(mcp_config))
 
         # create the MCP Configuration
         model = MCPConfig(
@@ -149,7 +153,7 @@ class MCPService:
             raise ValueError("Invalid MCP Configuration: STDIO transport type requires StdioConfig")
     
 
-    def _validate_mcp_config_request_happy_path(self, mcp_config: PydanticMCPConfig):
+    async def _validate_mcp_server_handshake(self, mcp_config: PydanticMCPConfig):
         """
         Validate the provided MCP Configuration request by performing a "happy path" request to the MCP server
 
@@ -159,6 +163,55 @@ class MCPService:
             mcp_config: The MCP Configuration request to validate
         """
 
-        return
+        if mcp_config.transport_type == MCPTransportType.HTTP:
+            # TODO: Make the request to HTTP Server and validate the response 
+            raise Exception("Not implemented")
+        elif mcp_config.transport_type == MCPTransportType.STDIO:
+            # ensure stdio_config is a StdioConfig
+            stdio_config: StdioConfig | None = mcp_config.config if isinstance(mcp_config.config, StdioConfig) else None
+            if not stdio_config:
+                raise ValueError("Invalid MCP Configuration: STDIO transport type requires StdioConfig")
+            await self.perform_stdio_happy_path(stdio_config)
+        else:
+            raise Exception(f"Invalid MCP Configuration: Unknown transport type {mcp_config.transport_type}")
+    
 
+    async def perform_stdio_happy_path(self, stdio_config: StdioConfig):
+        """
+        Perform validation on the provided STDIO configuration
+
+        Args:
+            stdio_config: The STDIO configuration to validate
+        """
         
+        server_params = StdioServerParameters(
+            command = stdio_config.command,
+            args = stdio_config.args,
+            env = stdio_config.env_variables,
+            cwd = stdio_config.cwd,
+        )
+
+        async with stdio_client(server_params) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:
+
+                # 1. Initlaize session
+                await session.initialize()
+
+                # 2. List Tools 
+                tools_result = await session.list_tools() 
+                if not tools_result.tools:
+                    raise Exception(f"MCP Server with configuration {stdio_config} has no available tools")
+
+                # 3. List Resources
+                resources_result = await session.list_resources()
+                if not resources_result.resources:
+                    raise Exception(f"MCP Server with configuration {stdio_config} has no available resources")
+
+                
+                #TODO: Consider running "happy path tool" here (not sure if there is a standard no-arg tool we can leverage here )
+
+                
+            
+
+
+                
