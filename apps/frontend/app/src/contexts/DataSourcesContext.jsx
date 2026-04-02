@@ -1,76 +1,100 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { api } from '../services/api';
-import { useProjects } from './ProjectContext';
+import api from '../services/api';
 
 const DataSourcesContext = createContext();
 
-export function useDataSources() {
+export const useDataSources = () => {
     const context = useContext(DataSourcesContext);
     if (!context) {
         throw new Error('useDataSources must be used within a DataSourcesProvider');
     }
     return context;
-}
+};
 
-export function DataSourcesProvider({ children }) {
-    const { selectedProject } = useProjects();
+export const DataSourcesProvider = ({ children }) => {
     const [dataSources, setDataSources] = useState([]);
-    const [loading, setLoading] = useState(false);
+    const [mcpConfigs, setMcpConfigs] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    const fetchDataSources = useCallback(async () => {
+    const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            // Fetch all data sources globally instead of filtering by project
-            const data = await api.dataSources.list();
-            setDataSources(data);
+            const [dsData, mcpData] = await Promise.all([
+                api.dataSources.getAll(),
+                api.mcp.getConfigs()
+            ]);
+            setDataSources(dsData);
+            setMcpConfigs(mcpData);
+            setError(null);
         } catch (err) {
-            setError(err.message);
+            setError('Failed to fetch data sources');
+            console.error(err);
         } finally {
             setLoading(false);
         }
     }, []);
 
     useEffect(() => {
-        fetchDataSources();
-    }, [fetchDataSources]);
-
-    const createDataSource = async (type, config, projectIds) => {
-        const ids = Array.isArray(projectIds) ? projectIds : [selectedProject?.id].filter(Boolean);
-        if (ids.length === 0) throw new Error('No projects specified');
-
-        try {
-            const ds = await api.dataSources.create(ids, type, config);
-            setDataSources(prev => [...prev, ds]);
-            return ds;
-        } catch (err) {
-            console.error('Failed to create data source:', err);
-            throw err;
-        }
-    };
+        fetchData();
+    }, [fetchData]);
 
     const deleteDataSource = async (id) => {
         try {
             await api.dataSources.delete(id);
             setDataSources(prev => prev.filter(ds => ds.id !== id));
         } catch (err) {
-            console.error('Failed to delete data source:', err);
+            setError('Failed to delete data source');
             throw err;
         }
     };
 
-    const value = {
-        dataSources,
-        loading,
-        error,
-        createDataSource,
-        deleteDataSource,
-        fetchDataSources
+
+    const createDataSource = async (provider, config, projectIds) => {
+        try {
+            const newDataSource = await api.dataSources.create(provider, config, projectIds);
+            setDataSources(prev => [...prev, newDataSource]);
+            return newDataSource;
+        } catch (err) {
+            setError('Failed to create data source');
+            throw err;
+        }
+    };
+
+    const createMcpConfig = async (config) => {
+        try {
+            const newConfig = await api.mcp.createConfig(config);
+            setMcpConfigs(prev => [...prev, newConfig]);
+            return newConfig;
+        } catch (err) {
+            setError('Failed to create MCP configuration');
+            throw err;
+        }
+    };
+
+    const deleteMcpConfig = async (id) => {
+        try {
+            await api.mcp.deleteConfig(id);
+            setMcpConfigs(prev => prev.filter(c => c.id !== id));
+        } catch (err) {
+            setError('Failed to delete MCP configuration');
+            throw err;
+        }
     };
 
     return (
-        <DataSourcesContext.Provider value={value}>
+        <DataSourcesContext.Provider value={{ 
+            dataSources, 
+            mcpConfigs, 
+            loading, 
+            error, 
+            fetchData, 
+            deleteDataSource, 
+            createDataSource,
+            createMcpConfig,
+            deleteMcpConfig
+        }}>
             {children}
         </DataSourcesContext.Provider>
     );
-}
+};

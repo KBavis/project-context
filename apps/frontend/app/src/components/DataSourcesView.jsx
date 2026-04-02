@@ -7,7 +7,7 @@ import '../styles/IngestionJobsView.css';
 
 export default function DataSourcesView({ projectId }) {
     const { projects } = useProjects();
-    const { dataSources, loading: dsLoading, error, deleteDataSource, createDataSource } = useDataSources();
+    const { dataSources, loading: dsLoading, error, deleteDataSource, createDataSource, mcpConfigs, linkMcp } = useDataSources();
     const { ingestionJobs, createIngestionJob } = useIngestionJobs();
     const { showAlert } = useAlert();
 
@@ -40,7 +40,6 @@ export default function DataSourcesView({ projectId }) {
 
     const closeConfirmModal = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
 
-    // Filter jobs for specific data source and limit to latest 3
     const getLatestJobsForDataSource = (dsId) => {
         return ingestionJobs
             .filter(job => job.data_source_id === dsId)
@@ -262,18 +261,32 @@ export default function DataSourcesView({ projectId }) {
                                             </div>
                                             <p className="data-source-url" title={url}>{url}</p>
 
-                                            {ds.linked_projects && ds.linked_projects.length > 0 && (
-                                                <div className="data-source-projects">
-                                                    {ds.linked_projects.map(pId => {
-                                                        const p = projects.find(proj => proj.id === pId);
-                                                        return (
-                                                            <span key={pId} className={`project-tag ${pId === projectId ? 'active' : ''}`}>
-                                                                {p?.project_name || p?.name || 'Unknown Project'}
-                                                            </span>
-                                                        );
-                                                    })}
-                                                </div>
-                                            )}
+                                            <div className="data-source-meta-row">
+                                                {ds.linked_projects && ds.linked_projects.length > 0 && (
+                                                    <div className="data-source-projects">
+                                                        {ds.linked_projects.map(pId => {
+                                                            const p = projects.find(proj => proj.id === pId);
+                                                            return (
+                                                                <span key={pId} className={`project-tag ${pId === projectId ? 'active' : ''}`}>
+                                                                    {p?.project_name || p?.name || 'Unknown Project'}
+                                                                </span>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+
+                                                {ds.mcp_config ? (
+                                                    <div className="mcp-badge linked" title={`Connected to MCP: ${ds.mcp_config.name}`}>
+                                                        <span className="mcp-icon">⚡</span>
+                                                        <span className="mcp-name">{ds.mcp_config.name}</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="mcp-badge none" title="This data source is not currently linked to an MCP protocol server">
+                                                        <span className="mcp-icon">⚙️</span>
+                                                        <span>MCP: None</span>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
 
@@ -350,6 +363,7 @@ export default function DataSourcesView({ projectId }) {
             >
                 <p>{confirmModal.message}</p>
             </Modal>
+
         </div>
     );
 }

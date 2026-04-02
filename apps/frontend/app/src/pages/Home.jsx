@@ -3,6 +3,7 @@ import ChatInterface from '../components/ChatInterface';
 import CreateConversationModal from '../components/CreateConversationModal';
 import CreateProjectModal from '../components/CreateProjectModal';
 import DataSourcesView from '../components/DataSourcesView';
+import MCPConfigsView from '../components/MCPConfigsView';
 import IngestionJobsView from '../components/IngestionJobsView';
 import AlertContainer from '../components/Alert';
 import { useProjects, useConversations } from '../contexts/index';
@@ -49,6 +50,14 @@ export default function Home({ view }) {
                     >
                         <span className="nav-icon">⚙️</span>
                         <span>Ingestion Jobs</span>
+                    </button>
+
+                    <button
+                        className={`nav-item ${currentView === 'mcp' ? 'active' : ''}`}
+                        onClick={() => setCurrentView('mcp')}
+                    >
+                        <span className="nav-icon">⚡</span>
+                        <span>MCP Configs</span>
                     </button>
                 </nav>
 
@@ -126,6 +135,10 @@ export default function Home({ view }) {
 
                 {currentView === 'ingestion' && (
                     <IngestionJobsView projectId={selectedProject?.id} />
+                )}
+
+                {currentView === 'mcp' && (
+                    <MCPConfigsView />
                 )}
             </main>
 

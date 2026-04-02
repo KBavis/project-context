@@ -107,7 +107,7 @@ export const api = {
 
     // Data Source endpoints
     dataSources: {
-        list: async (projectId) => {
+        getAll: async (projectId) => {
             if (projectId) {
                 const response = await fetch(`${API_BASE_URL}/data/sources/${projectId}`); // Use project-specific list
                 return handleResponse(response);
@@ -116,16 +116,16 @@ export const api = {
             return handleResponse(response);
         },
 
-        create: async (projectIds, dataSourceType, config) => {
-            const response = await fetch(`${API_BASE_URL}/data/sources/`, { // Fixed path
+        create: async (provider, config, projectIds) => {
+            const response = await fetch(`${API_BASE_URL}/data/sources/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    provider: dataSourceType,
-                    url: config.url || '',
-                    name: config.name || '',
-                    branch: config.branch || null,
-                    project_ids: Array.isArray(projectIds) ? projectIds : [projectIds]
+                    provider,
+                    url: config.url,
+                    name: config.name,
+                    branch: config.branch,
+                    project_ids: projectIds
                 }),
             });
             return handleResponse(response);
@@ -133,6 +133,30 @@ export const api = {
 
         delete: async (dataSourceId) => {
             const response = await fetch(`${API_BASE_URL}/data/sources/${dataSourceId}`, {
+                method: 'DELETE',
+            });
+            return handleResponse(response);
+        },
+    },
+
+    // MCP Configuration endpoints
+    mcp: {
+        getConfigs: async () => {
+            const response = await fetch(`${API_BASE_URL}/mcp/configs/`);
+            return handleResponse(response);
+        },
+
+        createConfig: async (config) => {
+            const response = await fetch(`${API_BASE_URL}/mcp/configs/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config),
+            });
+            return handleResponse(response);
+        },
+
+        deleteConfig: async (configId) => {
+            const response = await fetch(`${API_BASE_URL}/mcp/configs/${configId}`, {
                 method: 'DELETE',
             });
             return handleResponse(response);
@@ -165,3 +189,5 @@ export const api = {
         },
     },
 };
+
+export default api;
