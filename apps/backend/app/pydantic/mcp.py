@@ -8,13 +8,15 @@ from app.models.mcp_config import MCPTransportType
 class Command(str, Enum):
     NPX = "npx"
     PYTHON = "python"
+    PYTHON3 = "python3"
     NODE = "node"
     DOCKER = "docker"
+    UV = "uv"
 
 class StdioConfig(BaseModel):
     command: Command
     args: list[str]
-    cwd: str
+    cwd: str | None = None
 
     # optional env variables (these will be retrieved from settings dynamically to avoid user specifying these in request)
     env_variables: dict[str, str] | None = None
