@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 
 
-from app.pydantic import DataSourceRequest, CreateDataSourceRequest
+from app.pydantic import DataSourceRequest
 from app.models import DataSource, Project, ProjectData
 from app.core import settings
 from app.services.mcp import MCPService
@@ -33,44 +33,14 @@ class DataSourceService:
             raise Exception(f"Data Source with ID {data_source_id} not found")
 
         return data_source
-
-    def link_mcp_config_to_data_source(self, data_source_id: UUID, mcp_config_id: UUID) -> DataSource:
-        """
-        Functionality to link an MCP Configuration to a Data Source
-
-        Args:
-            data_source_id: The ID of the Data Source to link to
-            mcp_config_id: The ID of the MCP Configuration to link to
-        """
-
-        try:
-            data_source = self.get_data_source_by_id(data_source_id)
-            _ = self.mcp_service.get_mcp_by_id(mcp_config_id) # just validate that the MCP Config exists
-
-            data_source.mcp_config_id = mcp_config_id 
-            self.db.add(data_source)
-            self.db.flush()
-
-            return data_source
-        except Exception as e:
-            raise Exception(f"Failed to link MCP Configuration to Data Source: {e}")
-
         
 
-    def create_data_source(self, request: CreateDataSourceRequest) -> dict[str, object]:
+    def create_data_source(self, data_source_request: DataSourceRequest) -> dict[str, object]:
         """
         Functionality to persist new DataSource based on specified request
         """
 
-        # extract data source and MCP config (if any) from request
-        data_source_request = request.data_source
-        mcp_config = request.mcp_config
-
         self._validate_data_source_request(data_source_request)
-
-        # configure MCP Config if provided 
-        if mcp_config:
-            mcp_config = self.mcp_service.find_or_create_mcp_config(mcp_config)
 
         # create data source
         if data_source_request.provider == "GitHub" and not data_source_request.branch: #TODO: Make this more Generic (any provider liek Bitbucket same deal)
@@ -79,8 +49,7 @@ class DataSourceService:
             provider=data_source_request.provider, 
             url=data_source_request.url, 
             name=data_source_request.name, 
-            branch=data_source_request.branch, 
-            mcp_config_id=mcp_config.id if mcp_config else None
+            branch=data_source_request.branch
         )
 
         # persist & flush new record
@@ -94,7 +63,7 @@ class DataSourceService:
 
         # ensure each project retrieved successfully
         if len(projects) != len(project_ids):
-            found_ids = {str(project.id) for project in projects}
+            found_ids = {(project.id) for project in projects}
             missing_ids = set(data_source_request.project_ids) - found_ids
             raise Exception(
                 f"Failed to retrieve all Projects corresponding to follwoing Project Ids: {missing_ids}"
@@ -117,8 +86,7 @@ class DataSourceService:
             "name": data_source.name,
             "branch": data_source.branch,
             "config": {"url": data_source.url},
-            "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
-            "mcp_config": mcp_config if mcp_config else None
+            "linked_projects": [str(pd.project_id) for pd in data_source.project_data]
         }
 
     def get_project_data_sources(self, project_id: UUID) -> list[dict[str, object]]:
