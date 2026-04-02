@@ -3,9 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.services.mcp import MCPService
 from app.pydantic import MCPConfig as PydanticMCPConfig
 from ..svc_deps import get_mcp_svc
+
 from uuid import UUID
+import logging
 
 router = APIRouter(prefix="/mcp/configs")
+
+logger = logging.getLogger(__name__)
 
 @router.get("/", summary="Retrieve all MCP configurations")
 def get_mcp_configs(
@@ -15,6 +19,7 @@ def get_mcp_configs(
     Retrieve all MCP configurations
     """
     try:
+        logging.info("Recieved request to get all MCP configurations")
         configs = svc.get_mcp_configs()
         return [
             {
@@ -46,6 +51,7 @@ def create_mcp_config(
     Create a new MCP configuration
     """
     try:
+        logging.info(f"Recieved request to create MCP configuration: {request}")
         config = svc.create_mcp(request)
         return {
             "id": config.id,
