@@ -18,11 +18,20 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 
-# install libGL and tesseract (OpenCV dep used by Docling requires it)
+# install libGL, tesseract, Docker CLI, and Node.js
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
     tesseract-ocr \
+    curl \
+    ca-certificates \
+    gnupg \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get update && apt-get install -y \
+    docker-ce-cli \
+    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 
