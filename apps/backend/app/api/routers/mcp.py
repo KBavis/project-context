@@ -88,3 +88,19 @@ def get_mcp_config(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
         )
+
+@router.delete("/{mcp_config_id}", summary="Delete a specific MCP configuration")
+def delete_mcp_config(
+    mcp_config_id: UUID,
+    svc: MCPService = Depends(get_mcp_svc)
+):
+    """
+    Delete a specific MCP configuration
+    """
+    try:
+        svc.delete_mcp(mcp_config_id)
+        return {"id": mcp_config_id, "status": "deleted"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
+        )

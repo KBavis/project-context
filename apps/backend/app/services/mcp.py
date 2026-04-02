@@ -142,6 +142,14 @@ class MCPService:
             raise Exception(f"MCP Configuration with ID {id} not found")
         return mcp_config
     
+    def delete_mcp(self, id: UUID):
+        """
+        Delete an MCP Configuration by its ID
+        """
+        mcp_config = self.get_mcp_by_id(id)
+        self.db.delete(mcp_config)
+        self.db.commit()
+    
 
     def _validate_mcp_config_request_fields(self, mcp_config: PydanticMCPConfig):
         """
