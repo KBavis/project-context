@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from uuid import UUID
 
-from torch import embedding
+
 
 from app.core import settings
 
