@@ -113,6 +113,7 @@ class MCPService:
             transport_type=mcp_config.transport_type,
             config=mcp_config.config.model_dump(),
             timeout=mcp_config.timeout,
+            data_source_id=mcp_config.data_source_id
         )
 
         self.db.add(model)

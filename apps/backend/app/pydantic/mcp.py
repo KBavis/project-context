@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pydantic import BaseModel
 from enum import Enum
+from uuid import UUID
 
 class Command(str, Enum):
     NPX = "npx"
@@ -26,3 +27,4 @@ class MCPConfig(BaseModel):
     transport_type: str
     timeout: int
     config: StdioConfig | HttpConfig
+    data_source_id: UUID
