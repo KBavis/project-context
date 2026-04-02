@@ -2,7 +2,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.services import DataSourceService
-from app.pydantic import CreateDataSourceRequest
+from app.pydantic import DataSourceRequest
 from ..svc_deps import get_data_source_svc
 
 from uuid import UUID
@@ -28,7 +28,7 @@ def get_data_sources(
 
 @router.post("/", summary="Connect to external data source")
 def create_datasource(
-    request: CreateDataSourceRequest, 
+    request: DataSourceRequest, 
     svc: DataSourceService = Depends(get_data_source_svc)
 ):
     """
@@ -43,21 +43,6 @@ def create_datasource(
         )
 
 
-@router.post("/{data_source_id}/mcp/{mcp_config_id}", summary="Link a Data Source to an MCP Configuration")
-def link_data_source_to_mcp_config(
-    data_source_id: UUID,
-    mcp_config_id: UUID,
-    svc: DataSourceService = Depends(get_data_source_svc)
-):
-    """
-    Link a Data Source to an MCP Configuration
-    """
-    try:
-        return svc.link_mcp_config_to_data_source(data_source_id, mcp_config_id)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
-        )
 
 # TODO: Add logic to associate existing DataSource to new Project
 
