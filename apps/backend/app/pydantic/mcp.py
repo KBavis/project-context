@@ -6,6 +6,7 @@ class Command(str, Enum):
     NPX = "npx"
     PYTHON = "python"
     NODE = "node"
+    DOCKER = "docker"
 
 class StdioConfig(BaseModel):
     command: Command
