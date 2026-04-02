@@ -1,7 +1,7 @@
 from .base import Base 
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import text, String
+from sqlalchemy import text, String, ForeignKey
 from typing import TYPE_CHECKING
 
 from enum import Enum
@@ -42,6 +42,7 @@ class MCPConfig(Base):
     config: Mapped[JSONB] = mapped_column(JSONB, nullable=False, comment="The configuration of the MCP server (i.e command, url, headers, env variables, arguments, etc)")
 
     # one to one relationship with DataSource
+    data_source_id: Mapped["UUID"] = mapped_column(ForeignKey("data_source.id"))
     data_source: Mapped["DataSource"] = relationship(
-        back_populates="mcp_config", uselist=False
+        back_populates="mcp_config"
     )
