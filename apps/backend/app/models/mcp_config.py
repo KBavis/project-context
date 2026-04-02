@@ -22,11 +22,11 @@ class MCPConfig(Base):
 
     id: Mapped["UUID"] = mapped_column(UUID, primary_key=True, server_default=text("gen_random_uuid()"))
 
-    name: Mapped[str] = mapped_column(String(255), nullable=False, description="The name of the MCP server")
+    name: Mapped[str] = mapped_column(String(255), nullable=False, comment="The name of the MCP server")
 
-    transport_type: Mapped[MCPTransportType] = mapped_column(SAEnum(MCPTransportType), nullable=False, description="The transport type of the MCP server (i.e stdio, http)")
+    transport_type: Mapped[MCPTransportType] = mapped_column(SAEnum(MCPTransportType), nullable=False, comment="The transport type of the MCP server (i.e stdio, http)")
 
-    timeout: Mapped[int] = mapped_column(nullable=False, description="The timeout of the MCP server")
+    timeout: Mapped[int] = mapped_column(nullable=False, comment="The timeout of the MCP server")
 
     """
     Local MCP (i.e transport_type = STDIO)
@@ -39,9 +39,9 @@ class MCPConfig(Base):
         - url (i.e "https://api.openai.com/v1/mcp")
         - headers (i.e {"Authorization": "Bearer sk-1234567890"})
     """
-    config: Mapped[JSONB] = mapped_column(JSONB, nullable=False, description="The configuration of the MCP server (i.e command, url, headers, env variables, arguments, etc)")
+    config: Mapped[JSONB] = mapped_column(JSONB, nullable=False, comment="The configuration of the MCP server (i.e command, url, headers, env variables, arguments, etc)")
 
     # one to one relationship with DataSource
     data_source: Mapped["DataSource"] = relationship(
-        back_populates="mcp_config"
+        back_populates="mcp_config", uselist=False
     )

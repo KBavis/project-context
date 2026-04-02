@@ -41,7 +41,7 @@ class DataSource(Base):
     # one to one relationship with MCPConfig
     mcp_config_id: Mapped["UUID"] = mapped_column(ForeignKey("mcp_config.id", ondelete="SET NULL"), nullable=True)
     mcp_config: Mapped["MCPConfig"] = relationship(
-        back_populates="data_source", cascade="all, delete-orphan"
+        back_populates="data_source", cascade="all, delete-orphan", single_parent=True
     ) 
 
     # one to many relationship with IngestionJob
