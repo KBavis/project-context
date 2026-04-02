@@ -2,6 +2,9 @@ from uuid import UUID
 import logging 
 import asyncio
 
+import os
+import traceback
+
 from app.models import MCPConfig
 from app.models.mcp_config import MCPTransportType
 from app.pydantic import MCPConfig as PydanticMCPConfig, HttpConfig, StdioConfig
@@ -158,8 +161,6 @@ class MCPService:
         """
         Validate the provided MCP Configuration request by performing a "happy path" request to the MCP server
 
-        TODO: Implement me 
-
         Args:
             mcp_config: The MCP Configuration request to validate
         """
@@ -184,32 +185,38 @@ class MCPService:
         Args:
             stdio_config: The STDIO configuration to validate
         """
+
+        logger.debug(f"Performing happy path for STDIO configuration: {stdio_config}")
         
+        # ensure current environment is passed down (mandatory for finding binaries in PATH)
+        env = os.environ.copy()
+        if stdio_config.env_variables:
+            env.update(stdio_config.env_variables)
+
         server_params = StdioServerParameters(
-            command = stdio_config.command,
+            command = stdio_config.command.value if hasattr(stdio_config.command, 'value') else str(stdio_config.command),
             args = stdio_config.args,
-            env = stdio_config.env_variables,
-            cwd = stdio_config.cwd,
+            env = env,
+            cwd = stdio_config.cwd if stdio_config.cwd else None,
         )
 
-        async with stdio_client(server_params) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream) as session:
+        try:
+            async with stdio_client(server_params) as (read_stream, write_stream):
+                async with ClientSession(read_stream, write_stream) as session:
+                    # 1. Initialize session (Handshake)
+                    await session.initialize()
+                    logger.info(f"Successfully initialized session for MCP: {stdio_config.command}")
 
-                # 1. Initlaize session
-                await session.initialize()
+                    # 2. Tiny warm-up sleep to avoid race conditions with some servers
+                    await asyncio.sleep(0.1)
 
-                # 2. List Tools 
-                tools_result = await session.list_tools() 
-                if not tools_result.tools:
-                    raise Exception(f"MCP Server with configuration {stdio_config} has no available tools")
-
-                # 3. List Resources
-                resources_result = await session.list_resources()
-                if not resources_result.resources:
-                    raise Exception(f"MCP Server with configuration {stdio_config} has no available resources")
-
-                
-                #TODO: Consider running "happy path tool" here (not sure if there is a standard no-arg tool we can leverage here )
+                    # 3. Verify we can at least list tools (even if empty)
+                    await session.list_tools() 
+                    
+        except Exception:
+            error_trace = traceback.format_exc()
+            logger.error(f"Detailed MCP Connection Traceback:\n{error_trace}")
+            raise Exception(f"MCP Connection Failed: A task-level error occurred during communication. Check backend logs for the full trace.")
 
                 
             
