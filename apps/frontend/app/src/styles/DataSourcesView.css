@@ -694,38 +694,87 @@
     border-radius: 50%;
 }
 
-.spin {
-    animation: spin 0.8s linear infinite;
+.copy-btn-modern {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--color-text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    margin-left: auto;
+    user-select: none;
 }
 
-@keyframes spin {
-    to { transform: rotate(360deg); }
+.copy-btn-modern:hover {
+    background: rgba(var(--color-accent-rgb), 0.1);
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+    transform: translateY(-1px);
 }
 
-.detail-value.wrap-text {
-    word-break: break-all;
-    white-space: pre-wrap;
-    line-height: 1.5;
-    display: block;
+.copy-btn-modern:active {
+    transform: translateY(0);
+    background: rgba(var(--color-accent-rgb), 0.2);
 }
 
+.copy-btn-modern svg {
+    opacity: 0.8;
+}
 .command-display-container {
     display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    background: var(--color-bg-tertiary);
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    padding: 8px 12px;
     align-items: center;
     gap: 12px;
-    background: var(--color-bg-tertiary);
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
-    padding: 4px 6px 4px 12px; /* Less padding on right for button */
-    margin-top: 6px;
-    position: relative;
-    width: 100%;
+    background: #0d0f13; /* Very dark background for the code area */
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 6px 6px 6px 14px;
+    margin-top: 8px;
+    min-width: 0; /* Important for flex-child with internal text overflow/wrapping */
+}
+
+.command-display-container:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.detail-value.code-font.wrap-text {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+    flex: 1; /* Take up all available space */
+    min-width: 0;
+    word-break: break-all;
+    white-space: pre-wrap;
+    opacity: 0.9;
+}
+
+.copy-btn-modern {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--color-text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.copy-btn-modern:hover {
+    background: rgba(255, 255, 255, 0.08); /* Subtle highlight */
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #fff;
 }
 
 .copy-btn-minimal {
