@@ -3,6 +3,8 @@ from pydantic import BaseModel
 from enum import Enum
 from uuid import UUID
 
+from app.models.mcp_config import MCPTransportType
+
 class Command(str, Enum):
     NPX = "npx"
     PYTHON = "python"
@@ -24,7 +26,7 @@ class HttpConfig(BaseModel):
 
 class MCPConfig(BaseModel):
     name: str
-    transport_type: str
+    transport_type: MCPTransportType
     timeout: int
     config: StdioConfig | HttpConfig
     data_source_id: UUID
