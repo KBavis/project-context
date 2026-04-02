@@ -22,7 +22,14 @@ def get_mcp_configs(
                 "name": c.name,
                 "transport_type": c.transport_type.value,
                 "timeout": c.timeout,
-                "config": c.config
+                "config": c.config,
+                "data_source_id": c.data_source_id,
+                "data_source": {
+                    "id": c.data_source.id,
+                    "name": c.data_source.name,
+                    "provider": c.data_source.provider,
+                    "url": c.data_source.url
+                } if c.data_source else None
             } for c in configs
         ]
     except Exception as e:
