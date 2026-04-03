@@ -12,7 +12,8 @@ from app.services import (
     CitationService,
     ChunkRetrievalService,
     ChunkInsertionService,
-    MCPService
+    MCPService,
+    AgentService
 )
 
 from app.core import (
@@ -75,22 +76,8 @@ def get_project_svc(
     return ProjectService(db=db, chroma_svc=chroma_svc)
 
 
-def get_mcp_svc(
-        db: Session = Depends(get_sync_db_session)
-):
-    """
-    Setup MCPService dependency
-
-    Args:
-        db (Session): current DB session
-    """
-    
-    return MCPService(db=db)
-
-
 def get_data_source_svc(
-        db: Session = Depends(get_sync_db_session),
-        mcp_service: MCPService = Depends(get_mcp_svc)
+        db: Session = Depends(get_sync_db_session)
 ):
     """
     Setup DataSourceService dependency
@@ -99,14 +86,41 @@ def get_data_source_svc(
         db (Session): current DB session
     """
     
-    return DataSourceService(db=db, mcp_service=mcp_service)
+    return DataSourceService(db=db)
 
+
+def get_mcp_svc(
+        db: Session = Depends(get_sync_db_session),
+        data_source_svc: DataSourceService = Depends(get_data_source_svc)
+):
+    """
+    Setup MCPService dependency
+
+    Args:
+        db (Session): current DB session
+    """
+    
+    return MCPService(db=db, data_source_svc=data_source_svc)
 
 
 
 ##########################
 # Async Service Dependencies 
 ###########################
+
+def get_async_agent_svc(
+    db: AsyncSession = Depends(get_async_db_session),
+    mcp_svc: MCPService = Depends(get_mcp_svc)
+):
+    """
+    Setup async AgentService dependency
+
+    Args:
+        db (AsyncSession): async DB session
+        data_source_svc (DataSourceService): async data source service dependency
+        project_svc (ProjectService): async project service dependency
+    """
+    return AgentService(db=db, mcp_svc=mcp_svc)
 
 
 def get_async_file_svc(
@@ -229,7 +243,8 @@ def get_async_message_svc(
         db: AsyncSession = Depends(get_async_db_session),
         conversation_svc: ConversationService = Depends(get_async_conversation_svc),
         query_svc: QueryService = Depends(get_async_query_svc),
-        citation_svc: CitationService = Depends(get_async_citation_svc)
+        citation_svc: CitationService = Depends(get_async_citation_svc),
+        agent_svc: AgentService = Depends(get_async_agent_svc)
 ):
     """
     Setup async MessageService dependency 
@@ -239,6 +254,7 @@ def get_async_message_svc(
         conversation_svc (ConversationService): async conversation service dependency
         query_svc (QueryService): async query service dependency
         citation_svc (CitationService): async citation service dependency
+        agent_svc (AgentService): async agent service dependency
     """
 
-    return MessageService(db=db, conversation_svc=conversation_svc, query_svc=query_svc, citation_svc=citation_svc)
+    return MessageService(db=db, conversation_svc=conversation_svc, query_svc=query_svc, citation_svc=citation_svc, agent_svc=agent_svc)
