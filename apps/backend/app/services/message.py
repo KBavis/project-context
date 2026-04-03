@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from app.pydantic.file import FileCitation
 from app.services.conversation import ConversationService
+from app.services.agent import AgentService
 from app.services.citations import CitationService
 from app.services.query import QueryService
 from app.models import Message
@@ -32,12 +33,14 @@ class MessageService:
         db: AsyncSession,
         conversation_svc: ConversationService,
         query_svc: QueryService,
-        citation_svc: CitationService
+        citation_svc: CitationService,
+        agent_svc: AgentService
     ):
         self.db = db
         self.conversation_svc = conversation_svc
         self.query_svc = query_svc
         self.citation_svc = citation_svc
+        self.agent_svc = agent_svc
 
     
     async def get_messages(self, conversation_id: UUID):
@@ -116,6 +119,95 @@ class MessageService:
             model_message=self._get_message_dto(model_msg),
             conversation_id=conversation_id
         ) 
+
+    
+    async def agentic_send_message_stream(self, message: MessageRequest, conversation_id: UUID) -> AsyncGenerator[str, None]:
+        """
+        Stream response back to user, providing intermerdiate status updates, and leveraging an Agentic workflow 
+
+        Args:
+            message (MessageRequest): users prompt 
+            conversation_id (UUID): ID of the conversation to send the message to
+        
+        Yields:
+            str: SSE formatted event with intermediate status updates
+        """
+
+        try:
+            # 1. Initialize 
+            yield self._format_sse_event(StreamEventType.STATUS, "Initializing conversation context...", "Initializing")
+            
+            conversation = await self.conversation_svc.get_conversation(conversation_id)
+            if not conversation:
+                yield self._format_sse_event(StreamEventType.ERROR, f"Conversation {conversation_id} not found", "Error")
+                return
+
+            llm_manager = LLMManager(model_name=conversation.ll_model_name, provider=conversation.ll_model_provider)
+            llm = llm_manager.get_llm()
+
+
+
+            # 2. Generate Conversation Summary (if needed)
+            if conversation.summary is None:
+                logger.info(f"Conversation {conversation_id} has no summary, generating one...")
+                yield self._format_sse_event(StreamEventType.STATUS, "Generating conversation summary...", "Summarizing")
+                await self.conversation_svc.create_conversation_summary(conversation, message.content, llm_manager)
+
+
+            # 3. Retrieve Conversation History & Decompose Query If Needed
+            existing_messages = self.get_previous_k_messages(conversation)
+            if not existing_messages:
+                logger.debug(f"No existing messages found for conversation {conversation_id}")
+
+
+            # 4. Kick of Agentic Flow 
+            yield self._format_sse_event(StreamEventType.STATUS, "Executing Agentic Workflow...", "Executing")
+            response_stream = self.agent_svc.run_agent( 
+                llm,
+                message.content,
+                existing_messages,
+                conversation.project_id
+            )
+            
+            full_response = ""
+            async for token in response_stream:
+                full_response += token
+                yield self._format_sse_event(StreamEventType.CHUNK, token)
+
+            # 5. Finalize and Persist
+            yield self._format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
+            
+            user_prompt_tokens, model_output_tokens, total_tokens = await self.calculate_token_totals(message.content, full_response, llm)
+            query_result_for_save = QueryResponse(
+                user_prompt=message.content,
+                model_response=full_response,
+                user_input_tokens=user_prompt_tokens,
+                model_output_tokens=model_output_tokens,
+                total_tokens=total_tokens
+            )
+
+            user_msg, model_msg = await self.save_messages(
+                query_result_for_save,
+                conversation_id,
+                message.content_type,
+                len(conversation.messages)
+            )
+
+            await self.conversation_svc.update_total_tokens(conversation_id, total_tokens)
+            await self.db.commit() 
+
+            # 6. Final Metadata
+            yield self._format_sse_event(StreamEventType.METADATA, {
+                "user_message": self._get_message_dto(user_msg).model_dump(),
+                "model_message": self._get_message_dto(model_msg).model_dump(),
+                "conversation_id": str(conversation_id)
+            }, "Metadata")
+
+        except Exception as e:
+            logger.error(f"Error in agentic streaming for conversation {conversation_id}: {str(e)}", exc_info=True)
+            yield self._format_sse_event(StreamEventType.ERROR, str(e), "Error")
+            
+
 
 
 

@@ -22,6 +22,8 @@ async def send_message_sync(
     Args:
         message (MessageRequest): content of user sent Message
         db (AsyncSession): database session 
+
+    @deprecated: Use /agentic endpoint instead
     """
 
     try: 
@@ -41,10 +43,27 @@ async def send_message_stream(
     message_svc: MessageService = Depends(get_async_message_svc)
 ):
     """
-    Send a new message to a conversation and stream the response back via SSE.
+    Send a new message to a conversation and stream the response back via SSE.\
+
+    @deprecated: Use /agentic endpoint instead
     """
     return StreamingResponse(
         message_svc.send_message_stream(message, conversation_id),
+        media_type="text/event-stream"
+    )
+
+
+@router.post("/{conversation_id}/agentic", summary="Send a new message to a conversation and stream the response back via SSE")
+async def send_message_agentic_stream(
+    conversation_id: UUID,
+    message: MessageRequest,
+    message_svc: MessageService = Depends(get_async_message_svc)
+):
+    """
+    Send a new message to a conversation and stream the response back via SSE.
+    """
+    return StreamingResponse(
+        message_svc.agentic_send_message_stream(message, conversation_id),
         media_type="text/event-stream"
     )
 
