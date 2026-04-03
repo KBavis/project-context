@@ -256,7 +256,7 @@ class MCPService:
             logger.info(f"No MCP Servers configured for the Project {project_id}, no tooling will be avaialble asside from internal tools")
             return []
 
-        mcp_servers = []
+        mcp_servers: list[MCPConfig] = []
         for server_id in set(mcp_server_ids):
             server = self.get_mcp_by_id(server_id)
             if server:
@@ -272,14 +272,15 @@ class MCPService:
             if mcp_server.transport_type == MCPTransportType.STDIO:
 
                     # 1. validate that the MCP server is available for usage 
-                    await self.perform_stdio_happy_path(mcp_server.config)
+                    config: StdioConfig  = StdioConfig.model_validate(mcp_server.config)
+                    await self.perform_stdio_happy_path(config)
 
                     # 2. setup MCP client 
                     client = await self.get_mcp_client(mcp_server)
 
                     # 3. extract tools from MCP client
                     tool_spec = McpToolSpec(client=client)
-                    all_tools.extend(tool_spec.to_tool_list())
+                    all_tools.extend(await tool_spec.to_tool_list_async())
 
         # return relevant tools to be leveraged by Agent
         return all_tools 
