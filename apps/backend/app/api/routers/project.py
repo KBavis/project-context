@@ -6,6 +6,7 @@ from app.pydantic import ProjectRequest
 from ..svc_deps import get_project_svc
 
 from typing import List
+from uuid import UUID
 
 router = APIRouter(prefix="/projects")
 
@@ -38,6 +39,24 @@ def get_projects(
 
     try:
         return svc.get_all_projects()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
+        )
+
+
+@router.post("/{project_id}/data-sources/{data_source_id}", summary="Link data source to project")
+def link_data_source(
+    project_id: UUID,
+    data_source_id: UUID,
+    svc: ProjectService = Depends(get_project_svc)
+):
+    """
+    Associate an existing Data Source with a Project
+    """
+
+    try:
+        return svc.link_data_source_to_project(project_id, data_source_id)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"

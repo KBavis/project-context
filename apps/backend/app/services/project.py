@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.pydantic import ProjectRequest
 from app.services.chroma import ChromaService
-from app.models import Project
+from app.models import Project, ProjectData
+from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
@@ -92,3 +93,36 @@ class ProjectService:
         return [
             {"id": project.id, "name": project.project_name, "description": project.description} for project in projects
         ]
+
+    def link_data_source_to_project(self, project_id: UUID, data_source_id: UUID) -> dict:
+        """
+        Link an existing DataSource to this Project
+        """
+        try:
+            # check if relationship already exists
+            stmt = select(ProjectData).where(
+                ProjectData.project_id == project_id,
+                ProjectData.data_source_id == data_source_id
+            )
+            existing = self.db.execute(stmt).scalar_one_or_none()
+            
+            if existing:
+                return {"message": "Data source is already linked to this project", "status": "already_linked"}
+
+            # create association
+            association = ProjectData(
+                project_id=project_id,
+                data_source_id=data_source_id
+            )
+            self.db.add(association)
+            self.db.flush()
+            
+            return {
+                "message": f"Successfully linked data source {data_source_id} to project {project_id}",
+                "status": "success",
+                "project_id": project_id,
+                "data_source_id": data_source_id
+            }
+        except Exception as e:
+            logger.exception(f"Failure occurred while linking data source to project: {str(e)}")
+            raise e
