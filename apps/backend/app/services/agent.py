@@ -49,13 +49,18 @@ class AgentService:
 
         # 4. Stream events back to user
         async for event in handler.stream_events():
+            logger.info(f"Received Workflow Event: {type(event).__name__}")
             if isinstance(event, AgentStream):
-                yield event.delta
+                if event.delta:
+                    yield event.delta
             elif isinstance(event, ToolCallResult):
-                logger.debug(f"Tool called: {event.tool_name} -> {event.tool_output}")
+                logger.info(f"Tool called: {event.tool_name} -> {event.tool_output}")
+            elif hasattr(event, "msg"):
+                logger.info(f"Agent Message: {event.msg}")
         
         # 5. Wait for the final result
-        await handler
+        result = await handler
+        logger.info(f"Workflow Complete. Result: {result}")
 
 
     async def get_internal_tools(self, project_id):
