@@ -12,6 +12,7 @@ from .citations import CitationService
 from .chunk_retrieval import ChunkRetrievalService
 from .chunk_insertion import ChunkInsertionService
 from .mcp import MCPService
+from .agent import AgentService
 
 __all__ = [
     "DataSourceService", 
@@ -26,5 +27,6 @@ __all__ = [
     "CitationService",
     "ChunkRetrievalService",
     "ChunkInsertionService",
-    "MCPService"
+    "MCPService",
+    "AgentService"
 ]
