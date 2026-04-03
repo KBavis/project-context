@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 from uuid import UUID
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,16 +11,14 @@ from sqlalchemy.orm import Session
 from app.pydantic import DataSourceRequest
 from app.models import DataSource, Project, ProjectData
 from app.core import settings
-from app.services.mcp import MCPService
 
 logger = logging.getLogger(__name__)
 
 
 class DataSourceService:
     
-    def __init__(self, db: Session, mcp_service: MCPService):
+    def __init__(self, db: Session):
         self.db: Session = db
-        self.mcp_service: MCPService = mcp_service
 
     def get_data_source_by_id(self, data_source_id: UUID) -> DataSource:
         """
@@ -35,7 +34,7 @@ class DataSourceService:
         return data_source
         
 
-    def create_data_source(self, data_source_request: DataSourceRequest) -> dict[str, object]:
+    def create_data_source(self, data_source_request: DataSourceRequest) -> dict[str, Any]:
         """
         Functionality to persist new DataSource based on specified request
         """
@@ -89,7 +88,7 @@ class DataSourceService:
             "linked_projects": [str(pd.project_id) for pd in data_source.project_data]
         }
 
-    def get_project_data_sources(self, project_id: UUID) -> list[dict[str, object]]:
+    def get_project_data_sources(self, project_id: UUID) -> list[dict[str, Any]]:
         """
         Functionality to retreive persisted data_sourcs that correspond to particular Project ID
         """
@@ -120,7 +119,7 @@ class DataSourceService:
             for data_source in data_sources
         ]
 
-    def get_all_data_sources(self) -> list[dict[str, object]]:
+    def get_all_data_sources(self) -> list[dict[str, Any]]:
         """
         Functionality to retrieve all persisted data sources
         """
