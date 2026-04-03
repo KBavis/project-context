@@ -2,10 +2,11 @@ from uuid import UUID
 import logging 
 import asyncio
 
+
 import os
 import traceback
 
-from app.models import MCPConfig
+from app.models import DataSource, MCPConfig
 from app.models.mcp_config import MCPTransportType
 from app.pydantic import MCPConfig as PydanticMCPConfig, HttpConfig, StdioConfig
 
@@ -15,6 +16,11 @@ from sqlalchemy import Select, select
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from app.services.data_source import DataSourceService
+
+from llama_index.tools.mcp import BasicMCPClient, McpToolSpec
+from llama_index.core.tools import FunctionTool
+
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +29,10 @@ class MCPService:
     Service for handling MCP creation and retrieval 
 
     """
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, data_source_svc: DataSourceService):
         self.db = db
-        
+        self.data_source_svc = data_source_svc
+
 
     def find_or_create_mcp_config(self, mcp_config: PydanticMCPConfig) -> MCPConfig:
         """
@@ -227,7 +234,89 @@ class MCPService:
             raise Exception(f"MCP Connection Failed: A task-level error occurred during communication. Check backend logs for the full trace.")
 
                 
-            
+    
+
+    async def get_mcp_tools(self, project_id) -> list[FunctionTool]:
+        """
+        Retreive all MCP tools that are associated with a particular Project 
+
+        Args:
+            project_id: The ID of the project to retreive MCP tools for
+        """
+
+        # retrieve the Data Sources associated with the Project 
+        data_sources = self.data_source_svc.get_project_data_sources(project_id)
+        if not data_sources:
+            logger.error(f"No Data Sources found for Project ID: {project_id}")
+            raise Exception(f"Unable to retreive Context for the provided Question given the lack of Data Sources associated with the selected Project: {project_id}")
+        
+        # get MCP servers associated with the data sources 
+        mcp_server_ids = [ ds["mcp_config"]["id"] for ds in data_sources if ds["mcp_config"] ]
+        if not mcp_server_ids:
+            logger.info(f"No MCP Servers configured for the Project {project_id}, no tooling will be avaialble asside from internal tools")
+            return []
+
+        mcp_servers = []
+        for server_id in set(mcp_server_ids):
+            server = self.get_mcp_by_id(server_id)
+            if server:
+                mcp_servers.append(server)
+        
+        if not mcp_servers:
+            logger.info(f"Unable to retreive MCP Servers for Project ID: {project_id}")
+            return []
+
+        # get tools associated with each MCP server 
+        all_tools: list[FunctionTool] = []
+        for mcp_server in mcp_servers:
+            if mcp_server.transport_type == MCPTransportType.STDIO:
+
+                    # 1. validate that the MCP server is available for usage 
+                    await self.perform_stdio_happy_path(mcp_server.config)
+
+                    # 2. setup MCP client 
+                    client = await self.get_mcp_client(mcp_server)
+
+                    # 3. extract tools from MCP client
+                    tool_spec = McpToolSpec(client=client)
+                    all_tools.extend(tool_spec.to_tool_list())
+
+        # return relevant tools to be leveraged by Agent
+        return all_tools 
+
+        # TODO: FIGURE OUT WHERE DATA SOURCES ARE RETRIEVED SO THAT WE CAN PASS TO AGENT WORKFLOW FOR EXTRA CONTEXT 
+    
+
+
+
+    async def get_mcp_client(self, mcp_server: MCPConfig):
+        """
+        Setup MCP Client for the provided MCP Server Configuration stored in Database 
+
+        Args:
+            mcp_server: The MCP Server Configuration to setup a client for
+        """
+
+        if mcp_server.transport_type == MCPTransportType.STDIO:
+            stdio_config: StdioConfig = StdioConfig.model_validate(mcp_server.config) 
+            return BasicMCPClient(
+                command_or_url=stdio_config.command,
+                args=stdio_config.args,
+                env=stdio_config.env_variables
+            )
+        elif mcp_server.transport_type == MCPTransportType.HTTP:
+            http_config: HttpConfig = HttpConfig.model_validate(mcp_server.config) 
+            return BasicMCPClient(
+                command_or_url=http_config.url,
+                headers=http_config.headers,
+                timeout=mcp_server.timeout,
+            )
+        else:
+            raise Exception(f"Invalid MCP Configuration: Unknown transport type {mcp_server.transport_type}")
+
+
+
+        
 
 
                 
