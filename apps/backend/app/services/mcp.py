@@ -271,14 +271,10 @@ class MCPService:
         for mcp_server in mcp_servers:
             if mcp_server.transport_type == MCPTransportType.STDIO:
 
-                    # 1. validate that the MCP server is available for usage 
-                    config: StdioConfig  = StdioConfig.model_validate(mcp_server.config)
-                    await self.perform_stdio_happy_path(config)
-
-                    # 2. setup MCP client 
+                    # 1. setup MCP client 
                     client = await self.get_mcp_client(mcp_server)
 
-                    # 3. extract tools from MCP client
+                    # 2. extract tools from MCP client
                     tool_spec = McpToolSpec(client=client)
                     all_tools.extend(await tool_spec.to_tool_list_async())
 
