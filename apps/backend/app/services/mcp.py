@@ -271,6 +271,9 @@ class MCPService:
         for mcp_server in mcp_servers:
             if mcp_server.transport_type == MCPTransportType.STDIO:
 
+
+                    # TODO: Maybe we should have MCPs start up at run time? Something to thing about 
+
                     # 1. setup MCP client 
                     client = await self.get_mcp_client(mcp_server)
 
