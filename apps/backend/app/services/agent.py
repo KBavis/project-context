@@ -8,7 +8,8 @@ from typing import AsyncGenerator, Any
 import logging 
 
 from llama_index.core.tools import FunctionTool
-from llama_index.core.agent.workflow import (AgentStream, ToolCallResult)
+from llama_index.core.agent.workflow import (AgentStream, ToolCallResult, AgentWorkflow)
+from llama_index.core.llms import ChatMessage
 
 logger = logging.getLogger(__name__)
 
@@ -27,31 +28,27 @@ class AgentService:
         self.mcp_svc = mcp_svc
 
 
-    async def run_agent(self, llm: LLMBase, user_prompt: str, conversation_history: str, project_id: UUID) -> AsyncGenerator[str, None]:
+    async def run_agent(self, llm: LLMBase, user_prompt: str, conversation_history: list[ChatMessage], project_id: UUID) -> AsyncGenerator[str, None]:
         """
         Functionality to run the Agentic layer, leveraging 
         """
 
-
         # 1. Get relevant MCP tooling 
-        yield "Retreiving relevant MCP tooling"
         mcp_tools: list[FunctionTool] = await self.mcp_svc.get_mcp_tools(project_id) 
-        logger.info(f"Retreived {len(mcp_tools)} MCP tools")
+        logger.info(f"Retrieved {len(mcp_tools)} MCP tools")
 
         # 2. Get relevant internal tooling
-        yield "Retreiving relevant internal tooling"
         internal_tools = await self.get_internal_tools(project_id) 
-        logger.info(f"Retreived {len(internal_tools)} internal tools")
+        logger.info(f"Retrieved {len(internal_tools)} internal tools")
 
         # TODO: Merge the internal tooling and the MCP tools together 
 
         # 3. Get Agent Workflow & pass relevant tools to be leveraged 
-        workflow = get_agentic_workflow(mcp_tools, llm)
-        handler = workflow.run(user_msg=user_prompt)
+        workflow: AgentWorkflow = get_agentic_workflow(mcp_tools, llm)
+        handler = workflow.run(user_msg=user_prompt, chat_history=conversation_history) # TODO: Format conversation history into ChatHistory object 
 
         # 4. Stream events back to user
         async for event in handler.stream_events():
-            logger.info(f"Received Workflow Event: {type(event).__name__}")
             if isinstance(event, AgentStream):
                 if event.delta:
                     yield event.delta

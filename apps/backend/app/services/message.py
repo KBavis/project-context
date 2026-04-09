@@ -4,6 +4,7 @@ from enum import Enum
 
 from llama_index.core.schema import NodeWithScore
 from llama_index.core.vector_stores.types import NodeWithEmbedding
+from llama_index.core.llms import ChatMessage, MessageRole
 from app.models import Conversation, Sender
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -155,7 +156,7 @@ class MessageService:
 
 
             # 3. Retrieve Conversation History & Decompose Query If Needed
-            conversation_history = self.get_conversation_history(conversation)
+            conversation_history = self.get_conversation_history_for_agent(conversation)
             if not conversation_history:
                 logger.debug(f"No existing messages found for conversation {conversation_id}")
 
@@ -424,6 +425,15 @@ class MessageService:
         await self.db.flush()
 
         return msg_to_save
+    
+
+    def get_conversation_history_for_agent(self, conversation: Conversation) -> list[ChatMessage]:
+        """
+        Functionality to retrieve the last k messages for a specific Conversation
+        """
+
+        return [ChatMessage(content=msg.content, role=MessageRole.USER if msg.sender == Sender.USER else MessageRole.ASSISTANT) for msg in conversation.messages]
+        
 
     
     def get_conversation_history(self, conversation: Conversation, k: int = 1000) -> str:
