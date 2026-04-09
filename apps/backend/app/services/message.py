@@ -82,13 +82,13 @@ class MessageService:
             await self.conversation_svc.create_conversation_summary(conversation, message.content, llm_manager)
 
         # gather existing context from previously sent messages 
-        existing_messages = self.get_previous_k_messages(conversation)
-        if not existing_messages:
+        conversation_history = self.get_conversation_history(conversation)
+        if not conversation_history:
             logger.warning(f"No existing messages found for conversation {conversation_id}")
 
         # decompose query
         llm = llm_manager.get_llm()
-        decomposition_result = await llm.decompose_query(message.content, existing_messages)
+        decomposition_result = await llm.decompose_query(message.content, conversation_history)
         logger.debug(f"Decomposition Result for the Conversation={conversation_id} and Message={message.content}: {decomposition_result}")
 
         # execute query
@@ -97,7 +97,7 @@ class MessageService:
             project_id=conversation.project_id, 
             llm_manager=llm_manager, 
             decomposition=decomposition_result, 
-            existing_messages=existing_messages, 
+            existing_messages=conversation_history, 
             existing_tokens=conversation.total_tokens
         )
 
@@ -155,8 +155,8 @@ class MessageService:
 
 
             # 3. Retrieve Conversation History & Decompose Query If Needed
-            existing_messages = self.get_previous_k_messages(conversation)
-            if not existing_messages:
+            conversation_history = self.get_conversation_history(conversation)
+            if not conversation_history:
                 logger.debug(f"No existing messages found for conversation {conversation_id}")
 
 
@@ -165,7 +165,7 @@ class MessageService:
             response_stream = self.agent_svc.run_agent( 
                 llm,
                 message.content,
-                existing_messages,
+                conversation_history,
                 conversation.project_id
             )
             
@@ -241,12 +241,12 @@ class MessageService:
                 await self.conversation_svc.create_conversation_summary(conversation, message.content, llm_manager)
 
             # 3. Retrieve Conversation History & Decompose Query If Needed
-            existing_messages = self.get_previous_k_messages(conversation)
-            if not existing_messages:
+            conversation_history = self.get_conversation_history(conversation)
+            if not conversation_history:
                 logger.debug(f"No existing messages found for conversation {conversation_id}")
             
             yield self._format_sse_event(StreamEventType.STATUS, "Analyzing query and retrieving context...", "Retrieving")
-            decomposition_result = await llm.decompose_query(message.content, existing_messages)
+            decomposition_result = await llm.decompose_query(message.content, conversation_history)
             logger.info(f"Decomposition Result for the Conversation={conversation_id}: {decomposition_result}")
             
             # 4. Prompt LLM and retrieve relevant context
@@ -258,7 +258,7 @@ class MessageService:
                 project_id=conversation.project_id,
                 llm_manager=llm_manager,
                 decomposition=decomposition_result,
-                existing_messages=existing_messages,
+                existing_messages=conversation_history,
                 existing_tokens=conversation.total_tokens
             )
             full_response = ""
@@ -292,6 +292,12 @@ class MessageService:
             )
 
             await self.citation_svc.save_citations(citations, model_msg.id)
+
+            # TODO: This is currently incorrect, we currently assume that the conversation total 
+            # is = CONVERSATION_TOTAL_TOKEN_HISTORY  + MODEL_OUTPUT_TOKENS + USER_INPUT_TOKENS
+            #, but after k number of messages, we filter out older messages 
+            # we should account for this so that the conversation total reflects what we are 
+            # sending to model
             await self.conversation_svc.update_total_tokens(conversation_id, total_tokens)
 
             # manually commit transaction (THIS IS REQUIRED FOR STREAMINGRESPONSE) 
@@ -420,9 +426,15 @@ class MessageService:
         return msg_to_save
 
     
-    def get_previous_k_messages(self, conversation: Conversation, k: int = 10) -> str:
+    def get_conversation_history(self, conversation: Conversation, k: int = 1000) -> str:
         """
         Functionality to retrieve the last k messages for a specific Conversation
+
+        TODO: As of now, we will account for all messages in order to ensure that the token 
+        calculations we are performing are working as expected, but we should come back to this 
+        and update K to be a fixed number, and if its exceeded, we should leverage 
+        the compress_old_messages method to compress the oldest messages into a summary (
+        and then account for this in the token total for the conversation)
 
         TODO: Account for differnet content types 
 
@@ -436,7 +448,13 @@ class MessageService:
         if not messages:
             return ""
 
+        # TODO: Complete me!
+        # if len(messages) > k:
+        #     summary = self.compress_old_messages(messages)
+
         # retrieve converastion history and filter out older messages 
+        # TODO: This is incorrect atm, this should be taking most recent messages instead of oldest 
+        # so this should be max heap (or we should just simply sort instead)
         min_heap  = [] 
         for message in messages:
             heapq.heappush(
@@ -452,8 +470,19 @@ class MessageService:
 
         # transform into a string 
         return "\n".join(k_messages)
+    
 
+    def compress_old_messages(self, messages: list[Message]) -> str:
+        """
+        TODO:
+            1) Update conversation to have a running history attribute 
+            2) Update LLM to have a compress_messages method 
+            3) Call this method when the number of messages exceeds our threshold 
+            4) Re-evaluate how we are calculating token totals for conversations
+        """
 
+        return ""
+        
     
 
         
