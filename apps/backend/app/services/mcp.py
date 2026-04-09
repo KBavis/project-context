@@ -295,11 +295,15 @@ class MCPService:
         """
 
         if mcp_server.transport_type == MCPTransportType.STDIO:
+            env = os.environ.copy()
             stdio_config: StdioConfig = StdioConfig.model_validate(mcp_server.config) 
+            if stdio_config.env_variables:
+                env.update(stdio_config.env_variables)
+            
             return BasicMCPClient(
                 command_or_url=stdio_config.command,
                 args=stdio_config.args,
-                env=stdio_config.env_variables
+                env=env
             )
         elif mcp_server.transport_type == MCPTransportType.HTTP:
             http_config: HttpConfig = HttpConfig.model_validate(mcp_server.config) 
