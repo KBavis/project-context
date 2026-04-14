@@ -5,6 +5,7 @@ import asyncio
 
 import os
 import traceback
+from typing import Any
 
 from app.models import DataSource, MCPConfig
 from app.models.mcp_config import MCPTransportType
@@ -29,9 +30,8 @@ class MCPService:
     Service for handling MCP creation and retrieval 
 
     """
-    def __init__(self, db: Session, data_source_svc: DataSourceService):
+    def __init__(self, db: Session):
         self.db = db
-        self.data_source_svc = data_source_svc
 
 
     def find_or_create_mcp_config(self, mcp_config: PydanticMCPConfig) -> MCPConfig:
@@ -236,19 +236,14 @@ class MCPService:
                 
     
 
-    async def get_mcp_tools(self, project_id) -> list[FunctionTool]:
+    async def get_mcp_tools(self, data_sources: list[dict[str, Any]], project_id: UUID) -> list[FunctionTool]:
         """
         Retreive all MCP tools that are associated with a particular Project 
 
         Args:
-            project_id: The ID of the project to retreive MCP tools for
+            data_sources: The Data Sources associated with the Project
+            project_id: The ID of the project
         """
-
-        # retrieve the Data Sources associated with the Project 
-        data_sources = self.data_source_svc.get_project_data_sources(project_id)
-        if not data_sources:
-            logger.error(f"No Data Sources found for Project ID: {project_id}")
-            raise Exception(f"Unable to retreive Context for the provided Question given the lack of Data Sources associated with the selected Project: {project_id}")
         
         # get MCP servers associated with the data sources 
         mcp_server_ids = [ ds["mcp_config"]["id"] for ds in data_sources if ds["mcp_config"] ]
@@ -272,19 +267,26 @@ class MCPService:
             if mcp_server.transport_type == MCPTransportType.STDIO:
 
 
-                    # TODO: Maybe we should have MCPs start up at run time? Something to thing about 
+                    """
+                        # TODO: Consider having MCP servers as a part of the Fast API life cycle 
+                        Whenever we start up application, associated MCPs are started as well
+                    """
 
                     # 1. setup MCP client 
                     client = await self.get_mcp_client(mcp_server)
+                    await asyncio.sleep(0.5)
 
                     # 2. extract tools from MCP client
                     tool_spec = McpToolSpec(client=client)
                     all_tools.extend(await tool_spec.to_tool_list_async())
 
+            elif mcp_server.transport_type == MCPTransportType.HTTP:
+                client = await self.get_mcp_client(mcp_server)
+                tool_spec = McpToolSpec(client=client)
+                all_tools.extend(await tool_spec.to_tool_list_async())
+
         # return relevant tools to be leveraged by Agent
         return all_tools 
-
-        # TODO: FIGURE OUT WHERE DATA SOURCES ARE RETRIEVED SO THAT WE CAN PASS TO AGENT WORKFLOW FOR EXTRA CONTEXT 
     
 
 

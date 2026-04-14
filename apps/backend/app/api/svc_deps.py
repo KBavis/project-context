@@ -90,8 +90,7 @@ def get_data_source_svc(
 
 
 def get_mcp_svc(
-        db: Session = Depends(get_sync_db_session),
-        data_source_svc: DataSourceService = Depends(get_data_source_svc)
+        db: Session = Depends(get_sync_db_session)
 ):
     """
     Setup MCPService dependency
@@ -100,7 +99,7 @@ def get_mcp_svc(
         db (Session): current DB session
     """
     
-    return MCPService(db=db, data_source_svc=data_source_svc)
+    return MCPService(db=db)
 
 
 
@@ -110,17 +109,18 @@ def get_mcp_svc(
 
 def get_async_agent_svc(
     db: AsyncSession = Depends(get_async_db_session),
-    mcp_svc: MCPService = Depends(get_mcp_svc)
+    mcp_svc: MCPService = Depends(get_mcp_svc),
+    data_source_svc: DataSourceService = Depends(get_data_source_svc)
 ):
     """
     Setup async AgentService dependency
 
     Args:
         db (AsyncSession): async DB session
+        mcp_svc (MCPService): async mcp service dependency
         data_source_svc (DataSourceService): async data source service dependency
-        project_svc (ProjectService): async project service dependency
     """
-    return AgentService(db=db, mcp_svc=mcp_svc)
+    return AgentService(db=db, mcp_svc=mcp_svc, data_source_svc=data_source_svc)
 
 
 def get_async_file_svc(

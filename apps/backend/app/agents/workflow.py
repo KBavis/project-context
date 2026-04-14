@@ -2,10 +2,11 @@ from llama_index.core.agent.workflow import (AgentWorkflow, FunctionAgent, ReAct
 from llama_index.core.tools import FunctionTool
 
 from app.llm import LLMBase
+from typing import Any
 
 
 
-def get_agentic_workflow(tools: list[FunctionTool], llm: LLMBase) -> AgentWorkflow:
+def get_agentic_workflow(tools: list[FunctionTool], llm: LLMBase, data_sources: list[dict[str, Any]]) -> AgentWorkflow:
     """
     Retrieve the Agentic Workflow that will be leveraged based on the Tools that are available 
     based on the configured Data Source for the Project 
@@ -20,8 +21,11 @@ def get_agentic_workflow(tools: list[FunctionTool], llm: LLMBase) -> AgentWorkfl
     return AgentWorkflow.from_tools_or_functions(
         tools_or_functions=tools,
         llm=llm.get_llama_idx_instance(),
-        system_prompt="""
+        system_prompt=f"""
         You are a specialized AI software engineering assistant. Your role is to help users navigate and understand their specific codebase and documentation by dynamically researching their repositories using the tools provided.
+
+        ### DATA SOURCES (use the following to help answer users question):
+        {extract_context_from_data_sources(data_sources)}
 
         ### OPERATIONAL GUIDELINES:
 
@@ -42,6 +46,31 @@ def get_agentic_workflow(tools: list[FunctionTool], llm: LLMBase) -> AgentWorkfl
            - Always cite the file path when providing snippets or explaining logic.
         """,
     )
+   
+
+
+def extract_context_from_data_sources(data_sources: list[dict[str, Any]]) -> str:
+    """
+    Extract relevant context from data sources to be passed to the agent workflow
+
+                    "provider": data_source.provider,
+                "name": data_source.name,
+                "branch": data_source.branch,
+                "config": {"url": data_source.url},
+    """
+    
+    context_list = []
+    for ds in data_sources:
+        context_list.append(f"""
+            Provider: {ds['provider']}
+            Name: {ds['name']}
+            Branch: {ds['branch']}
+            URL: {ds['config']['url']}
+        """)
+    
+    return "\n".join(context_list)
+        
+    
 
 
 
