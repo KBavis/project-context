@@ -12,6 +12,7 @@ from app.models.mcp_config import MCPTransportType
 from app.pydantic import MCPConfig as PydanticMCPConfig, HttpConfig, StdioConfig
 
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import Select, select
 
 from mcp import ClientSession, StdioServerParameters
@@ -30,8 +31,9 @@ class MCPService:
     Service for handling MCP creation and retrieval 
 
     """
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, async_db: AsyncSession):
         self.db = db
+        self.async_db = async_db
 
 
     def find_or_create_mcp_config(self, mcp_config: PydanticMCPConfig) -> MCPConfig:
