@@ -14,6 +14,7 @@ from app.pydantic import MCPConfig as PydanticMCPConfig, HttpConfig, StdioConfig
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import Select, select
+from contextlib import AsyncExitStack
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -238,19 +239,14 @@ class MCPService:
                 
     
 
-    async def get_mcp_tools(self, data_sources: list[dict[str, Any]], project_id: UUID) -> list[FunctionTool]:
+    async def get_mcp_tools(self, data_sources: list[dict[str, Any]], async_exit_stack: AsyncExitStack) -> list[FunctionTool]:
         """
-        Retreive all MCP tools that are associated with a particular Project 
+        Get all MCP tools associated with the provided list of Data Sources
+        """
 
-        Args:
-            data_sources: The Data Sources associated with the Project
-            project_id: The ID of the project
-        """
-        
         # get MCP servers associated with the data sources 
-        mcp_server_ids = [ ds["mcp_config"]["id"] for ds in data_sources if ds["mcp_config"] ]
+        mcp_server_ids = [ ds["mcp_config"]["id"] for ds in data_sources if ds["mcp_config"] ] 
         if not mcp_server_ids:
-            logger.info(f"No MCP Servers configured for the Project {project_id}, no tooling will be avaialble asside from internal tools")
             return []
 
         mcp_servers: list[MCPConfig] = []
@@ -258,34 +254,19 @@ class MCPService:
             server = self.get_mcp_by_id(server_id)
             if server:
                 mcp_servers.append(server)
-        
-        if not mcp_servers:
-            logger.info(f"Unable to retreive MCP Servers for Project ID: {project_id}")
-            return []
 
         # get tools associated with each MCP server 
         all_tools: list[FunctionTool] = []
         for mcp_server in mcp_servers:
-            if mcp_server.transport_type == MCPTransportType.STDIO:
+            client = await self.get_mcp_client(mcp_server)
+            
+            # NOTE: Llama-Index's BasicMCPClient evaluates tool calls as one-off connections
+            # The following code manually enters its internal _run_session() to create a persistent connection and pushes onto 
+            # the async exit stack to ensure the connection is closed when the request completes
+            real_session = await async_exit_stack.enter_async_context(client._run_session())
 
-
-                    """
-                        # TODO: Consider having MCP servers as a part of the Fast API life cycle 
-                        Whenever we start up application, associated MCPs are started as well
-                    """
-
-                    # 1. setup MCP client 
-                    client = await self.get_mcp_client(mcp_server)
-                    await asyncio.sleep(0.5)
-
-                    # 2. extract tools from MCP client
-                    tool_spec = McpToolSpec(client=client)
-                    all_tools.extend(await tool_spec.to_tool_list_async())
-
-            elif mcp_server.transport_type == MCPTransportType.HTTP:
-                client = await self.get_mcp_client(mcp_server)
-                tool_spec = McpToolSpec(client=client)
-                all_tools.extend(await tool_spec.to_tool_list_async())
+            tool_spec = McpToolSpec(client=real_session)
+            all_tools.extend(await tool_spec.to_tool_list_async())
 
         # return relevant tools to be leveraged by Agent
         return all_tools 
