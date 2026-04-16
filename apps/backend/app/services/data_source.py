@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 
@@ -17,8 +18,9 @@ logger = logging.getLogger(__name__)
 
 class DataSourceService:
     
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, async_db: AsyncSession):
         self.db: Session = db
+        self.async_db: AsyncSession = async_db
 
     def get_data_source_by_id(self, data_source_id: UUID) -> DataSource:
         """
@@ -87,6 +89,46 @@ class DataSourceService:
             "config": {"url": data_source.url},
             "linked_projects": [str(pd.project_id) for pd in data_source.project_data]
         }
+    
+
+    async def aget_project_data_sources(self, project_id: UUID) -> list[dict[str, Any]]:
+        """
+        Functionality to retreive persisted data_sourcs that correspond to particular Project ID
+        """
+
+        from sqlalchemy.orm import selectinload
+
+        stmt = (
+            select(DataSource)
+            .options(
+                selectinload(DataSource.project_data),
+                selectinload(DataSource.mcp_config)
+            )
+            .join(DataSource.project_data)
+            .where(ProjectData.project_id == project_id)
+        )
+        data_sources = await self.async_db.execute(stmt)
+        unique_ds = data_sources.scalars().unique().all()
+
+
+        return [
+            {
+                "id": data_source.id,
+                "provider": data_source.provider,
+                "name": data_source.name,
+                "branch": data_source.branch,
+                "config": {"url": data_source.url},
+                "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
+                "mcp_config": {
+                    "id": data_source.mcp_config.id,
+                    "name": data_source.mcp_config.name,
+                    "transport_type": data_source.mcp_config.transport_type.value,
+                    "timeout": data_source.mcp_config.timeout,
+                    "config": data_source.mcp_config.config
+                } if data_source.mcp_config else None
+            }
+            for data_source in unique_ds
+        ]
 
     def get_project_data_sources(self, project_id: UUID) -> list[dict[str, Any]]:
         """

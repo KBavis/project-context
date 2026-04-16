@@ -77,7 +77,8 @@ def get_project_svc(
 
 
 def get_data_source_svc(
-        db: Session = Depends(get_sync_db_session)
+        db: Session = Depends(get_sync_db_session),
+        async_db: AsyncSession = Depends(get_async_db_session)
 ):
     """
     Setup DataSourceService dependency
@@ -86,11 +87,12 @@ def get_data_source_svc(
         db (Session): current DB session
     """
     
-    return DataSourceService(db=db)
+    return DataSourceService(db=db, async_db=async_db)
 
 
 def get_mcp_svc(
-        db: Session = Depends(get_sync_db_session)
+        db: Session = Depends(get_sync_db_session),
+        async_db: AsyncSession = Depends(get_async_db_session)
 ):
     """
     Setup MCPService dependency
@@ -99,7 +101,7 @@ def get_mcp_svc(
         db (Session): current DB session
     """
     
-    return MCPService(db=db)
+    return MCPService(db=db, async_db=async_db)
 
 
 

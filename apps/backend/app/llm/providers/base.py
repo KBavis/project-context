@@ -28,7 +28,7 @@ class LLMBase(ABC):
 
         
         llm_instance = self.get_llama_idx_instance()
-        return llm_instance.complete(prompt)
+        return await llm_instance.acomplete(prompt)
 
 
     
