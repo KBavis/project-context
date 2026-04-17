@@ -4,6 +4,7 @@ from typing import Callable
 import json
 
 from llama_index.core.llms.function_calling import FunctionCallingLLM
+from llama_index.core.callbacks import CallbackManager
 
 
 class LLMBase(ABC):
@@ -158,7 +159,7 @@ class LLMBase(ABC):
         raise NotImplementedError("Subclasses must implement tokenize method.")
 
     @abstractmethod
-    def get_llama_idx_instance(self) -> FunctionCallingLLM:
+    def get_llama_idx_instance(self, callback_manager: CallbackManager | None = None) -> FunctionCallingLLM:
         """
         Get the underlying LlamaIndex LLM instance.
         """

@@ -1,12 +1,13 @@
 from uuid import UUID
 from contextlib import AsyncExitStack
 from typing import AsyncGenerator, Any
-import logging
+import logging 
 from app.pydantic.streaming import StreamEventType
 from app.services.util import format_sse_event
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
 from app.agents.workflow import get_agentic_workflow
 from app.llm import LLMBase
 from app.services.mcp import MCPService
@@ -36,7 +37,7 @@ class AgentService:
         self.data_source_svc = data_source_svc
 
 
-    async def run_agent(self, llm: LLMBase, user_prompt: str, conversation_history: list[ChatMessage], project_id: UUID) -> AsyncGenerator[tuple[str, str | None], None]:
+    async def run_agent(self, llm: LLMBase, user_prompt: str, conversation_history: list[ChatMessage], project_id: UUID) -> AsyncGenerator[tuple[str, str | dict | None], None]:
         """
         Functionality to run the Agentic layer, leveraging MCP tooling and internal tooling 
         """
@@ -72,7 +73,10 @@ class AgentService:
             # TODO: Merge the internal tooling and the MCP tools together 
 
             # 4. Get Agent Workflow & pass relevant tools to be leveraged 
-            workflow: AgentWorkflow = get_agentic_workflow(mcp_tools, llm, data_sources)
+            token_counter = TokenCountingHandler()
+            callback_manager = CallbackManager([token_counter])
+            
+            workflow: AgentWorkflow = get_agentic_workflow(mcp_tools, llm, data_sources, callback_manager=callback_manager)
             handler = workflow.run(user_msg=user_prompt, chat_history=conversation_history) 
 
             # 5. Stream events back to user
@@ -88,6 +92,13 @@ class AgentService:
             # 6. Wait for the final result
             result = await handler
             logger.info(f"Workflow Complete. Result: {result}")
+
+            # 7. Yield token usage metadata (internal for message service to capture)
+            yield "usage_metadata", {
+                "prompt_tokens": token_counter.prompt_llm_token_count,
+                "completion_tokens": token_counter.completion_llm_token_count,
+                "total_tokens": token_counter.total_llm_token_count
+            }
 
 
     async def get_internal_tools(self, project_id):

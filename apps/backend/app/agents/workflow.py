@@ -1,12 +1,14 @@
 from llama_index.core.agent.workflow import (AgentWorkflow, FunctionAgent, ReActAgent)
 from llama_index.core.tools import FunctionTool
 
+from llama_index.core.callbacks import CallbackManager
+
 from app.llm import LLMBase
 from typing import Any
 
 
 
-def get_agentic_workflow(tools: list[FunctionTool], llm: LLMBase, data_sources: list[dict[str, Any]]) -> AgentWorkflow:
+def get_agentic_workflow(tools: list[FunctionTool], llm: LLMBase, data_sources: list[dict[str, Any]], callback_manager: CallbackManager | None = None) -> AgentWorkflow:
     """
     Retrieve the Agentic Workflow that will be leveraged based on the Tools that are available 
     based on the configured Data Source for the Project 
@@ -20,7 +22,7 @@ def get_agentic_workflow(tools: list[FunctionTool], llm: LLMBase, data_sources: 
 
     return AgentWorkflow.from_tools_or_functions(
         tools_or_functions=tools,
-        llm=llm.get_llama_idx_instance(),
+        llm=llm.get_llama_idx_instance(callback_manager=callback_manager),
         system_prompt=f"""
         You are a specialized AI software engineering assistant. Your role is to help users navigate and understand their specific codebase and documentation by dynamically researching their repositories using the tools provided.
 

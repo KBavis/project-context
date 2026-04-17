@@ -1,6 +1,7 @@
 from __future__ import annotations
 from .base import LLMBase
 from llama_index.llms.ollama import Ollama
+from llama_index.core.callbacks import CallbackManager
 
 from transformers import AutoTokenizer
 
@@ -163,7 +164,7 @@ class OllamaLLM(LLMBase):
             return False
         
 
-    def get_llama_idx_instance(self) -> Ollama:
+    def get_llama_idx_instance(self, callback_manager: CallbackManager | None = None) -> Ollama:
         """
         Get the underlying LlamaIndex Ollama instance.
 
@@ -173,7 +174,8 @@ class OllamaLLM(LLMBase):
         return Ollama(
             model=self.model_name, 
             base_url=os.getenv("OLLAMA_BASE_URL", settings.OLLAMA_LOCAL_HOST_URL),
-            request_timeout=300
+            request_timeout=300,
+            callback_manager=callback_manager
         ) # TODO: Add additional configuration options as needed and move URL to configs 
     
 

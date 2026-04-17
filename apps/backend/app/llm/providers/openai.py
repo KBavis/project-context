@@ -1,6 +1,7 @@
 from __future__ import annotations
 from app.llm.providers.base import LLMBase
 from llama_index.llms.openai import OpenAI
+from llama_index.core.callbacks import CallbackManager
 
 from typing import Callable
 from app.core import settings
@@ -76,12 +77,16 @@ class OpenAIProvider(LLMBase):
         # NOTE: It would be nice to also store some pricing information in order to calculate cost per query
         
 
-    def get_llama_idx_instance(self) -> OpenAI:
+    def get_llama_idx_instance(self, callback_manager: CallbackManager | None = None) -> OpenAI:
         """
         Returns the LlamaIndex instance for the OpenAI model.
         """
 
-        return OpenAI(model=self.model_name, api_key=settings.OPENAI_API_KEY) # TODO: Setup additional configurations 
+        return OpenAI(
+            model=self.model_name, 
+            api_key=settings.OPENAI_API_KEY,
+            callback_manager=callback_manager
+        ) # TODO: Setup additional configurations 
     
 
 

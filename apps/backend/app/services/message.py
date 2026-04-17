@@ -168,15 +168,28 @@ class MessageService:
             )
             
             full_response = ""
+            usage_metadata = {}
             async for sse_event, raw_chunk in response_stream:
-                if raw_chunk:
+                # extract usage metadata regarding tokens 
+                if sse_event == "usage_metadata" and isinstance(raw_chunk, dict):
+                    usage_metadata = raw_chunk
+                    continue
+                
+                if isinstance(raw_chunk, str):
                     full_response += raw_chunk
-                yield sse_event
+                
+                # Only yield if it's a string (SSE event)
+                if isinstance(sse_event, str) and sse_event != "usage_metadata":
+                    yield sse_event
 
             # 5. Finalize and Persist
             yield format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
             
-            user_prompt_tokens, model_output_tokens, total_tokens = await self.calculate_token_totals(message.content, full_response, llm)
+            user_prompt_tokens = usage_metadata.get("prompt_tokens", 0)
+            model_output_tokens = usage_metadata.get("completion_tokens", 0)
+            total_tokens = usage_metadata.get("total_tokens", 0)
+            logger.info(f"Token Usage for Conversation={conversation_id} and Message={message.content}: {usage_metadata}")
+
             query_result_for_save = QueryResponse(
                 user_prompt=message.content,
                 model_response=full_response,
