@@ -1,9 +1,5 @@
 from __future__ import annotations
-from datetime import datetime
-from enum import Enum
 
-from llama_index.core.schema import NodeWithScore
-from llama_index.core.vector_stores.types import NodeWithEmbedding
 from llama_index.core.llms import ChatMessage, MessageRole
 from app.models import Conversation, Sender
 
@@ -24,6 +20,7 @@ import heapq
 import logging
 from typing import Any, AsyncGenerator
 from app.pydantic.streaming import StreamEvent, StreamEventType
+from app.services.util import format_sse_event
 
 
 logger = logging.getLogger(__name__)
@@ -136,11 +133,11 @@ class MessageService:
 
         try:
             # 1. Initialize 
-            yield self._format_sse_event(StreamEventType.STATUS, "Initializing conversation context...", "Initializing")
+            yield format_sse_event(StreamEventType.STATUS, "Initializing conversation context...", "Initializing")
             
             conversation = await self.conversation_svc.get_conversation(conversation_id)
             if not conversation:
-                yield self._format_sse_event(StreamEventType.ERROR, f"Conversation {conversation_id} not found", "Error")
+                yield format_sse_event(StreamEventType.ERROR, f"Conversation {conversation_id} not found", "Error")
                 return
 
             llm_manager = LLMManager(model_name=conversation.ll_model_name, provider=conversation.ll_model_provider)
@@ -151,7 +148,7 @@ class MessageService:
             # 2. Generate Conversation Summary (if needed)
             if conversation.summary is None:
                 logger.info(f"Conversation {conversation_id} has no summary, generating one...")
-                yield self._format_sse_event(StreamEventType.STATUS, "Generating conversation summary...", "Summarizing")
+                yield format_sse_event(StreamEventType.STATUS, "Generating conversation summary...", "Summarizing")
                 await self.conversation_svc.create_conversation_summary(conversation, message.content, llm_manager)
 
 
@@ -162,7 +159,7 @@ class MessageService:
 
 
             # 4. Kick of Agentic Flow 
-            yield self._format_sse_event(StreamEventType.STATUS, "Executing Agentic Workflow...", "Executing")
+            yield format_sse_event(StreamEventType.STATUS, "Executing Agentic Workflow...", "Executing")
             response_stream = self.agent_svc.run_agent( 
                 llm,
                 message.content,
@@ -171,12 +168,13 @@ class MessageService:
             )
             
             full_response = ""
-            async for token in response_stream:
-                full_response += token
-                yield self._format_sse_event(StreamEventType.CHUNK, token)
+            async for sse_event, raw_chunk in response_stream:
+                if raw_chunk:
+                    full_response += raw_chunk
+                yield sse_event
 
             # 5. Finalize and Persist
-            yield self._format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
+            yield format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
             
             user_prompt_tokens, model_output_tokens, total_tokens = await self.calculate_token_totals(message.content, full_response, llm)
             query_result_for_save = QueryResponse(
@@ -198,7 +196,7 @@ class MessageService:
             await self.db.commit() 
 
             # 6. Final Metadata
-            yield self._format_sse_event(StreamEventType.METADATA, {
+            yield format_sse_event(StreamEventType.METADATA, {
                 "user_message": self._get_message_dto(user_msg).model_dump(),
                 "model_message": self._get_message_dto(model_msg).model_dump(),
                 "conversation_id": str(conversation_id)
@@ -206,7 +204,7 @@ class MessageService:
 
         except Exception as e:
             logger.error(f"Error in agentic streaming for conversation {conversation_id}: {str(e)}", exc_info=True)
-            yield self._format_sse_event(StreamEventType.ERROR, str(e), "Error")
+            yield format_sse_event(StreamEventType.ERROR, str(e), "Error")
             
 
 
@@ -225,11 +223,11 @@ class MessageService:
         """
         try:
             # 1. Initialize 
-            yield self._format_sse_event(StreamEventType.STATUS, "Initializing conversation context...", "Initializing")
+            yield format_sse_event(StreamEventType.STATUS, "Initializing conversation context...", "Initializing")
             
             conversation = await self.conversation_svc.get_conversation(conversation_id)
             if not conversation:
-                yield self._format_sse_event(StreamEventType.ERROR, f"Conversation {conversation_id} not found", "Error")
+                yield format_sse_event(StreamEventType.ERROR, f"Conversation {conversation_id} not found", "Error")
                 return
 
             llm_manager = LLMManager(model_name=conversation.ll_model_name, provider=conversation.ll_model_provider)
@@ -238,7 +236,7 @@ class MessageService:
             # 2. Generate Conversation Summary (if needed)
             if conversation.summary is None:
                 logger.info(f"Conversation {conversation_id} has no summary, generating one...")
-                yield self._format_sse_event(StreamEventType.STATUS, "Generating conversation summary...", "Summarizing")
+                yield format_sse_event(StreamEventType.STATUS, "Generating conversation summary...", "Summarizing")
                 await self.conversation_svc.create_conversation_summary(conversation, message.content, llm_manager)
 
             # 3. Retrieve Conversation History & Decompose Query If Needed
@@ -246,12 +244,12 @@ class MessageService:
             if not conversation_history:
                 logger.debug(f"No existing messages found for conversation {conversation_id}")
             
-            yield self._format_sse_event(StreamEventType.STATUS, "Analyzing query and retrieving context...", "Retrieving")
+            yield format_sse_event(StreamEventType.STATUS, "Analyzing query and retrieving context...", "Retrieving")
             decomposition_result = await llm.decompose_query(message.content, conversation_history)
             logger.info(f"Decomposition Result for the Conversation={conversation_id}: {decomposition_result}")
             
             # 4. Prompt LLM and retrieve relevant context
-            yield self._format_sse_event(StreamEventType.STATUS, "Generating response...", "Generating")
+            yield format_sse_event(StreamEventType.STATUS, "Generating response...", "Generating")
             logger.info(f"Starting LLM Stream for the Conversation={conversation_id}")
 
             chunks, llm_response_stream = await self.query_svc.execute_query_stream(
@@ -265,16 +263,16 @@ class MessageService:
             full_response = ""
             async for token in llm_response_stream:
                 full_response += token
-                yield self._format_sse_event(StreamEventType.CHUNK, token)
+                yield format_sse_event(StreamEventType.CHUNK, token)
 
             # 5. Generate Mesage citations based on utilized chunks 
-            yield self._format_sse_event(StreamEventType.STATUS, "Generating citations...", "Citations")
+            yield format_sse_event(StreamEventType.STATUS, "Generating citations...", "Citations")
 
             citations = await self.citation_svc.generate_citations(chunks)
-            yield self._format_sse_event(StreamEventType.CITATION, citations)
+            yield format_sse_event(StreamEventType.CITATION, citations)
 
             # 6. Finalize and Persist
-            yield self._format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
+            yield format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
             
             user_prompt_tokens, model_output_tokens, total_tokens = await self.calculate_token_totals(message.content, full_response, llm)
             query_result_for_save = QueryResponse(
@@ -307,7 +305,7 @@ class MessageService:
             await self.db.refresh(model_msg)
 
             # 7. Final Metadata
-            yield self._format_sse_event(StreamEventType.METADATA, {
+            yield format_sse_event(StreamEventType.METADATA, {
                 "user_message": self._get_message_dto(user_msg).model_dump(),
                 "model_message": self._get_message_dto(model_msg).model_dump(),
                 "conversation_id": str(conversation_id)
@@ -315,7 +313,7 @@ class MessageService:
 
         except Exception as e:
             logger.error(f"Error in streaming message for conversation {conversation_id}: {str(e)}", exc_info=True)
-            yield self._format_sse_event(StreamEventType.ERROR, str(e), "Error")
+            yield format_sse_event(StreamEventType.ERROR, str(e), "Error")
     
 
 
@@ -327,14 +325,6 @@ class MessageService:
         model_output_tokens = len(await llm.tokenize(model_output))
         total_tokens = user_prompt_tokens + model_output_tokens
         return user_prompt_tokens, model_output_tokens, total_tokens
-    
-    def _format_sse_event(self, event_type: StreamEventType, data: Any, description: str | None = None) -> str:
-        """
-        Format a single SSE event string.
-        """
-        event = StreamEvent(event=event_type, data=data, description=description)
-        # follow SSE standard (data: <json>\n\n)
-        return f"data: {event.model_dump_json()}\n\n"
 
     
     def _get_message_dto(self, message: Message) -> MessageDto:

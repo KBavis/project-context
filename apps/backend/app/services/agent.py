@@ -1,7 +1,9 @@
 from uuid import UUID
 from contextlib import AsyncExitStack
 from typing import AsyncGenerator, Any
-import logging 
+import logging
+from app.pydantic.streaming import StreamEventType
+from app.services.util import format_sse_event
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +36,7 @@ class AgentService:
         self.data_source_svc = data_source_svc
 
 
-    async def run_agent(self, llm: LLMBase, user_prompt: str, conversation_history: list[ChatMessage], project_id: UUID) -> AsyncGenerator[str, None]:
+    async def run_agent(self, llm: LLMBase, user_prompt: str, conversation_history: list[ChatMessage], project_id: UUID) -> AsyncGenerator[tuple[str, str | None], None]:
         """
         Functionality to run the Agentic layer, leveraging MCP tooling and internal tooling 
         """
@@ -73,13 +75,13 @@ class AgentService:
             workflow: AgentWorkflow = get_agentic_workflow(mcp_tools, llm, data_sources)
             handler = workflow.run(user_msg=user_prompt, chat_history=conversation_history) 
 
-            # 5. Stream events back to user (TODO: Send events back in proper format for UI)
+            # 5. Stream events back to user
             async for event in handler.stream_events():
                 if isinstance(event, AgentStream):
                     if event.delta:
-                        yield event.delta
+                        yield format_sse_event(StreamEventType.CHUNK, event.delta), event.delta
                 elif isinstance(event, ToolCallResult):
-                    yield f"\nTool `{event.tool_name}` leveraged successfully.\n"
+                    yield format_sse_event(StreamEventType.STATUS, f"Tool `{event.tool_name}` leveraged successfully.", "Tool Call"), None
                 elif hasattr(event, "msg"):
                     logger.info(f"Agent Message: {event.msg}")
             
