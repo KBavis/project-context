@@ -242,6 +242,10 @@ class MCPService:
     async def get_mcp_tools(self, data_sources: list[dict[str, Any]], async_exit_stack: AsyncExitStack) -> list[FunctionTool]:
         """
         Get all MCP tools associated with the provided list of Data Sources
+
+        TODO: We currently are retrieving all MCP tools for all Data Sources that are linked to a particular Project. This will end up getting rather expensive if 
+        we end up having a lot of MCPs setup, and fairly wasteful in terms of the context window. In order to account for this, we should implement 
+        some sort of "ToolRetriever" that will consider the user's prompt, and then determine what tools are relevant based on that 
         """
 
         # get MCP servers associated with the data sources 
