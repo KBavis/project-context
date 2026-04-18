@@ -7,6 +7,7 @@ from llama_index.core.callbacks import CallbackManager
 from app.llm import LLMBase
 from app.models.data_source import DataSourceType
 from typing import Any
+from pathlib import Path
 
 import logging
 logger = logging.getLogger(__name__)
@@ -39,13 +40,45 @@ def _extract_context_from_data_sources(data_sources: list[dict[str, Any]]) -> st
 
 
 def _load_prompt(agent_type: AgentType, context: dict[str, Any] = {}) -> str:
-    # TODO: load from .md files
-    return ""
+    """
+    Load system prompt from the corresponding .md file and interpolate context values.
+    Looks for prompts/{agent_type.value}.md relative to this file.
+    """
+
+    prompts_dir = Path(__file__).parent / "prompts"
+    prompt_path = prompts_dir / f"{agent_type.value}.md"
+    logger.debug(f"Loading prompt for {agent_type.value} from {prompt_path}")
+
+    if not prompt_path.exists():
+        available = [p.stem for p in prompts_dir.glob("*.md")]
+        raise FileNotFoundError(
+            f"Prompt file not found: {prompt_path}. Available prompts: {available}"
+        )
+
+    text = prompt_path.read_text(encoding="utf-8")
+
+    for key, value in context.items():
+        text = text.replace(f"{{{key}}}", str(value))
+
+    return text
+
 
 
 def _summarize_available_tools(tools: list[FunctionTool]) -> str:
-    # TODO: build human-readable tool summary for orchestrator context
-    return ""
+    """
+    Build a human-readable summary of available tools for the orchestrator's
+    system prompt, so it knows what it can and cannot ask downstream agents to do.
+    """
+    if not tools:
+        return "No tools are currently available."
+
+    lines: list[str] = ["Available tools:"]
+    for tool in tools:
+        name = tool.metadata.name or "unnamed"
+        description = (tool.metadata.description or "no description").strip().splitlines()[0]
+        lines.append(f"  - {name}: {description}")
+
+    return "\n".join(lines)
 
 
 ##################################
