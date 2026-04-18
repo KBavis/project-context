@@ -1,3 +1,4 @@
+from email.policy import default
 from uuid import UUID
 import logging 
 import asyncio
@@ -6,9 +7,11 @@ import asyncio
 import os
 import traceback
 from typing import Any
+from collections import defaultdict
 
 from app.models import DataSource, MCPConfig
 from app.models.mcp_config import MCPTransportType
+from app.models.data_source import DataSourceType
 from app.pydantic import MCPConfig as PydanticMCPConfig, HttpConfig, StdioConfig
 
 from sqlalchemy.orm import Session
@@ -239,7 +242,7 @@ class MCPService:
                 
     
 
-    async def get_mcp_tools(self, data_sources: list[dict[str, Any]], async_exit_stack: AsyncExitStack) -> list[FunctionTool]:
+    async def get_mcp_tools(self, data_sources: list[dict[str, Any]], async_exit_stack: AsyncExitStack) -> defaultdict[DataSourceType, list[FunctionTool]]:
         """
         Get all MCP tools associated with the provided list of Data Sources
 
@@ -249,28 +252,39 @@ class MCPService:
         """
 
         # get MCP servers associated with the data sources 
-        mcp_server_ids = [ ds["mcp_config"]["id"] for ds in data_sources if ds["mcp_config"] ] 
-        if not mcp_server_ids:
-            return []
+        mcp_servers_by_type: defaultdict[DataSourceType, list[UUID]] = defaultdict(list)
+        mcp_server_ids = set() 
+        for ds in data_sources:
+            if ds["mcp_config"] and ds["mcp_config"]["id"] not in mcp_server_ids:
+                mcp_id = ds["mcp_config"]["id"]
+                mcp_servers_by_type[ds["type"]].append(mcp_id)
+                mcp_server_ids.add(mcp_id)
 
-        mcp_servers: list[MCPConfig] = []
-        for server_id in set(mcp_server_ids):
-            server = self.get_mcp_by_id(server_id)
-            if server:
-                mcp_servers.append(server)
+        if not mcp_servers_by_type:
+            logger.info("No MCP servers found for the provided data sources")
+            return defaultdict(list)    
+
+
+        mcp_servers: defaultdict[DataSourceType, list[MCPConfig]] = defaultdict(list)
+        for type, server_ids in mcp_servers_by_type.items():
+            for server_id in server_ids:
+                server = self.get_mcp_by_id(server_id)
+                if server:
+                    mcp_servers[type].append(server)
 
         # get tools associated with each MCP server 
-        all_tools: list[FunctionTool] = []
-        for mcp_server in mcp_servers:
-            client = await self.get_mcp_client(mcp_server)
-            
-            # NOTE: Llama-Index's BasicMCPClient evaluates tool calls as one-off connections
-            # The following code manually enters its internal _run_session() to create a persistent connection and pushes onto 
-            # the async exit stack to ensure the connection is closed when the request completes
-            real_session = await async_exit_stack.enter_async_context(client._run_session())
+        all_tools: defaultdict[DataSourceType, list[FunctionTool]] = defaultdict(list)
+        for type, servers in mcp_servers.items():
+            for server in servers:
+                client = await self.get_mcp_client(server)
+                
+                # NOTE: Llama-Index's BasicMCPClient evaluates tool calls as one-off connections
+                # The following code manually enters its internal _run_session() to create a persistent connection and pushes onto 
+                # the async exit stack to ensure the connection is closed when the request completes
+                real_session = await async_exit_stack.enter_async_context(client._run_session())
 
-            tool_spec = McpToolSpec(client=real_session)
-            all_tools.extend(await tool_spec.to_tool_list_async())
+                tool_spec = McpToolSpec(client=real_session)
+                all_tools[type].extend(await tool_spec.to_tool_list_async())
 
         # return relevant tools to be leveraged by Agent
         return all_tools 

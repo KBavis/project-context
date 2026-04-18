@@ -1,3 +1,4 @@
+from collections import defaultdict
 from uuid import UUID
 from contextlib import AsyncExitStack
 from typing import AsyncGenerator, Any
@@ -12,6 +13,7 @@ from app.agents.workflow import get_agentic_workflow
 from app.llm import LLMBase
 from app.services.mcp import MCPService
 from app.services.data_source import DataSourceService
+from app.models.data_source import DataSourceType
 
 
 from llama_index.core.tools import FunctionTool
@@ -63,8 +65,9 @@ class AgentService:
                 raise Exception(f"Unable to retreive Context for the provided Question given the lack of Data Sources associated with the selected Project: {project_id}")
 
             # 2. Get relevant MCP tooling 
-            mcp_tools: list[FunctionTool] = await self.mcp_svc.get_mcp_tools(data_sources, async_exit_stack) 
-            logger.info(f"Retrieved {len(mcp_tools)} MCP tools")
+            mcp_tools: defaultdict[DataSourceType, list[FunctionTool]] = await self.mcp_svc.get_mcp_tools(data_sources, async_exit_stack) 
+            total_tools = sum(len(tools) for tools in mcp_tools.values())
+            logger.info(f"Retrieved {total_tools} MCP tools")
 
             # 3. Get relevant internal tooling
             internal_tools = await self.get_internal_tools(project_id) 

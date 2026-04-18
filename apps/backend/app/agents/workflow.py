@@ -1,76 +1,199 @@
+from collections import defaultdict
+from enum import Enum
 from llama_index.core.agent.workflow import (AgentWorkflow, FunctionAgent, ReActAgent)
 from llama_index.core.tools import FunctionTool
 
 from llama_index.core.callbacks import CallbackManager
+from workflows import context
 
 from app.llm import LLMBase
 from typing import Any
 
+from app.models.data_source import DataSourceType
+
+import logging
+logger = logging.getLogger(__name__)
+
+class AgentType(str, Enum):
+    ORCHESTRATOR = "orchestrator"
+    CODE = "code"
+    DOCS = "docs"
+    SYNTH = "synth"
 
 
-def get_agentic_workflow(tools: list[FunctionTool], llm: LLMBase, data_sources: list[dict[str, Any]], callback_manager: CallbackManager | None = None) -> AgentWorkflow:
+
+###########################
+# Helper Workflow Functions
+###########################
+
+def _extract_context_from_data_sources(data_sources: list[dict[str, Any]]) -> str:
     """
-    Retrieve the Agentic Workflow that will be leveraged based on the Tools that are available 
-    based on the configured Data Source for the Project 
+    Extract relevant context from data sources to be passed to the agent workflow
+    """
+    if not data_sources:
+        logger.warning(f"No data sources configured for this project")
+        return "No data sources configured for this project"
+    
 
-    TODO: Accept list of data sources as argument and pass relevant context from data sources to the agent workflow 
+    lines: list[str] = []
+    for ds in data_sources:
+        lines.append(
+            f"- [{ds.get('type', 'unknown')}: {ds.get('provider', 'unknown')}] {ds.get('name', 'unnamed')} "
+            f"(branch: {ds.get('branch', 'n/a')}, url: {ds.get('config', {}).get('url', 'n/a')})"
+        )
+    return "\n".join(lines)
+
+
+def _load_prompt(agent_type: str, context: dict[str, Any] = {}) -> str:
+    """
+    Load System Prompt for a given Agent Type 
+
+    Args:
+        agent_type (AgentType): Type of Agent to load prompt for
+        context (str): Context to be included in the system prompt
     """
 
+    return ""
+    
 
-    # TODO: Configure other agents, gathere relevant context from Data Sources being used to answer questions, 
-    # use the .md files and pass relevant inputs, configure entire AgentWorkflow 
+def _summarize_available_tools(tools: list[FunctionTool]) -> str:
+    """
+    Summarize the available tools based on the configured data sources
+    """
 
-    return AgentWorkflow.from_tools_or_functions(
-        tools_or_functions=tools,
+    return ""
+    
+
+
+##################################
+# Agent Factory Functions
+##################################
+
+def _build_orchestrator_agent(
+    llm: LLMBase,
+    all_tools: list[FunctionTool],
+    callback_manager: CallbackManager | None,
+    data_sources: list[dict[str, Any]]
+) -> FunctionAgent:
+    """ Build Orchestrator Agent """
+
+    system_prompt: str = _load_prompt(
+        AgentType.ORCHESTRATOR,
+        context={
+            "data_sources_context": (
+                _extract_context_from_data_sources(data_sources)
+                + "\n\n"
+                + _summarize_available_tools(all_tools)
+            ),
+        },
+    )
+
+    return FunctionAgent(
+        name="OrchestratorAgent", 
+        description=(
+            "Parses the users question and determines which data sources " +
+            "are relevant to answer the question (REPOSITORY, DOCUMENTATION, etc). " +
+            "Always run first."
+        ),
+        system_prompt=system_prompt,
+        tools=[],# Orchestrator shouldn't leverage tool, just orchestrate the workflow 
         llm=llm.get_llama_idx_instance(callback_manager=callback_manager),
-        system_prompt=f"""
-        You are a specialized AI software engineering assistant. Your role is to help users navigate and understand their specific codebase and documentation by dynamically researching their repositories using the tools provided.
+        can_handoff_to=["CodeAgent", "DocsAgent", "SynthAgent"]
+    )
 
-        ### DATA SOURCES (use the following to help answer users question):
-        {extract_context_from_data_sources(data_sources)}
 
-        ### OPERATIONAL GUIDELINES:
+def _build_code_agent(
+    llm: LLMBase,
+    code_tools: list[FunctionTool],
+    callback_manager: CallbackManager | None,
+) -> FunctionAgent:
+    """Build the CodeAgent with only code-scoped tools."""
+    system_prompt = _load_prompt(AgentType.CODE)
+    return FunctionAgent(
+        name="CodeAgent",
+        description=(
+            "Searches and reads source code files to find implementation details, "
+            "edge case handling, and concrete behaviour. Receives only code repository "
+            "tools."
+        ),
+        system_prompt=system_prompt,
+        tools=code_tools,
+        llm=llm.get_llama_idx_instance(callback_manager=callback_manager),
+        can_handoff_to=["SynthAgent"],
+    )
+ 
+ 
+def _build_docs_agent(
+    llm: LLMBase,
+    docs_tools: list[FunctionTool],
+    callback_manager: CallbackManager | None,
+) -> FunctionAgent:
+    """Build the DocsAgent with only documentation-scoped tools."""
+    system_prompt = _load_prompt(AgentType.DOCS)
+    return FunctionAgent(
+        name="DocsAgent",
+        description=(
+            "Searches and reads documentation sources (wikis, READMEs, ADRs, API "
+            "references) to find design intent, architecture decisions, and guides. "
+            "Receives only documentation tools."
+        ),
+        system_prompt=system_prompt,
+        tools=docs_tools,
+        llm=llm.get_llama_idx_instance(callback_manager=callback_manager),
+        can_handoff_to=["SynthAgent"],
+    )
+ 
+ 
+def _build_synth_agent(
+    llm: LLMBase,
+    callback_manager: CallbackManager | None,
+) -> FunctionAgent:
+    """Build the SynthAgent that collates findings into a user-facing answer."""
+    system_prompt = _load_prompt(AgentType.SYNTH)
+    return FunctionAgent(
+        name="SynthAgent",
+        description=(
+            "Receives structured findings from CodeAgent and/or DocsAgent and writes "
+            "a single, well-cited answer for the user. Always runs last."
+        ),
+        system_prompt=system_prompt,
+        # SynthAgent never calls external tools — it only synthesises.
+        tools=[],
+        llm=llm.get_llama_idx_instance(callback_manager=callback_manager),
+        can_handoff_to=[],
+    )
 
-        1. **Research-First Approach (Source of Truth)**:
-           - When a user asks a question, do not rely purely on your internal training data. Use your **Repository Research Tools** to find the actual code and documentation.
-           - Search for keyword matches, list file structures, and read file contents to gather evidence.
-           - Prioritize information found in the actual repositories over general assumptions.
 
-        2. **Iterative Discovery ("Jumping Around")**:
-           - Start with a broad search to find relevant entry points (e.g., READMEs, service files, API routes).
-           - Once a relevant component is found, follow its dependencies. If `Class A` uses `Service B`, search for `Service B` to understand the full context.
-           - Continue researching until you have enough information to answer the user's question completely.
+#########################
+# Public Facing Functions
+#########################
 
-        3. **Tone & Format**:
-           - Professional, technically accurate, and concise.
-           - Use triple backticks with language identifiers (e.g., ```python) for code snippets.
-           - Use **bold** for file paths and key technical terms.
-           - Always cite the file path when providing snippets or explaining logic.
-        """,
+def get_agentic_workflow(tools: defaultdict[DataSourceType, list[FunctionTool]], llm: LLMBase, data_sources: list[dict[str, Any]], callback_manager: CallbackManager | None = None) -> AgentWorkflow:
+    """Build and return the full multi-agent Project Helper workflow.
+ 
+    The workflow is assembled dynamically based on which tool types are present
+    in `tools`. If a research plan later requires a tool type that isn't present,
+    a MissingMCPError is raised before any specialist agent is invoked.
+ 
+    tools:
+        - all FunctionTools made available by the user's MCP configuration.
+    llm:
+        - LLM wrapper (must implement get_llama_idx_instance).
+    data_sources:
+        - List of data source metadata dicts from the project configuration.
+    callback_manager:
+        - Optional LlamaIndex CallbackManager for tracing / logging.
+    """
+
+    all_tools = [tool for tool_list in tools.values() for tool in tool_list] # extract all potential available tools based on configured dat asources 
+    orchestrator = _build_orchestrator_agent(
+        llm=llm,
+        all_tools=all_tools,
+        callback_manager=callback_manager,
+        data_sources=data_sources
     )
    
 
-
-def extract_context_from_data_sources(data_sources: list[dict[str, Any]]) -> str:
-    """
-    Extract relevant context from data sources to be passed to the agent workflow
-
-                    "provider": data_source.provider,
-                "name": data_source.name,
-                "branch": data_source.branch,
-                "config": {"url": data_source.url},
-    """
-    
-    context_list = []
-    for ds in data_sources:
-        context_list.append(f"""
-            Provider: {ds['provider']}
-            Name: {ds['name']}
-            Branch: {ds['branch']}
-            URL: {ds['config']['url']}
-        """)
-    
-    return "\n".join(context_list)
         
     
 
