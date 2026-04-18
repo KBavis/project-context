@@ -50,7 +50,8 @@ class DataSourceService:
             provider=data_source_request.provider, 
             url=data_source_request.url, 
             name=data_source_request.name, 
-            branch=data_source_request.branch
+            branch=data_source_request.branch,
+            type=data_source_request.type
         )
 
         # persist & flush new record
@@ -85,6 +86,7 @@ class DataSourceService:
             "id": data_source.id,
             "provider": data_source.provider,
             "name": data_source.name,
+            "type": data_source.type,
             "branch": data_source.branch,
             "config": {"url": data_source.url},
             "linked_projects": [str(pd.project_id) for pd in data_source.project_data]
@@ -116,6 +118,7 @@ class DataSourceService:
                 "id": data_source.id,
                 "provider": data_source.provider,
                 "name": data_source.name,
+                "type": data_source.type,
                 "branch": data_source.branch,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
@@ -147,6 +150,7 @@ class DataSourceService:
                 "id": data_source.id,
                 "provider": data_source.provider,
                 "name": data_source.name,
+                "type": data_source.type,
                 "branch": data_source.branch,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
@@ -173,6 +177,7 @@ class DataSourceService:
                 "id": data_source.id,
                 "provider": data_source.provider,
                 "name": data_source.name,
+                "type": data_source.type,
                 "branch": data_source.branch,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data],

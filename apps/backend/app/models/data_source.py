@@ -2,8 +2,9 @@ from __future__ import annotations
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import List, TYPE_CHECKING
-from sqlalchemy import text, ForeignKey
+from sqlalchemy import text, ForeignKey, Enum as SQLEnum
 from uuid import UUID
+from enum import Enum
 
 # avoid warning
 if TYPE_CHECKING:
@@ -11,6 +12,11 @@ if TYPE_CHECKING:
     from .project_data import ProjectData
     from .file import File
     from .mcp_config import MCPConfig
+
+
+class DataSourceType(str, Enum):
+    REPOSITORY = "repository"
+    DOCUMENTATION = "documentation"
 
 
 class DataSource(Base):
@@ -35,6 +41,12 @@ class DataSource(Base):
     branch: Mapped[str] = mapped_column(
         nullable=True,
         comment="Branch of the data source (i.e main, master, etc) if one is applicable",
+    )
+
+    type: Mapped["DataSourceType"] = mapped_column(
+        SQLEnum(DataSourceType),
+        nullable=False,
+        comment="Type of data source",
     )
 
 
