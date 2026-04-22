@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 
 
 class DataSourceType(str, Enum):
-    REPOSITORY = "repository"
-    DOCUMENTATION = "documentation"
+    REPOSITORY = "REPOSITORY"
+    DOCUMENTATION = "DOCUMENTATION"
 
 
 class DataSource(Base):
