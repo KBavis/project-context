@@ -80,13 +80,19 @@ class OpenAIProvider(LLMBase):
     def get_llama_idx_instance(self, callback_manager: CallbackManager | None = None) -> OpenAI:
         """
         Returns the LlamaIndex instance for the OpenAI model.
+
+        max_retries: automatically retries on 429 rate-limit and 5xx errors with
+        exponential backoff (handled by the underlying openai-python client).
+        timeout: caps individual requests so a hung call doesn't block the workflow.
         """
 
         return OpenAI(
-            model=self.model_name, 
+            model=self.model_name,
             api_key=settings.OPENAI_API_KEY,
-            callback_manager=callback_manager
-        ) # TODO: Setup additional configurations 
+            callback_manager=callback_manager,
+            max_retries=6,       # retries: ~2min total backoff window on sustained 429s
+            timeout=120.0,       # seconds before a single request is considered hung
+        ) 
     
 
 

@@ -2,7 +2,8 @@ from collections import defaultdict
 from uuid import UUID
 from contextlib import AsyncExitStack
 from typing import AsyncGenerator, Any
-import logging 
+import asyncio
+import logging
 from app.pydantic.streaming import StreamEventType
 from app.services.util import format_sse_event
 
@@ -17,7 +18,7 @@ from app.models.data_source import DataSourceType
 
 
 from llama_index.core.tools import FunctionTool
-from llama_index.core.agent.workflow import (AgentStream, ToolCallResult, AgentWorkflow)
+from llama_index.core.agent.workflow import (AgentStream, ToolCallResult, AgentWorkflow, AgentInput)
 from llama_index.core.llms import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -84,7 +85,10 @@ class AgentService:
 
             # 5. Stream events back to user
             async for event in handler.stream_events():
-                if isinstance(event, AgentStream):
+                if isinstance(event, AgentInput):
+                    # Log each agent activation so rate-limit retries are traceable in logs
+                    logger.info(f"Agent activated: {event.current_agent_name}")
+                elif isinstance(event, AgentStream):
                     if event.delta:
                         yield format_sse_event(StreamEventType.CHUNK, event.delta), event.delta
                 elif isinstance(event, ToolCallResult):
