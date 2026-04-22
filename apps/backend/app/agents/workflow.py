@@ -151,9 +151,8 @@ def _build_code_agent(
         system_prompt=system_prompt,
         tools=repo_tools,
         llm=llm.get_llama_idx_instance(callback_manager=callback_manager),
-        can_handoff_to=["SynthAgent"],
+        can_handoff_to=["SynthAgent", "DocsAgent"],
     )
-
 
 def _build_docs_agent(
     llm: LLMBase,
@@ -188,9 +187,8 @@ def _build_docs_agent(
         system_prompt=system_prompt,
         tools=[*repo_tools, *documentation_tools],
         llm=llm.get_llama_idx_instance(callback_manager=callback_manager),
-        can_handoff_to=["SynthAgent"],
+        can_handoff_to=["SynthAgent", "CodeAgent"],
     )
-
 
 def _build_synth_agent(
     llm: LLMBase,
