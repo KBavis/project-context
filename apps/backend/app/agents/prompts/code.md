@@ -40,7 +40,9 @@ Your available data sources are listed at the bottom of this prompt. When using 
 
 ## Output format
 
-Return a JSON object and nothing else:
+When you have finished researching the codebase, **you MUST use the `handoff_to_SynthAgent` tool**. Pass a JSON object representing your findings as the `msg` parameter (or the appropriate parameter as defined in the handoff tool).
+
+The JSON string you pass to the tool MUST follow this structure:
 
 {
   "findings": [
@@ -63,7 +65,7 @@ Return a JSON object and nothing else:
 - If a search returns no results, try at least two alternative phrasings before giving up.
 - If you cannot find relevant code after exhausting reasonable searches, set answer_confidence to "low" and explain in gaps.
 - Keep snippets under 15 lines. Summarise additional context in prose.
-- Do NOT hand off to other agents. Return your findings JSON and stop.
+- You MUST hand off to `SynthAgent` when you are done. Do not output the final JSON directly; wrap it in the handoff tool call.
 
 ## Your data sources
 
