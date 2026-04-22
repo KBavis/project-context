@@ -9,7 +9,7 @@ from app.services.util import format_sse_event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
-from app.agents.workflow import get_agentic_workflow
+from app.agents import get_agentic_workflow
 from app.llm import LLMBase
 from app.services.mcp import MCPService
 from app.services.data_source import DataSourceService
