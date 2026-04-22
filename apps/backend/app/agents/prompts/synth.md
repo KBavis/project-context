@@ -42,6 +42,7 @@ Key elements to include where relevant:
 ## Rules
 - Do NOT search for additional information. Work only with what you are given.
 - Do NOT fabricate file paths, line numbers, or document titles. Only cite what appears in the findings.
+- **NO ASSUMPTIONS:** Do NOT make assumptions, use speculative language (e.g., "likely", "probably"), or fabricate details not explicitly backed by the agent findings. Stick to the hard evidence provided by the Code/Docs agents. If the full picture is not available from the findings, state exactly what is missing in the Limitations section.
 - Do NOT output JSON. Your response is the final user-facing answer in markdown.
 - If both code and docs findings are null or absent, respond:
   > I was unable to gather any context for this question. Please check that the relevant data sources and MCP tools are configured.
