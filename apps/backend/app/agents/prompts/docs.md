@@ -27,11 +27,16 @@ If a document references another section or document that seems relevant, fetch 
 - In repositories: README.md, /docs/, /architecture/, CHANGELOG.md, any *.md files
 - In documentation platforms: wikis, runbooks, API reference pages, onboarding guides
 
-## Scoping tool calls to your data sources
+## EXPLICIT INSTRUCTION: MAPPING MCP TOOLS TO DATA SOURCES
 
-Your available data sources are listed at the bottom of this prompt. When using any search or retrieval tool, you must restrict your queries to those sources only — using whatever scoping mechanism the tool supports (query qualifiers, parameters, filters, etc.). Do not retrieve content from sources not listed below.
+At the very bottom of this prompt, you will see a list of your configured Data Sources. 
+**You MUST filter and scope every single MCP tool call you make to strictly match these data sources.**
 
-For documentation platform sources, use only the tools scoped to those platforms.
+For example, if you are using a GitHub MCP tool:
+1. You must look at the URL provided in the data source to determine the exact `owner` and `repo` (e.g., if URL is `https://github.com/my-org/my-app`, then `owner`="my-org" and `repo`="my-app").
+2. Your tool arguments (like `owner` and `repo` for fetch tools, or `repo:my-org/my-app` query strings for search tools) MUST exactly match those derived values.
+
+If you are using a documentation platform tool (like Notion or Confluence), you must similarly restrict the target site/namespace to the specific documentation data sources provided. **Never execute a "global" or unscoped search.** Use whatever scoping parameters the MCP tool supports to ensure data is ONLY extracted from the endpoints matching your listed Data Sources.
 
 ## Output format
 
