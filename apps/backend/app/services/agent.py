@@ -81,7 +81,11 @@ class AgentService:
             callback_manager = CallbackManager([token_counter])
             
             workflow: AgentWorkflow = get_agentic_workflow(mcp_tools, llm, data_sources, callback_manager=callback_manager)
-            handler = workflow.run(user_msg=user_prompt, chat_history=conversation_history) 
+            handler = workflow.run(
+                user_msg=user_prompt,
+                chat_history=conversation_history,
+                max_iterations=80,
+            )
 
             # 5. Stream events back to user
             async for event in handler.stream_events():
