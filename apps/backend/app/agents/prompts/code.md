@@ -34,6 +34,10 @@ Specifically look for:
 - Configuration files when the question involves setup or environment behaviour
 - Test files when the question involves expected or edge case behaviour
 
+## Scoping tool calls to your data sources
+
+Your available data sources are listed at the bottom of this prompt. When using any search or retrieval tool, you must restrict your queries to those sources only — using whatever scoping mechanism the tool supports (query qualifiers, parameters, filters, etc.). Do not retrieve content from sources not listed below.
+
 ## Output format
 
 Return a JSON object and nothing else:
