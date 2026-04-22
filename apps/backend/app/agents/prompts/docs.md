@@ -40,7 +40,12 @@ If you are using a documentation platform tool (like Notion or Confluence), you 
 
 ## Output format
 
-When you have finished researching the documentation, **you MUST use the `handoff_to_SynthAgent` tool**. Pass a JSON object representing your findings as the `msg` parameter (or the appropriate parameter as defined in the handoff tool).
+When you have finished researching the documentation, you must hand off your findings using the `handoff` tool.
+Check the initial `RESEARCH PLAN` provided by the Orchestrator. 
+- If `needs_code` is true, you MUST hand off to **CodeAgent**.
+- If `needs_code` is false, you MUST hand off to **SynthAgent**.
+
+Pass a JSON object representing your findings in the `reason` field of the handoff tool.
 
 The JSON string you pass to the tool MUST follow this structure:
 
@@ -65,7 +70,7 @@ Set doc_freshness_concern to true if you find indicators the documentation may b
 - **Only search within the data sources listed below.** Do not read or reference any repository, wiki, or URL not listed here.
 - Always cite the source document and section for every finding.
 - If search results are sparse, try rephrasing with synonyms or broader terms.
-- You MUST hand off to `SynthAgent` when you are done. Do not output the final JSON directly; wrap it in the handoff tool call.
+- You MUST hand off to either `CodeAgent` or `SynthAgent` when you are done. Do not output the final JSON directly; wrap it in the handoff tool call's `reason` field.
 
 ## Your data sources
 

@@ -20,27 +20,26 @@ For `search_hints`, only include terms that the user **explicitly mentioned or c
 - If the user mentioned nothing specific, leave the relevant hints list **empty** — do NOT invent generic hints like "README.md", "main.py", or "Architecture"
 - Downstream agents are capable of doing their own broad searches; your hints are for specifics only
 
-### Step 3 — Hand off to the right agents
+### Step 3 — Hand off to the right agent
 
-Use the `handoff` tool to pass control to each required agent. In the handoff message, include the full research plan as a JSON block so the receiving agent knows exactly what to look for.
+You MUST only call the `handoff` tool **ONCE**. Do not try to hand off to multiple agents in parallel.
+When calling the `handoff` tool, the `reason` argument MUST be a raw JSON string containing the research plan. Do not pass a conversational string as the reason.
 
-**Handoff message format** (send this exact structure in the handoff):
-
-```
-RESEARCH PLAN
+**Handoff message format** (put this exact JSON in the `reason` field of the tool call):
 {
   "intent": "<one-sentence description of what the user is asking>",
+  "needs_code": true/false,
+  "needs_docs": true/false,
   "search_hints": {
     "code": ["<exact symbol, filename, or keyword the user mentioned>", ...],
     "docs": ["<exact topic, heading, or concept the user mentioned>", ...]
   }
 }
-```
 
-- If `needs_code` is true → hand off to **CodeAgent**
-- If `needs_docs` is true → hand off to **DocsAgent**
-- If `can_answer_without_context` is true → hand off directly to **SynthAgent** with the intent and a note that no context gathering is needed
-- Always hand off to **SynthAgent** last to produce the final answer
+**Routing Rules:**
+- If `needs_docs` is true → hand off to **DocsAgent** (DocsAgent will read the JSON and chain to CodeAgent if needed).
+- If `needs_docs` is false but `needs_code` is true → hand off to **CodeAgent**.
+- If neither are needed (`can_answer_without_context` is true) → hand off directly to **SynthAgent**.
 
 ## When needs_code is true
 The question requires looking at actual source files — implementation details, function signatures, control flow, edge case handling, config values, test coverage, etc.

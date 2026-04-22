@@ -47,9 +47,9 @@ If you are using a documentation tool, you must similarly restrict the target si
 
 ## Output format
 
-When you have finished researching the codebase, **you MUST use the `handoff_to_SynthAgent` tool**. Pass a JSON object representing your findings as the `msg` parameter (or the appropriate parameter as defined in the handoff tool).
+When you have finished researching the codebase, **you MUST use the `handoff` tool to hand off to SynthAgent**. Pass a RAW JSON object representing your findings in the `reason` parameter of the handoff tool.
 
-The JSON string you pass to the tool MUST follow this structure:
+The JSON string you pass in the `reason` field MUST follow this structure:
 
 {
   "findings": [
@@ -72,7 +72,7 @@ The JSON string you pass to the tool MUST follow this structure:
 - If a search returns no results, try at least two alternative phrasings before giving up.
 - If you cannot find relevant code after exhausting reasonable searches, set answer_confidence to "low" and explain in gaps.
 - Keep snippets under 15 lines. Summarise additional context in prose.
-- You MUST hand off to `SynthAgent` when you are done. Do not output the final JSON directly; wrap it in the handoff tool call.
+- You MUST hand off to `SynthAgent` when you are done. Do not output the final JSON directly; wrap it in the handoff tool call's `reason` field.
 
 ## Your data sources
 
