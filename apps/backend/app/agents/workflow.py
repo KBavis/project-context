@@ -24,13 +24,20 @@ class AgentType(str, Enum):
 # Helper Workflow Functions
 ###########################
 
-def _extract_context_from_data_sources(data_sources: list[dict[str, Any]]) -> str:
-    if not data_sources:
-        logger.warning("No data sources configured for this project")
-        return "No data sources configured for this project"
+def _extract_context_from_data_sources(data_sources: list[dict[str, Any]], type_filter: str | None = None) -> str:
+    """
+    Build a human-readable list of data sources for agent system prompts.
+    Pass `type_filter` (e.g. DataSourceType.REPOSITORY) to restrict to one type.
+    """
+    filtered = [
+        ds for ds in data_sources
+        if type_filter is None or ds.get("type") == type_filter
+    ]
+    if not filtered:
+        return f"No {type_filter or ''} data sources configured for this project.".strip()
 
     lines: list[str] = []
-    for ds in data_sources:
+    for ds in filtered:
         lines.append(
             f"- [{ds.get('type', 'unknown')}: {ds.get('provider', 'unknown')}] "
             f"{ds.get('name', 'unnamed')} "
@@ -119,13 +126,21 @@ def _build_orchestrator_agent(
 def _build_code_agent(
     llm: LLMBase,
     repo_tools: list[FunctionTool],
+    data_sources: list[dict[str, Any]],
     callback_manager: CallbackManager | None,
 ) -> FunctionAgent:
     """
     CodeAgent receives only REPOSITORY tools.
     Prompted to look at source files (.py, .ts, etc) — not markdown.
     """
-    system_prompt = _load_prompt(AgentType.CODE)
+    system_prompt = _load_prompt(
+        AgentType.CODE,
+        context={
+            "data_sources_context": _extract_context_from_data_sources(
+                data_sources, type_filter=DataSourceType.REPOSITORY
+            )
+        },
+    )
     return FunctionAgent(
         name="CodeAgent",
         description=(
@@ -144,6 +159,7 @@ def _build_docs_agent(
     llm: LLMBase,
     repo_tools: list[FunctionTool],
     documentation_tools: list[FunctionTool],
+    data_sources: list[dict[str, Any]],
     callback_manager: CallbackManager | None,
 ) -> FunctionAgent:
     """
@@ -151,7 +167,17 @@ def _build_docs_agent(
     DOCUMENTATION tools (Confluence, Notion, etc).
     Prompted to focus on markdown files, /docs paths, and dedicated doc platforms.
     """
-    system_prompt = _load_prompt(AgentType.DOCS)
+    # Show both REPOSITORY sources (for in-repo docs) and DOCUMENTATION platform sources
+    repo_context = _extract_context_from_data_sources(data_sources, type_filter=DataSourceType.REPOSITORY)
+    docs_context = _extract_context_from_data_sources(data_sources, type_filter=DataSourceType.DOCUMENTATION)
+    combined_context = (
+        f"Repository sources (README/docs folders):\n{repo_context}"
+        f"\n\nDocumentation platform sources:\n{docs_context}"
+    )
+    system_prompt = _load_prompt(
+        AgentType.DOCS,
+        context={"data_sources_context": combined_context},
+    )
     return FunctionAgent(
         name="DocsAgent",
         description=(
@@ -222,13 +248,13 @@ def get_agentic_workflow(
     available_specialist_agents: list[str] = ["SynthAgent"]
 
     if repo_tools:
-        agents.append(_build_code_agent(llm, repo_tools, callback_manager))
+        agents.append(_build_code_agent(llm, repo_tools, data_sources, callback_manager))
         available_specialist_agents.append("CodeAgent")
 
     # DocsAgent is useful if we have EITHER repo tools (for markdown/docs folders)
     # OR dedicated documentation platform tools — or both.
     if repo_tools or documentation_tools:
-        agents.append(_build_docs_agent(llm, repo_tools, documentation_tools, callback_manager))
+        agents.append(_build_docs_agent(llm, repo_tools, documentation_tools, data_sources, callback_manager))
         available_specialist_agents.append("DocsAgent")
 
     orchestrator = _build_orchestrator_agent(
