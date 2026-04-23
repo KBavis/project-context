@@ -10,6 +10,6 @@ class QueryResponse(BaseModel):
     user_prompt: str 
     model_response: str 
 
-    user_input_tokens: int 
-    model_output_tokens: int 
+    input_tokens: int 
+    output_tokens: int 
     total_tokens: int 

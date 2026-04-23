@@ -168,33 +168,33 @@ class MessageService:
             )
             
             full_response = ""
-            usage_metadata = {}
+            usage_data = {}
             async for sse_event, raw_chunk in response_stream:
-                # extract usage metadata regarding tokens 
-                if sse_event == "usage_metadata" and isinstance(raw_chunk, dict):
-                    usage_metadata = raw_chunk
+                # extract usage data regarding tokens 
+                if sse_event == StreamEventType.TOKEN_USAGE and isinstance(raw_chunk, dict):
+                    usage_data = raw_chunk
                     continue
                 
                 if isinstance(raw_chunk, str):
                     full_response += raw_chunk
                 
                 # Only yield if it's a string (SSE event)
-                if isinstance(sse_event, str) and sse_event != "usage_metadata":
+                if isinstance(sse_event, str) and sse_event != StreamEventType.TOKEN_USAGE:
                     yield sse_event
 
             # 5. Finalize and Persist
             yield format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
             
-            user_prompt_tokens = usage_metadata.get("prompt_tokens", 0)
-            model_output_tokens = usage_metadata.get("completion_tokens", 0)
-            total_tokens = usage_metadata.get("total_tokens", 0)
-            logger.info(f"Token Usage for Conversation={conversation_id} and Message={message.content}: {usage_metadata}")
+            user_prompt_tokens = usage_data.get("input_tokens", 0)
+            model_output_tokens = usage_data.get("output_tokens", 0)
+            total_tokens = usage_data.get("total_tokens", 0)
+            logger.info(f"Token Usage for Conversation={conversation_id} and Message={message.content}: {usage_data}")
 
             query_result_for_save = QueryResponse(
                 user_prompt=message.content,
                 model_response=full_response,
-                user_input_tokens=user_prompt_tokens,
-                model_output_tokens=model_output_tokens,
+                input_tokens=user_prompt_tokens,
+                output_tokens=model_output_tokens,
                 total_tokens=total_tokens
             )
 
@@ -378,7 +378,7 @@ class MessageService:
             sender=Sender.USER,
             sequence_number=user_sequence_number,
             content_type=message_content_type,
-            token_count=query_result.user_input_tokens,
+            token_count=query_result.input_tokens,
             conversation_id=conversation_id
         )
         model_msg = await self.save_message(
@@ -386,7 +386,7 @@ class MessageService:
             sender=Sender.MODEL,
             sequence_number=model_sequence_number,
             content_type="text", # TODO: Use enum and account for potential types 
-            token_count=query_result.model_output_tokens,
+            token_count=query_result.output_tokens,
             conversation_id=conversation_id
         )
 

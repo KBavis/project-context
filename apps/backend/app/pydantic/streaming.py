@@ -9,6 +9,7 @@ class StreamEventType(str, Enum):
     METADATA = "metadata"
     ERROR = "error"
     CITATION = "citation"
+    TOKEN_USAGE = "token_usage"
 
 class StreamEvent(BaseModel):
     event: StreamEventType
