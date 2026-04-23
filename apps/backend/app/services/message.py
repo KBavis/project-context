@@ -120,11 +120,17 @@ class MessageService:
             # 5. Finalize and Persist
             yield format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
             
-            user_prompt_tokens = usage_data.get("input_tokens", 0)
-            model_output_tokens = usage_data.get("output_tokens", 0)
-            total_tokens = usage_data.get("total_tokens", 0)
+
+            # 6. Determine Token Usage via Agentic Workflow (i.e. Execution Cost Metrics)
+            agent_workflow_input_tokens = usage_data.get("input_tokens", 0)
+            agent_workflow_output_tokens = usage_data.get("output_tokens", 0)
+            agent_workflow_total_tokens = usage_data.get("total_tokens", 0)
             logger.info(f"Token Usage for Conversation={conversation_id} and Message={message.content}: {usage_data}")
 
+            # 7. Determine User Input and Model Output Token Totals (actual message content)
+            user_prompt_tokens, model_output_tokens, total_tokens = await self.calculate_token_totals(message.content, full_response, llm)
+
+            # 8. Persist Updates (Messages and Conversation Metadata)
             query_result_for_save = QueryResponse(
                 user_prompt=message.content,
                 model_response=full_response,
@@ -165,6 +171,17 @@ class MessageService:
             created_at=message.created_at,
             updated_at=message.updated_at
         )
+
+    
+
+    async def calculate_token_totals(self, user_prompt: str, model_output: str, llm: LLMBase) -> tuple[int, int, int]:
+        """
+        Calculate the token totals for the user prompt and model output.
+        """
+        user_prompt_tokens = len(await llm.tokenize(user_prompt))
+        model_output_tokens = len(await llm.tokenize(model_output))
+        total_tokens = user_prompt_tokens + model_output_tokens
+        return user_prompt_tokens, model_output_tokens, total_tokens
 
         
     async def save_messages(
