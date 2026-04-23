@@ -10,6 +10,7 @@ from sqlalchemy import text, ForeignKey
 if TYPE_CHECKING:
     from .project import Project
     from .message import Message
+    from .execution_token_usage import ExecutionTokenUsage
 
 
 class Conversation(Base):
@@ -47,6 +48,12 @@ class Conversation(Base):
         comment="The LL Model provider configured for this Conversation"
     )
 
+    total_execution_tokens: Mapped[int] = mapped_column(
+        nullable=False,
+        default=text("0"),
+        comment="The total execution tokens used across all agentic turns during course of conversation"
+    )
+
     # many to one relationship with Project 
     project_id: Mapped["UUID"] = mapped_column(
         ForeignKey("project.id")
@@ -56,6 +63,12 @@ class Conversation(Base):
 
     # one to many relationship with Message
     messages: Mapped[List["Message"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan"
+    )
+
+    # one to many relationship with ExecutionTokenUsage
+    execution_token_usages: Mapped[List["ExecutionTokenUsage"]] = relationship(
         back_populates="conversation",
         cascade="all, delete-orphan"
     )

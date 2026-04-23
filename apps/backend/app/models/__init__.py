@@ -13,6 +13,7 @@ from .collection import ChromaCollection
 from .citation import Citation
 from .docstore_chunk import DocstoreChunk
 from .mcp_config import MCPConfig
+from .execution_token_usage import ExecutionTokenUsage
 
 __all__ = [
     "Base",
@@ -31,5 +32,6 @@ __all__ = [
     "Sender",
     "Citation",
     "DocstoreChunk",
-    "MCPConfig"
+    "MCPConfig",
+    "ExecutionTokenUsage"
 ]
