@@ -10,6 +10,7 @@ from app.services import (
     ConversationService,
     MessageService,
     CitationService,
+    ExecutionTokenUsageService,
     ChunkRetrievalService,
     ChunkInsertionService,
     MCPService,
@@ -241,12 +242,26 @@ def get_async_citation_svc(
     return CitationService(db=db, file_svc=file_svc)
 
 
+def get_async_execution_token_usage_svc(
+    db: AsyncSession = Depends(get_async_db_session)
+):
+    """
+    Setup async ExecutionTokenUsageService dependency 
+
+    Args:   
+        db (AsyncSession): async DB session
+    """
+
+    return ExecutionTokenUsageService(db=db)
+
+
 def get_async_message_svc(
         db: AsyncSession = Depends(get_async_db_session),
         conversation_svc: ConversationService = Depends(get_async_conversation_svc),
         query_svc: QueryService = Depends(get_async_query_svc),
         citation_svc: CitationService = Depends(get_async_citation_svc),
-        agent_svc: AgentService = Depends(get_async_agent_svc)
+        agent_svc: AgentService = Depends(get_async_agent_svc),
+        execution_token_usage_svc: ExecutionTokenUsageService = Depends(get_async_execution_token_usage_svc)
 ):
     """
     Setup async MessageService dependency 
@@ -257,6 +272,7 @@ def get_async_message_svc(
         query_svc (QueryService): async query service dependency
         citation_svc (CitationService): async citation service dependency
         agent_svc (AgentService): async agent service dependency
+        execution_token_usage_svc (ExecutionTokenUsageService): async execution token usage service dependency
     """
 
-    return MessageService(db=db, conversation_svc=conversation_svc, query_svc=query_svc, citation_svc=citation_svc, agent_svc=agent_svc)
+    return MessageService(db=db, conversation_svc=conversation_svc, query_svc=query_svc, citation_svc=citation_svc, agent_svc=agent_svc, execution_token_usage_svc=execution_token_usage_svc)

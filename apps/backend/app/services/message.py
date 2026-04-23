@@ -15,8 +15,9 @@ from app.services.conversation import ConversationService
 from app.services.agent import AgentService
 from app.services.citations import CitationService
 from app.services.query import QueryService
+from app.services.execution_token_usage import ExecutionTokenUsageService
 from app.models import Message
-from app.llm import LLMManager
+from app.llm import LLMManager, LLMBase
 from app.pydantic import QueryResponse, MessageDto, MessageRequest
 from app.pydantic.streaming import StreamEventType
 from app.services.util import format_sse_event
@@ -32,13 +33,15 @@ class MessageService:
         conversation_svc: ConversationService,
         query_svc: QueryService,
         citation_svc: CitationService,
-        agent_svc: AgentService
+        agent_svc: AgentService,
+        execution_token_usage_svc: ExecutionTokenUsageService
     ):
         self.db = db
         self.conversation_svc = conversation_svc
         self.query_svc = query_svc
         self.citation_svc = citation_svc
         self.agent_svc = agent_svc
+        self.execution_token_usage_svc = execution_token_usage_svc
 
     
     async def get_messages(self, conversation_id: UUID):
@@ -138,7 +141,6 @@ class MessageService:
                 output_tokens=model_output_tokens,
                 total_tokens=total_tokens
             )
-
             user_msg, model_msg = await self.save_messages(
                 query_result_for_save,
                 conversation_id,
@@ -147,9 +149,22 @@ class MessageService:
             )
 
             await self.conversation_svc.update_total_tokens(conversation_id, total_tokens)
+            
+            # 9. Persist execution stats
+            await self.execution_token_usage_svc.create_usage_record(
+                conversation_id=conversation_id,
+                user_message_id=user_msg.id,
+                model_message_id=model_msg.id,
+                input_tokens=agent_workflow_input_tokens,
+                output_tokens=agent_workflow_output_tokens,
+                total_tokens=agent_workflow_total_tokens
+            )
+            await self.conversation_svc.update_total_execution_tokens(conversation_id, agent_workflow_total_tokens)
+
             await self.db.commit() 
 
-            # 6. Final Metadata
+
+            # 10. Final Metadata
             yield format_sse_event(StreamEventType.METADATA, {
                 "user_message": self._get_message_dto(user_msg).model_dump(),
                 "model_message": self._get_message_dto(model_msg).model_dump(),
