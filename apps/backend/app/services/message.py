@@ -107,6 +107,7 @@ class MessageService:
             
             full_response = ""
             usage_data = {}
+            has_error = False
             async for sse_event, raw_chunk in response_stream:
                 # extract usage data regarding tokens 
                 if sse_event == StreamEventType.TOKEN_USAGE and isinstance(raw_chunk, dict):
@@ -119,9 +120,13 @@ class MessageService:
                 # Only yield if it's a string (SSE event)
                 if isinstance(sse_event, str) and sse_event != StreamEventType.TOKEN_USAGE:
                     yield sse_event
+                    # Check if the event is an error event by looking for the StreamEventType.ERROR value
+                    if f'"event":"{StreamEventType.ERROR.value}"' in sse_event.replace(" ", ""):
+                        has_error = True
 
             # 5. Finalize and Persist
-            yield format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
+            if not has_error:
+                yield format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
             
 
             # 6. Determine Token Usage via Agentic Workflow (i.e. Execution Cost Metrics)

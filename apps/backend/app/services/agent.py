@@ -120,8 +120,9 @@ class AgentService:
                 
                 # Yield the error event so the UI can display it immediately
                 yield format_sse_event(StreamEventType.ERROR, friendly_msg, "Workflow Error"), None
-                # Re-raise with the friendly message so the calling service (MessageService) can report it
-                raise Exception(friendly_msg) from e
+                
+                # Do NOT raise the exception here. Allow for token usage to be calculated and returned
+                
 
             finally:
                 # 7. Yield token usage data (always send what was consumed up to failure)
