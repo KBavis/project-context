@@ -66,27 +66,29 @@ export default function ChatInterface({ conversationId }) {
                 for (const line of lines) {
                     if (!line.startsWith('data: ')) continue;
 
+                    let parsedEvent;
                     try {
                         const jsonStr = line.replace('data: ', '');
-                        const event = JSON.parse(jsonStr);
-
-                        if (event.event === 'status') {
-                            setStatus(event.data);
-                        } else if (event.event === 'chunk') {
-                            assistantMessage += event.data;
-                            setStreamingMessage(assistantMessage);
-                            setStatus('Generating...'); // Reset to "Generating" when we get actual tokens
-                        } else if (event.event === 'citation') {
-                            currentCitations = event.data;
-                            setCitations(currentCitations);
-                        } else if (event.event === 'metadata') {
-                            // Final data (token counts, etc)
-                            console.log('Stream Metadata:', event.data);
-                        } else if (event.event === 'error') {
-                            throw new Error(event.data);
-                        }
+                        parsedEvent = JSON.parse(jsonStr);
                     } catch (e) {
                         console.error('Failed to parse SSE event:', e, line);
+                        continue;
+                    }
+
+                    if (parsedEvent.event === 'status') {
+                        setStatus(parsedEvent.data);
+                    } else if (parsedEvent.event === 'chunk') {
+                        assistantMessage += parsedEvent.data;
+                        setStreamingMessage(assistantMessage);
+                        setStatus('Generating...'); // Reset to "Generating" when we get actual tokens
+                    } else if (parsedEvent.event === 'citation') {
+                        currentCitations = parsedEvent.data;
+                        setCitations(currentCitations);
+                    } else if (parsedEvent.event === 'metadata') {
+                        // Final data (token counts, etc)
+                        console.log('Stream Metadata:', parsedEvent.data);
+                    } else if (parsedEvent.event === 'error') {
+                        throw new Error(parsedEvent.data);
                     }
                 }
             }
@@ -104,9 +106,15 @@ export default function ChatInterface({ conversationId }) {
 
         } catch (error) {
             console.error('Failed to send message:', error);
+            
+            // Extract the specific error message if it came from our SSE stream
+            const errorText = error.message && error.message !== 'Failed to fetch' 
+                ? `**Error:** ${error.message}`
+                : 'Sorry, there was an error processing your message.';
+                
             const errorMessage = {
                 role: 'assistant',
-                content: 'Sorry, there was an error processing your message.',
+                content: errorText,
                 timestamp: new Date(),
                 error: true,
             };
