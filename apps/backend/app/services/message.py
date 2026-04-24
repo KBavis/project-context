@@ -280,6 +280,9 @@ class MessageService:
     def get_conversation_history_for_agent(self, conversation: Conversation) -> list[ChatMessage]:
         """
         Functionality to retrieve the last k messages for a specific Conversation
+
+        TODO: This is a fairly simplified version this function, in the long run, we should 
+        likely look to summarize old messages in order to avoid excessive token usage 
         """
 
         return [ChatMessage(content=msg.content, role=MessageRole.USER if msg.sender == Sender.USER else MessageRole.ASSISTANT) for msg in conversation.messages]
