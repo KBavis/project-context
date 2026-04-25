@@ -15,13 +15,21 @@ export const api = {
     // Conversation endpoints
     conversations: {
         create: async (projectId, llModelName = null, llModelProvider = null) => {
+            const providerMap = {
+                openai: 'OpenAI',
+                ollama: 'Ollama',
+            };
+            const normalizedProvider = llModelProvider
+                ? (providerMap[llModelProvider] || llModelProvider)
+                : llModelProvider;
+
             const response = await fetch(`${API_BASE_URL}/conversation/`, { // Fixed trailing slash/path
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     project_id: projectId,
                     ll_model_name: llModelName,
-                    ll_model_provider: llModelProvider,
+                    ll_model_provider: normalizedProvider,
                 }),
             });
             return handleResponse(response);
