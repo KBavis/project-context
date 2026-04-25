@@ -70,16 +70,21 @@ class ConversationService:
 
         logger.info(f"Creating Conversation for project {conversation.project_id} with LLM {conversation.ll_model_name} and provider {conversation.ll_model_provider}")
 
-        # Configure LLM Manager based on request parameters (or use defaults)
-        llm_manager = LLMManager(
-            model_name=conversation.ll_model_name or settings.LL_MODEL,
-            provider=conversation.ll_model_provider or settings.LL_MODEL_PROVIDER
-        )
-
-
         # Use settings defaults if not provided
         model_name = conversation.ll_model_name or settings.LL_MODEL
         model_provider = conversation.ll_model_provider or settings.LL_MODEL_PROVIDER
+
+        # Validate provider/model selection before creating LLM client
+        if model_provider not in settings.VALID_LL_MODEL_PROVIDERS:
+            raise ValueError(
+                f"Unsupported LLM provider '{model_provider}'. Supported providers: {sorted(settings.VALID_LL_MODEL_PROVIDERS)}"
+            )
+
+        # Configure LLM Manager based on validated request parameters
+        llm_manager = LLMManager(
+            model_name=model_name,
+            provider=model_provider
+        )
 
         # retrieve the max tokens for the specified model 
         llm: LLMBase = llm_manager.get_llm()
@@ -98,6 +103,17 @@ class ConversationService:
         await self.db.flush() 
 
         return {"id": conversation_id, "ll_model_name": model_name, "ll_model_provider": model_provider, "total_tokens": 0, "max_tokens": max_tokens}
+
+    async def get_llm_options(self) -> dict[str, list[str]]:
+        """
+        Return selectable provider -> models map for UI consumption.
+        """
+        return {
+            # Model lists are intentionally open-ended and can be provided by UI/user input.
+            "OpenAI": [],
+            # Ollama models are environment-dependent and discovered at runtime.
+            "Ollama": [],
+        }
     
 
     async def get_conversation(self, conversation_id: UUID):

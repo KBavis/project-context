@@ -8,10 +8,11 @@ const PROVIDERS = {
     openai: {
         label: 'OpenAI',
         models: [
-            { id: 'gpt-4o-mini', label: 'GPT-4o Mini (Cheapest & Intelligent)', value: 'gpt-4o-mini' },
-            { id: 'gpt-4o', label: 'GPT-4o (Most Capable)', value: 'gpt-4o' }
+            { id: 'gpt-4o-mini', label: 'GPT-4o Mini (Cheapest)', value: 'gpt-4o-mini' },
+            { id: 'gpt-4.1-mini', label: 'More Intelligent Mode (Balanced) - gpt-4.1-mini', value: 'gpt-4.1-mini' },
+            { id: 'gpt-4.1', label: 'Most Intelligent Mode (Higher Cost) - gpt-4.1', value: 'gpt-4.1' }
         ],
-        defaultModel: 'gpt-4o-mini'
+        defaultModel: 'gpt-4.1-mini'
     },
     ollama: {
         label: 'Ollama (Local)',
@@ -144,7 +145,7 @@ export default function CreateConversationModal({ isOpen, onClose }) {
                     </select>
                     {provider === 'openai' && (
                         <p className="field-hint">
-                            <strong>gpt-4o-mini</strong> is highly recommended as it is significantly cheaper while remaining very capable.
+                            Choose <strong>gpt-4.1-mini</strong> for a stronger balanced model, or <strong>gpt-4.1</strong> for highest quality at higher cost.
                         </p>
                     )}
                 </div>

@@ -12,11 +12,6 @@ class OpenAIProvider(LLMBase):
     def __init__(self, model_name: str):
         self._model_name = model_name
 
-    # TODO: Add more models to this mapping
-    context_lengths = {
-        "gpt-4o-mini": 128000,
-    }
-
     @property
     def model_name(self) -> str:
         """
@@ -64,8 +59,7 @@ class OpenAIProvider(LLMBase):
         """
         Returns the maximum context length for the OpenAI model.
         """
-
-        openai_instance = self.get_llama_idx_instance() 
+        openai_instance = self.get_llama_idx_instance()
         return openai_instance.metadata.context_window - settings.LLM_EXPECTED_RESPONSE_SIZE
 
 
