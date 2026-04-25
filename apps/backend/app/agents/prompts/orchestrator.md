@@ -82,6 +82,8 @@ Example: "Is the retry behaviour consistent with what the docs describe?"
 - ALWAYS use the `handoff` tool — do not just output text.
 - Plan for efficient stopping, not exhaustive discovery. Your job is to route with an explicit stopping threshold.
 - For `project_overview`, default to docs-first with a shallow evidence budget (README + at most one architecture doc).
+- Bias downstream execution toward "inspect/view text" workflows (listing, scoped search, targeted reads), not raw file download workflows.
+- For docs/code discovery tasks, explicitly avoid PDF download actions unless the user directly asks for PDF-specific extraction.
 - If needs_code is false, set search_hints.code to [].
 - If needs_docs is false, set search_hints.docs to [].
 - search_hints must only contain terms the user explicitly mentioned — never hallucinate file names, function names, or topics.
