@@ -121,7 +121,7 @@ class AgentService:
                                 # TODO: Once we start testing out reasoning models, it may be a good idea to have this information streamed back to calling user 
                                 # that way, the end user is getting periodic insights into what/why a Agent is doing something. For time being, we can just log this information out
                                 logger.debug(
-                                    "AgentStreamEvent (%s): Agent=%s, InternalDialogue:%d, ToolCalls=%d",
+                                    "AgentStreamEvent (%s): Agent=%s, InternalDialogue:%s, ToolCalls=%d",
                                     "Thinking" if event.thinking_delta else "Delta",
                                     event.current_agent_name, 
                                     event.delta if event.thinking_delta else event.delta,
