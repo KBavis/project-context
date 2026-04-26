@@ -69,32 +69,12 @@ def _load_prompt(agent_type: AgentType, context: dict[str, Any] = {}) -> str:
 
     return text
 
-
-
-def _summarize_available_tools(tools: list[FunctionTool]) -> str:
-    """
-    Build a human-readable summary of available tools for the orchestrator's
-    system prompt, so it knows what it can and cannot ask downstream agents to do.
-    """
-    if not tools:
-        return "No tools are currently available."
-
-    lines: list[str] = ["Available tools:"]
-    for tool in tools:
-        name = tool.metadata.name or "unnamed"
-        description = (tool.metadata.description or "no description").strip().splitlines()[0]
-        lines.append(f"  - {name}: {description}")
-
-    return "\n".join(lines)
-
-
 ##################################
 # Agent Factory Functions
 ##################################
 
 def _build_orchestrator_agent(
     llm: LLMBase,
-    all_tools: list[FunctionTool],
     data_sources: list[dict[str, Any]],
     available_agents: list[str],
     callback_manager: CallbackManager | None,
@@ -104,8 +84,6 @@ def _build_orchestrator_agent(
         context={
             "data_sources_context": (
                 _extract_context_from_data_sources(data_sources)
-                + "\n\n"
-                + _summarize_available_tools(all_tools)
             ),
         },
     )
@@ -257,7 +235,6 @@ def get_agentic_workflow(
 
     orchestrator = _build_orchestrator_agent(
         llm=llm,
-        all_tools=all_tools,
         data_sources=data_sources,
         available_agents=available_specialist_agents,
         callback_manager=callback_manager,
