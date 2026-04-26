@@ -18,7 +18,7 @@ from app.models.data_source import DataSourceType
 
 
 from llama_index.core.tools import FunctionTool
-from llama_index.core.agent.workflow import (AgentStream, ToolCallResult, AgentWorkflow, AgentInput)
+from llama_index.core.agent.workflow import (AgentStream, ToolCall, ToolCallResult, AgentWorkflow, AgentInput)
 from llama_index.core.llms import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -96,6 +96,21 @@ class AgentService:
                     elif isinstance(event, AgentStream):
                         if event.delta:
                             yield format_sse_event(StreamEventType.CHUNK, event.delta), event.delta
+                    elif isinstance(event, ToolCall):
+                        if "handoff" in event.tool_name.lower():
+                            try:
+                                import json
+                                reason = event.tool_kwargs.get("reason", "{}")
+                                data = json.loads(reason)
+                                plan = data.get("plan", [])
+                                if plan:
+                                    yield format_sse_event(StreamEventType.STATUS, f"Planning: {plan[-1]}", "Agent Thinking"), None
+                                else:
+                                    yield format_sse_event(StreamEventType.STATUS, "Orchestrating next steps...", "Agent Thinking"), None
+                            except Exception:
+                                yield format_sse_event(StreamEventType.STATUS, "Orchestrating next steps...", "Agent Thinking"), None
+                        else:
+                            yield format_sse_event(StreamEventType.STATUS, f"Using tool `{event.tool_name}`...", "Tool Call"), None
                     elif isinstance(event, ToolCallResult):
                         yield format_sse_event(StreamEventType.STATUS, f"Tool `{event.tool_name}` leveraged successfully.", "Tool Call"), None
                     elif hasattr(event, "msg"):
