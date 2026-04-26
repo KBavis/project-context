@@ -1,16 +1,14 @@
 from collections import defaultdict
 from uuid import UUID
 from contextlib import AsyncExitStack
-from typing import AsyncGenerator, Any
-import asyncio
-import json
+from typing import AsyncGenerator, Any, Type
 import logging
 
 from workflows.handler import WorkflowHandler
 from workflows.context.context import Context
 from app.pydantic.streaming import StreamEventType
 from app.services.util import format_sse_event
-
+from app.pydantic.agent import AgentName, AgentType
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
@@ -22,8 +20,10 @@ from app.models.data_source import DataSourceType
 
 
 from llama_index.core.tools import FunctionTool
-from llama_index.core.agent.workflow import (AgentStream, ToolCall, ToolCallResult, AgentWorkflow, AgentInput)
+from llama_index.core.agent.workflow import (AgentOutput, AgentSetup, AgentStream, ToolCall, ToolCallResult, AgentWorkflow, AgentInput)
 from llama_index.core.llms import ChatMessage
+from llama_index.core.workflow import Event
+
 
 logger = logging.getLogger(__name__)
 
@@ -99,27 +99,79 @@ class AgentService:
             # 5. Stream events back to user
             try:
                 async for event in handler.stream_events():
-                    if isinstance(event, AgentStream):
-                        if event.delta:
-                            if event.current_agent_name == "SynthAgent":
-                                # Only stream the final answer from SynthAgent to the user
-                                yield format_sse_event(StreamEventType.CHUNK, event.delta), event.delta
-                            else:
-                                # Internal agent reasoning — log it, don't send to user
-                                logger.debug(f"[{event.current_agent_name}] {event.delta}")
-                    elif isinstance(event, ToolCall):
-                        yield format_sse_event(StreamEventType.STATUS, await self._extract_tool_call_info(event), "Agent Thinking"), None
-                    elif isinstance(event, ToolCallResult):
-                        yield format_sse_event(StreamEventType.STATUS, f"Tool `{event.tool_name}` leveraged successfully.", "Tool Call"), None
-                    elif hasattr(event, "msg"):
-                        logger.info(f"Agent Message: {event.msg}")
+
+                    # handle workflow events based on Event Type 
+                    # TODO: Instead of just logging, this should get updated to stream some of the relevant information back to user 
+                    match event:
+
+                        # agent streaming information 
+                        case AgentStream():
+                            if event.delta:
+
+                                # finalized answer from our Synthesis Agent
+                                if event.current_agent_name == AgentName.SYNTH:
+                                    yield format_sse_event(StreamEventType.CHUNK, event.delta), event.delta
+
+                                # Keep stream logging lightweight; response is cumulative and gets very noisy.
+                                logger.debug(
+                                    "AgentStreamEvent (Delta): Agent=%s, DeltaLen=%d, Delta=%r, ToolCalls=%d",
+                                    event.current_agent_name,
+                                    len(event.delta),
+                                    event.delta[:200],
+                                    len(event.tool_calls or []),
+                                )
+
+                            # Log internal agent thinking deltas separately.
+                            if event.thinking_delta:
+                                logger.debug(
+                                    "AgentStreamEvent (Thinking): Agent=%s, ThinkingDeltaLen=%d, ThinkingDelta=%r",
+                                    event.current_agent_name,
+                                    len(event.thinking_delta),
+                                    event.thinking_delta[:200],
+                                )
+                        
+                        # handle Agent Input Events 
+                        case AgentInput():
+                            logger.debug(f"AgentInputEvent Uncovered: Agent={event.current_agent_name}, Inputs={event.input}")
+                        
+
+                        # handle Agent Setups 
+                        case AgentSetup():
+                            logger.debug(f"AgentSetupEvent Uncovered: Agent={event.current_agent_name}, Inputs={event.input}")
+                        
+
+                        # handle Agent Ouptut 
+                        case AgentOutput():
+                            logger.debug(
+                                "AgentOutputEvent: Agent=%s, Response=%s, StructuredResponse=%s, ToolCalls=%s",
+                                event.current_agent_name,
+                                event.response,
+                                event.structured_response,
+                                event.tool_calls,
+                            )
+
+                        
+                        # handle Agent Tool Calls 
+                        case ToolCall():
+                            logger.debug(f"ToolCallEvent Uncovered: ToolName={event.tool_name}, Arguments={event.tool_kwargs}")
+
+                        # handle Tool Call Result 
+                        case ToolCallResult():
+                            logger.debug(f"ToolCallResultEvent Unconvered: ToolName={event.tool_name}, ToolOutput={event.tool_output}")
+                        
+                        # default 
+                        case _:
+                            logger.debug(f"Unknown Event Type Processed: {event}")
+
+
                 
                 # 6. Wait for the final result
                 result = await handler
                 logger.info(f"Workflow Complete. Result: {result}")
 
                 # Log accumulated research state from shared Context
-                await self.log_research_state(ctx)
+                await self._log_research_state(ctx)
+
             except Exception as e:
                 logger.error(f"Error in agent workflow: {e}", exc_info=True)
                 
@@ -151,7 +203,25 @@ class AgentService:
                     "total_tokens": token_counter.total_llm_token_count
                 }
     
-    async def log_research_state(self, ctx: Context) -> None:
+
+
+    async def _extract_agent_workflow_information(self, event: Event, type: Type):
+        """
+        Log out relevant information based on the current state of the Agentic Wofklow 
+        Information that is "relevant" will differ based on the event being performed 
+
+        There are also certain scenarios where we would want to yield this information back to calling user
+        """
+
+        # TODO: Implement me 
+
+        return 
+
+
+
+
+    
+    async def _log_research_state(self, ctx: Context) -> None:
         """
         Reads accumulated findings from the shared Context store and logs them.
         Called after the workflow completes to provide a debug view of everything
@@ -168,39 +238,6 @@ class AgentService:
                 logger.info("Research State — no findings were recorded in shared state.")
         except Exception as state_err:
             logger.warning(f"Could not read research state from Context: {state_err}")
-
-    async def _extract_tool_call_info(self, event: ToolCall) -> str:
-        """
-        Extracts the tool call information from the event
-        """
-        if "handoff" in event.tool_name.lower():
-            reason = event.tool_kwargs.get("reason", "{}")
-            if not reason:
-                logger.info("No reason found in Tool Call, returning default message")
-                return "Orchestrating next steps..."
-
-            try:
-                data = json.loads(reason) if not isinstance(reason, dict) else reason
-            except (json.JSONDecodeError, TypeError) as e:
-                logger.warning(f"Failed to parse handoff reason as JSON: {e}")
-                return "Orchestrating next steps..."
-
-            # log out plan for debugging 
-            plan = data.get("plan", [])
-            if plan:
-                logger.info(f"Agentic Workflow Current Plan: {plan}")
-            else:
-                logger.info("No plan found")
-
-            # pass back intent to UI for display
-            intent = data.get("intent", "")
-            if intent:
-                return f"Goal: {intent}"
-            else:
-                return "Orchestrating next steps..."
-        else:
-            return f"Using tool `{event.tool_name}`..."
-
 
 
     async def get_internal_tools(self, project_id):
