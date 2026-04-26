@@ -1,9 +1,12 @@
 from collections import defaultdict
+from os import system
 from uuid import UUID
 from contextlib import AsyncExitStack
 from typing import AsyncGenerator, Any, Type
 import logging
+import json
 
+from llama_index.core.base.llms.types import MessageRole, TextBlock
 from workflows.handler import WorkflowHandler
 from workflows.context.context import Context
 from app.pydantic.streaming import StreamEventType
@@ -97,67 +100,95 @@ class AgentService:
             )
 
             # 5. Stream events back to user
+            # TODO: This function is getting blaoted and messy, refactor some of this code 
             try:
                 async for event in handler.stream_events():
 
                     # handle workflow events based on Event Type 
                     # TODO: Instead of just logging, this should get updated to stream some of the relevant information back to user 
                     match event:
-
-                        # agent streaming information 
+                        
                         case AgentStream():
-                            if event.delta:
-
-                                # finalized answer from our Synthesis Agent
-                                if event.current_agent_name == AgentName.SYNTH:
-                                    yield format_sse_event(StreamEventType.CHUNK, event.delta), event.delta
-
-                                # Keep stream logging lightweight; response is cumulative and gets very noisy.
+                            # stream agent's response back to calling user 
+                            if event.delta and event.current_agent_name == AgentName.SYNTH:
+                                yield format_sse_event(StreamEventType.CHUNK, event.delta), event.delta
+                                continue
+                                
+                            # NOTE: If we're seeing information getting streamed, but it's not from SynthAgent, this is the "Agent's Internal Dialogue"
+                            # This can either be directly from the `event.delta``, or if it's a reasoning model, could be the `event.thinking_delta`
+                            if event.delta or event.thinking_delta:
+                                
+                                # TODO: Once we start testing out reasoning models, it may be a good idea to have this information streamed back to calling user 
+                                # that way, the end user is getting periodic insights into what/why a Agent is doing something. For time being, we can just log this information out
                                 logger.debug(
-                                    "AgentStreamEvent (Delta): Agent=%s, DeltaLen=%d, Delta=%r, ToolCalls=%d",
-                                    event.current_agent_name,
-                                    len(event.delta),
-                                    event.delta[:200],
-                                    len(event.tool_calls or []),
+                                    "AgentStreamEvent (%s): Agent=%s, InternalDialogue:%d, ToolCalls=%d",
+                                    "Thinking" if event.thinking_delta else "Delta",
+                                    event.current_agent_name, 
+                                    event.delta if event.thinking_delta else event.delta,
+                                    len(event.tool_calls or [])
                                 )
 
-                            # Log internal agent thinking deltas separately.
-                            if event.thinking_delta:
-                                logger.debug(
-                                    "AgentStreamEvent (Thinking): Agent=%s, ThinkingDeltaLen=%d, ThinkingDelta=%r",
-                                    event.current_agent_name,
-                                    len(event.thinking_delta),
-                                    event.thinking_delta[:200],
-                                )
-                        
-                        # handle Agent Input Events 
                         case AgentInput():
-                            logger.debug(f"AgentInputEvent Uncovered: Agent={event.current_agent_name}, Inputs={event.input}")
-                        
-
-                        # handle Agent Setups 
-                        case AgentSetup():
-                            logger.debug(f"AgentSetupEvent Uncovered: Agent={event.current_agent_name}, Inputs={event.input}")
-                        
-
-                        # handle Agent Ouptut 
-                        case AgentOutput():
+                            # extract relevant information
+                            agent_name = event.current_agent_name
+                            system_prompt, latest_message = await self._extract_agent_input_messages(event)
                             logger.debug(
-                                "AgentOutputEvent: Agent=%s, Response=%s, StructuredResponse=%s, ToolCalls=%s",
-                                event.current_agent_name,
-                                event.response,
-                                event.structured_response,
-                                event.tool_calls,
+                                "AgentInputEvent: Agent=%s, SystemPrompt=%s, LatestMessage=%s", # TODO: Probably best to avoid logging system prompt each time, this will get logs messy
+                                agent_name,
+                                system_prompt,
+                                latest_message
                             )
+                        
+
+                        case AgentOutput():
+                            agent_name = event.current_agent_name
+                            tool_breakdown = []
+
+                            for tool_call in event.tool_calls:
+                                tool_name = tool_call.tool_name
+                                tool_args = tool_call.tool_kwargs
+
+                                if tool_name == "handoff":
+                                    handoff_agent = tool_args.get("to_agent")
+                                    handoff_reason = tool_args.get("reason")
+
+                                    if not handoff_reason or not handoff_agent:
+                                        logger.warning(f"Invalid state for `handoff` tool call, this tool call will fail. CurrentState={tool_call}")
+                                        continue
+
+                                    reasons = json.loads(handoff_reason) if not isinstance(handoff_reason, dict) else handoff_reason
+                                    tool_breakdown.append({
+                                        "tool_name": tool_name,
+                                        "handoff_agent": handoff_agent,
+                                        "intent": reasons.get("intent", ""),
+                                        "needs_code": reasons.get("needs_code", "") == "true",
+                                        "needs_docs": reasons.get("needs_docs", "") == "true",
+                                        "question_class": reasons.get("question_class", "Unknown Question Class"),
+                                        "search_hints": reasons.get("search_hints", {}),
+                                        "plan": reasons.get("plan", []),
+                                    })
+                                else:
+                                    tool_breakdown.append({
+                                        "tool_name": tool_name,
+                                        "tool_args": tool_args,
+                                    })
+                            logger.debug("AgentOutputEvent: Agent=%s, ToolBreakown=%s", agent_name, tool_breakdown)
+                                                                
 
                         
-                        # handle Agent Tool Calls 
                         case ToolCall():
-                            logger.debug(f"ToolCallEvent Uncovered: ToolName={event.tool_name}, Arguments={event.tool_kwargs}")
-
-                        # handle Tool Call Result 
+                            logger.debug("ToolCallEvent: Name=%s, Arguments=%s", event.tool_name, event.tool_kwargs)
                         case ToolCallResult():
-                            logger.debug(f"ToolCallResultEvent Unconvered: ToolName={event.tool_name}, ToolOutput={event.tool_output}")
+                            try:
+                                summary = " | ".join(
+                                    block.text[:200]
+                                    for block in event.tool_output.blocks
+                                    if isinstance(block, TextBlock)
+                                )
+                            except Exception:
+                                summary = str(event.tool_output)[:300]
+
+                            logger.debug("ToolCallResultEvent: Name=%s, Output=%s", event.tool_name, summary)
                         
                         # default 
                         case _:
@@ -204,19 +235,41 @@ class AgentService:
                 }
     
 
-
-    async def _extract_agent_workflow_information(self, event: Event, type: Type):
+    async def _extract_agent_input_messages(self, event: AgentInput) -> tuple[str, dict]:
         """
-        Log out relevant information based on the current state of the Agentic Wofklow 
-        Information that is "relevant" will differ based on the event being performed 
+        Extract System Prompt and Latest Message from a particular AgentInput Event for debugging purposes 
 
-        There are also certain scenarios where we would want to yield this information back to calling user
+        Args:
+            event (AgentInput): the event that we want to extract system prompt from 
         """
 
-        # TODO: Implement me 
 
-        return 
+        # extract system prompt
+        for input in event.input:
 
+            # NOTE: Should only be one System Prompt per Agent Input 
+            if input.role == MessageRole.SYSTEM:
+                system_prompt = "".join(
+                    block.text for block in input.blocks if isinstance(block, TextBlock) # TODO: Handle alternative Input Types 
+                )
+                break
+        
+
+        # validate system prompt 
+        if not system_prompt:
+            raise Exception(f"Unable to extract System Prompt for AgentInput={event}")
+        
+        # extract latest message 
+        latest_input = event.input[-1] 
+        latest_message_text = "".join(
+            block.text for block in latest_input.blocks if isinstance(block, TextBlock)
+        )
+        latest_message = {
+            "message": latest_message_text,
+            "role": latest_input.role
+        }
+        
+        return system_prompt, latest_message
 
 
 
