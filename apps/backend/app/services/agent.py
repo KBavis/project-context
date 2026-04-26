@@ -155,21 +155,21 @@ class AgentService:
                                         logger.warning(f"Invalid state for `handoff` tool call, this tool call will fail. CurrentState={tool_call}")
                                         continue
 
-                                    reasons = json.loads(handoff_reason) if not isinstance(handoff_reason, dict) else handoff_reason
+                                    reasons = await self._safe_parse_handoff_reason(handoff_reason)
                                     tool_breakdown.append({
-                                        "tool_name": tool_name,
-                                        "handoff_agent": handoff_agent,
-                                        "intent": reasons.get("intent", ""),
-                                        "needs_code": reasons.get("needs_code", "") == "true",
-                                        "needs_docs": reasons.get("needs_docs", "") == "true",
-                                        "question_class": reasons.get("question_class", "Unknown Question Class"),
-                                        "search_hints": reasons.get("search_hints", {}),
-                                        "plan": reasons.get("plan", []),
+                                        "Tool Name": tool_name,
+                                        "Handoff Agent": handoff_agent,
+                                        "Goal": reasons.get("intent", ""),
+                                        "Requires Code Agent": reasons.get("needs_code", ""),
+                                        "Requires Doc Agent": reasons.get("needs_docs", ""),
+                                        "Question Class": reasons.get("question_class", "Unknown Question Class"),
+                                        "Search Hints": reasons.get("search_hints", {}),
+                                        "Plan of Action": reasons.get("plan", []),
                                     })
                                 else:
                                     tool_breakdown.append({
-                                        "tool_name": tool_name,
-                                        "tool_args": tool_args,
+                                        "Tool Name": tool_name,
+                                        "Tool Arguments": tool_args,
                                     })
                             logger.debug("AgentOutputEvent: Agent=%s, ToolBreakown=%s", agent_name, tool_breakdown)
                                                                 
@@ -233,6 +233,17 @@ class AgentService:
                     "total_tokens": token_counter.total_llm_token_count
                 }
     
+    async def _safe_parse_handoff_reason(self, handoff_reason) -> dict:
+        if isinstance(handoff_reason, dict):
+            return handoff_reason
+        if not handoff_reason or not handoff_reason.strip():
+            logger.warning(f"No hand off reason extracted, returning empty dictionary")
+            return {}  # or log a warning here
+        try:
+            return json.loads(handoff_reason)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse handoff_reason: {e}. Raw value: {repr(handoff_reason)}")
+            return {}
 
     async def _extract_latest_message(self, event: AgentInput) -> dict:
         """
