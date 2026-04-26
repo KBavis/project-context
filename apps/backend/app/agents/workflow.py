@@ -3,6 +3,7 @@ from enum import Enum
 from llama_index.core.agent.workflow import AgentWorkflow, FunctionAgent
 from llama_index.core.tools import FunctionTool
 from llama_index.core.callbacks import CallbackManager
+from workflows.context.context import Context
 
 from app.llm import LLMBase
 from app.models.data_source import DataSourceType
@@ -69,12 +70,67 @@ def _load_prompt(agent_type: AgentType, context: dict[str, Any] = {}) -> str:
 
     return text
 
+
+def _summarize_available_tools(tools: list[FunctionTool]) -> str:
+    """
+    Build a human-readable summary of available tools for the orchestrator's
+    system prompt, so it knows what it can and cannot ask downstream agents to do.
+    """
+    if not tools:
+        return "No tools are currently available."
+
+    lines: list[str] = ["Available tools:"]
+    for tool in tools:
+        name = tool.metadata.name or "unnamed"
+        description = (tool.metadata.description or "no description").strip().splitlines()[0]
+        lines.append(f"  - {name}: {description}")
+
+    return "\n".join(lines)
+
+
+##################################
+# Shared Internal Tools
+##################################
+
+async def update_research_state(ctx: Context, finding: str, source: str) -> str:
+    """
+    Updates the shared research state with a new finding and its corresponding source.
+    Call this tool every time you discover a relevant piece of information.
+
+    Args:
+        finding: A concise summary of what was found (e.g. "The ingestion job is triggered by a cron scheduler in worker.py")
+        source: The exact source location (e.g. "src/worker.py:45-62" or "README.md > Architecture")
+    """
+    async with ctx.store.edit_state() as state:
+        if "findings" not in state:
+            state["findings"] = []
+
+        state["findings"].append({"source": source, "finding": finding})
+
+    return "Finding recorded in shared state."
+
+
+def _build_research_state_tool() -> FunctionTool:
+    """Create the update_research_state FunctionTool."""
+    return FunctionTool.from_defaults(
+        async_fn=update_research_state,
+        name="update_research_state",
+        description=(
+            "Record a research finding into shared global state. "
+            "Call this EVERY TIME you discover relevant information. "
+            "Args: finding (str) — concise summary of what was found; "
+            "source (str) — exact file path and line range, or document title and section."
+        ),
+    )
+
+
 ##################################
 # Agent Factory Functions
 ##################################
 
 def _build_orchestrator_agent(
     llm: LLMBase,
+    all_tools: list[FunctionTool],
     data_sources: list[dict[str, Any]],
     available_agents: list[str],
     callback_manager: CallbackManager | None,
@@ -84,6 +140,8 @@ def _build_orchestrator_agent(
         context={
             "data_sources_context": (
                 _extract_context_from_data_sources(data_sources)
+                + "\n\n"
+                + _summarize_available_tools(all_tools)
             ),
         },
     )
@@ -94,7 +152,7 @@ def _build_orchestrator_agent(
             "are relevant (REPOSITORY, DOCUMENTATION, etc). Always runs first."
         ),
         system_prompt=system_prompt,
-        tools=[],
+        tools=[_build_research_state_tool()],
         llm=llm.get_llama_idx_instance(callback_manager=callback_manager),
         # Only hand off to agents that were actually built
         can_handoff_to=available_agents,
@@ -127,7 +185,7 @@ def _build_code_agent(
             "Uses REPOSITORY tools only — focuses on source files, not markdown."
         ),
         system_prompt=system_prompt,
-        tools=repo_tools,
+        tools=[*repo_tools, _build_research_state_tool()],
         llm=llm.get_llama_idx_instance(callback_manager=callback_manager),
         can_handoff_to=["OrchestratorAgent"],
     )
@@ -163,7 +221,7 @@ def _build_docs_agent(
             "Uses both REPOSITORY and DOCUMENTATION tools."
         ),
         system_prompt=system_prompt,
-        tools=[*repo_tools, *documentation_tools],
+        tools=[*repo_tools, *documentation_tools, _build_research_state_tool()],
         llm=llm.get_llama_idx_instance(callback_manager=callback_manager),
         can_handoff_to=["OrchestratorAgent"],
     )
@@ -235,6 +293,7 @@ def get_agentic_workflow(
 
     orchestrator = _build_orchestrator_agent(
         llm=llm,
+        all_tools=all_tools,
         data_sources=data_sources,
         available_agents=available_specialist_agents,
         callback_manager=callback_manager,

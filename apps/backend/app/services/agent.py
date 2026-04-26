@@ -7,6 +7,7 @@ import json
 import logging
 
 from workflows.handler import WorkflowHandler
+from workflows.context.context import Context
 from app.pydantic.streaming import StreamEventType
 from app.services.util import format_sse_event
 
@@ -84,9 +85,14 @@ class AgentService:
             callback_manager = CallbackManager([token_counter])
             
             workflow: AgentWorkflow = get_agentic_workflow(mcp_tools, llm, data_sources, callback_manager=callback_manager)
+
+            # Create shared Context for global state across agents
+            ctx = Context(workflow)
+
             handler = workflow.run(
                 user_msg=user_prompt,
                 chat_history=conversation_history,
+                ctx=ctx,
                 max_iterations=40,
             )
 
@@ -107,6 +113,9 @@ class AgentService:
                 # 6. Wait for the final result
                 result = await handler
                 logger.info(f"Workflow Complete. Result: {result}")
+
+                # Log accumulated research state from shared Context
+                await self.log_research_state(ctx)
             except Exception as e:
                 logger.error(f"Error in agent workflow: {e}", exc_info=True)
                 
@@ -137,6 +146,24 @@ class AgentService:
                 # Input tokens + Output tokens
                     "total_tokens": token_counter.total_llm_token_count
                 }
+    
+    async def log_research_state(self, ctx: Context) -> None:
+        """
+        Reads accumulated findings from the shared Context store and logs them.
+        Called after the workflow completes to provide a debug view of everything
+        the agents discovered during the session.
+        """
+        try:
+            store = ctx.store
+            findings = await store.get("findings", [])  # type: ignore[arg-type]
+            if findings:
+                logger.info(f"Research State — {len(findings)} findings accumulated:")
+                for i, f in enumerate(findings, 1):
+                    logger.info(f"  [{i}] {f.get('source', 'unknown')}: {f.get('finding', 'no summary')}")
+            else:
+                logger.info("Research State — no findings were recorded in shared state.")
+        except Exception as state_err:
+            logger.warning(f"Could not read research state from Context: {state_err}")
 
     async def _extract_tool_call_info(self, event: ToolCall) -> str:
         """
@@ -156,14 +183,6 @@ class AgentService:
                 logger.info(f"Agentic Workflow Current Plan: {plan}")
             else:
                 logger.info("No plan found")
-            
-
-            # log out research state (for debugging)
-            state = data.get("research_state", {})
-            if state:
-                logger.info(f"Agentic Workflow Current State: {state}")
-            else:
-                logger.info("No state found")
 
             # pass back intent to UI for display
             intent = data.get("intent", "")
