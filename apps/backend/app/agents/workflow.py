@@ -1,5 +1,4 @@
 from collections import defaultdict
-from enum import Enum
 from llama_index.core.agent.workflow import AgentWorkflow, FunctionAgent
 from llama_index.core.tools import FunctionTool
 from llama_index.core.callbacks import CallbackManager
@@ -7,18 +6,12 @@ from workflows.context.context import Context
 
 from app.llm import LLMBase
 from app.models.data_source import DataSourceType
+from app.pydantic.agent import AgentType, AgentName
 from typing import Any
 from pathlib import Path
 
 import logging
 logger = logging.getLogger(__name__)
-
-
-class AgentType(str, Enum):
-    ORCHESTRATOR = "orchestrator"
-    CODE = "code"
-    DOCS = "docs"
-    SYNTH = "synth"
 
 
 ###########################
@@ -146,7 +139,7 @@ def _build_orchestrator_agent(
         },
     )
     return FunctionAgent(
-        name="OrchestratorAgent",
+        name=AgentName.ORCHESTRATOR,
         description=(
             "Parses the user's question and determines which data sources "
             "are relevant (REPOSITORY, DOCUMENTATION, etc). Always runs first."
@@ -178,7 +171,7 @@ def _build_code_agent(
         },
     )
     return FunctionAgent(
-        name="CodeAgent",
+        name=AgentName.CODE,
         description=(
             "Searches and reads source code files to find implementation details, "
             "edge case handling, and concrete behaviour. "
@@ -214,7 +207,7 @@ def _build_docs_agent(
         context={"data_sources_context": combined_context},
     )
     return FunctionAgent(
-        name="DocsAgent",
+        name=AgentName.DOCS,
         description=(
             "Searches and reads documentation — READMEs, /docs folders, ADRs from "
             "repositories, plus dedicated documentation platforms (Confluence, Notion). "
@@ -232,7 +225,7 @@ def _build_synth_agent(
 ) -> FunctionAgent:
     system_prompt = _load_prompt(AgentType.SYNTH)
     return FunctionAgent(
-        name="SynthAgent",
+        name=AgentName.SYNTH,
         description=(
             "Receives structured findings from CodeAgent and/or DocsAgent and writes "
             "a single, well-cited answer for the user. Always runs last."
