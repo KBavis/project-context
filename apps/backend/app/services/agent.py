@@ -3,7 +3,10 @@ from uuid import UUID
 from contextlib import AsyncExitStack
 from typing import AsyncGenerator, Any
 import asyncio
+import json
 import logging
+
+from workflows.handler import WorkflowHandler
 from app.pydantic.streaming import StreamEventType
 from app.services.util import format_sse_event
 
@@ -90,27 +93,12 @@ class AgentService:
             # 5. Stream events back to user
             try:
                 async for event in handler.stream_events():
-                    if isinstance(event, AgentInput):
-                        # Log each agent activation so rate-limit retries are traceable in logs
-                        logger.info(f"Agent activated: {event.current_agent_name}")
-                    elif isinstance(event, AgentStream):
+                    if isinstance(event, AgentStream):
+                        # streaming back final answer back to user
                         if event.delta:
                             yield format_sse_event(StreamEventType.CHUNK, event.delta), event.delta
                     elif isinstance(event, ToolCall):
-                        if "handoff" in event.tool_name.lower():
-                            try:
-                                import json
-                                reason = event.tool_kwargs.get("reason", "{}")
-                                data = json.loads(reason)
-                                plan = data.get("plan", [])
-                                if plan:
-                                    yield format_sse_event(StreamEventType.STATUS, f"Planning: {plan[-1]}", "Agent Thinking"), None
-                                else:
-                                    yield format_sse_event(StreamEventType.STATUS, "Orchestrating next steps...", "Agent Thinking"), None
-                            except Exception:
-                                yield format_sse_event(StreamEventType.STATUS, "Orchestrating next steps...", "Agent Thinking"), None
-                        else:
-                            yield format_sse_event(StreamEventType.STATUS, f"Using tool `{event.tool_name}`...", "Tool Call"), None
+                        yield format_sse_event(StreamEventType.STATUS, await self._extract_tool_call_info(event), "Tool Call"), None
                     elif isinstance(event, ToolCallResult):
                         yield format_sse_event(StreamEventType.STATUS, f"Tool `{event.tool_name}` leveraged successfully.", "Tool Call"), None
                     elif hasattr(event, "msg"):
@@ -149,6 +137,30 @@ class AgentService:
                 # Input tokens + Output tokens
                     "total_tokens": token_counter.total_llm_token_count
                 }
+
+    async def _extract_tool_call_info(self, event: ToolCall) -> str:
+        """
+        Extracts the tool call information from the event
+        """
+        if "handoff" in event.tool_name.lower():
+            reason = event.tool_kwargs.get("reason", "{}")
+            data = json.loads(reason)
+
+            # log out plan for debugging 
+            plan = data.get("plan", [])
+            if plan:
+                logger.info(f"Agentic Workflow Current Plan: {plan}")
+            else:
+                logger.info("No plan found")
+
+            # pass back intent to UI for display
+            intent = data.get("intent", "")
+            if intent:
+                return f"Goal: {intent}"
+            else:
+                return "Orchestrating next steps..."
+        else:
+            return f"Using tool `{event.tool_name}`..."
 
 
 
