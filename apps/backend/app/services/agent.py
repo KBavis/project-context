@@ -131,11 +131,10 @@ class AgentService:
                         case AgentInput():
                             # extract relevant information
                             agent_name = event.current_agent_name
-                            system_prompt, latest_message = await self._extract_agent_input_messages(event)
+                            latest_message = await self._extract_latest_message(event)
                             logger.debug(
-                                "AgentInputEvent: Agent=%s, SystemPrompt=%s, LatestMessage=%s", # TODO: Probably best to avoid logging system prompt each time, this will get logs messy
+                                "AgentInputEvent: Agent=%s, LatestMessage=%s", 
                                 agent_name,
-                                system_prompt,
                                 latest_message
                             )
                         
@@ -235,32 +234,19 @@ class AgentService:
                 }
     
 
-    async def _extract_agent_input_messages(self, event: AgentInput) -> tuple[str, dict]:
+    async def _extract_latest_message(self, event: AgentInput) -> dict:
         """
-        Extract System Prompt and Latest Message from a particular AgentInput Event for debugging purposes 
+        Extract latest message from a particular AgentInput Event for debugging purposes 
 
         Args:
             event (AgentInput): the event that we want to extract system prompt from 
         """
-
-
-        # extract system prompt
-        for input in event.input:
-
-            # NOTE: Should only be one System Prompt per Agent Input 
-            if input.role == MessageRole.SYSTEM:
-                system_prompt = "".join(
-                    block.text for block in input.blocks if isinstance(block, TextBlock) # TODO: Handle alternative Input Types 
-                )
-                break
-        
-
-        # validate system prompt 
-        if not system_prompt:
-            raise Exception(f"Unable to extract System Prompt for AgentInput={event}")
         
         # extract latest message 
-        latest_input = event.input[-1] 
+        latest_input = event.input[-1] if event.input else None 
+        if not latest_input:
+            raise Exception("No input messages available: Agent in corrupt state")
+
         latest_message_text = "".join(
             block.text for block in latest_input.blocks if isinstance(block, TextBlock)
         )
@@ -269,7 +255,7 @@ class AgentService:
             "role": latest_input.role
         }
         
-        return system_prompt, latest_message
+        return latest_message
 
 
 
