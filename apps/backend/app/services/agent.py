@@ -100,9 +100,13 @@ class AgentService:
             try:
                 async for event in handler.stream_events():
                     if isinstance(event, AgentStream):
-                        # streaming back final answer back to user
                         if event.delta:
-                            yield format_sse_event(StreamEventType.CHUNK, event.delta), event.delta
+                            if event.current_agent_name == "SynthAgent":
+                                # Only stream the final answer from SynthAgent to the user
+                                yield format_sse_event(StreamEventType.CHUNK, event.delta), event.delta
+                            else:
+                                # Internal agent reasoning — log it, don't send to user
+                                logger.debug(f"[{event.current_agent_name}] {event.delta}")
                     elif isinstance(event, ToolCall):
                         yield format_sse_event(StreamEventType.STATUS, await self._extract_tool_call_info(event), "Agent Thinking"), None
                     elif isinstance(event, ToolCallResult):
@@ -175,7 +179,11 @@ class AgentService:
                 logger.info("No reason found in Tool Call, returning default message")
                 return "Orchestrating next steps..."
 
-            data = json.loads(reason) if not isinstance(reason, dict) else reason
+            try:
+                data = json.loads(reason) if not isinstance(reason, dict) else reason
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"Failed to parse handoff reason as JSON: {e}")
+                return "Orchestrating next steps..."
 
             # log out plan for debugging 
             plan = data.get("plan", [])
