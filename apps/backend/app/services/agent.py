@@ -98,7 +98,7 @@ class AgentService:
                         if event.delta:
                             yield format_sse_event(StreamEventType.CHUNK, event.delta), event.delta
                     elif isinstance(event, ToolCall):
-                        yield format_sse_event(StreamEventType.STATUS, await self._extract_tool_call_info(event), "Tool Call"), None
+                        yield format_sse_event(StreamEventType.STATUS, await self._extract_tool_call_info(event), "Agent Thinking"), None
                     elif isinstance(event, ToolCallResult):
                         yield format_sse_event(StreamEventType.STATUS, f"Tool `{event.tool_name}` leveraged successfully.", "Tool Call"), None
                     elif hasattr(event, "msg"):
@@ -144,7 +144,11 @@ class AgentService:
         """
         if "handoff" in event.tool_name.lower():
             reason = event.tool_kwargs.get("reason", "{}")
-            data = json.loads(reason)
+            if not reason:
+                logger.info("No reason found in Tool Call, returning default message")
+                return "Orchestrating next steps..."
+
+            data = json.loads(reason) if not isinstance(reason, dict) else reason
 
             # log out plan for debugging 
             plan = data.get("plan", [])
@@ -152,6 +156,14 @@ class AgentService:
                 logger.info(f"Agentic Workflow Current Plan: {plan}")
             else:
                 logger.info("No plan found")
+            
+
+            # log out research state (for debugging)
+            state = data.get("research_state", {})
+            if state:
+                logger.info(f"Agentic Workflow Current State: {state}")
+            else:
+                logger.info("No state found")
 
             # pass back intent to UI for display
             intent = data.get("intent", "")
