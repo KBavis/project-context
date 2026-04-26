@@ -35,6 +35,7 @@ For `search_hints`, only include terms that the user **explicitly mentioned or c
 ### Step 4 — Hand off to the right agent
 
 You MUST only call the `handoff` tool **ONCE** per turn. Do not try to hand off to multiple agents in parallel.
+The `handoff` tool expects two arguments: `to_agent` (the exact name of the agent to hand off to, e.g., `DocsAgent`, `CodeAgent` or `SynthAgent`) and `reason` (a raw JSON string containing your research plan or findings).
 When calling the `handoff` tool, the `reason` argument MUST be a raw JSON string containing the research plan. Do not pass a conversational string as the reason.
 
 **Handoff message format** (put this exact JSON in the `reason` field of the tool call):
