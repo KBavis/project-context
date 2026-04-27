@@ -54,7 +54,8 @@ At the very bottom of this prompt, you will see a list of your configured Data S
 Your search and read operations MUST be strictly confined to these specific sources.
 
 - **Enforce Data Source Filtering**: You are strictly prohibited from performing unbounded or global searches with any MCP tool. You MUST inspect the available parameters and syntax for every tool and explicitly provide the necessary filters to restrict the operation entirely to your assigned data sources. Map the identifiers (like URLs, project names, or IDs) from your data sources context to the required tool arguments.
-- **Query String Scoping**: If a tool supports a query string, you must include the specific scoped query syntax (e.g., repository filters, workspace IDs, or project tags) directly in the query. Failure to explicitly apply these filters will result in searching global data outside the user's project, which is completely wrong.
+- **Full Identifiers Only**: When scoping a tool, you MUST use the FULL identifier from the data sources list (e.g. `owner/repo_name`). Do not use shorthand names (like just `repo_name`).
+- **Query String Scoping**: If a tool supports a query string (e.g., GitHub search), you must embed the full identifier directly into the query string using the correct syntax (e.g., `repo:owner/repo_name`). Never pass a naked query string without explicit data source filters. Failure to explicitly apply these filters will result in searching global data outside the user's project, which is completely wrong.
 
 ## Recording findings
 
