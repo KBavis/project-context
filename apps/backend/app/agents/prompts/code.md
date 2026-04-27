@@ -53,9 +53,9 @@ Specifically look for:
 At the very bottom of this prompt, you will see a list of your configured Data Sources.
 Your search and read operations MUST be strictly confined to these specific sources.
 
-- **Enforce Data Source Filtering**: You are strictly prohibited from performing unbounded or global searches with any MCP tool. You MUST inspect the available parameters and syntax for every tool and explicitly provide the necessary filters to restrict the operation entirely to your assigned data sources. Map the identifiers (like URLs, project names, or IDs) from your data sources context to the required tool arguments.
-- **Full Identifiers Only**: When scoping a tool, you MUST use the FULL identifier from the data sources list (e.g. `owner/repo_name`). Do not use shorthand names (like just `repo_name`).
-- **Query String Scoping**: If a tool supports a query string (e.g., GitHub search), you must embed the full identifier directly into the query string using the correct syntax (e.g., `repo:owner/repo_name`). Never pass a naked query string without explicit data source filters. Failure to explicitly apply these filters will result in searching global data outside the user's project, which is completely wrong.
+- **NEVER INVENT ARGUMENTS**: You must only use the arguments explicitly defined in the tool's schema. DO NOT make up arguments (like adding a `repo` or `project` argument) if they are not defined.
+- **EMBED SCOPING IN QUERY**: If a search tool only exposes a `query` argument, you MUST embed your data source identifier DIRECTLY into that query string using the platform's syntax (e.g., `query="search terms repo:owner/repo_name"` or `query="search terms space:KEY"`). Passing a generic query string without embedded filters will cause an unbounded global search, which is STRICTLY FORBIDDEN.
+- **USE FULL IDENTIFIERS**: Always use the complete identifier from your 'data sources' context. Never use shorthand (e.g., use `owner/repo_name`, not just `repo_name`).
 
 ## Recording findings
 
