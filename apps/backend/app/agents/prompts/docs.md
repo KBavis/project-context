@@ -76,9 +76,9 @@ The JSON string you pass to the tool MUST follow this structure:
 {
   "findings": [
     {
-      "path": "<path to document (i.e. doc.md or path/doc.md)>",
+      "path": "path/to/doc.md",
       "section": "Heading or section name within the document",
-      "data_source_link": <link to data source that file is in (i.e. GitHub url) or url of document>,
+      "data_source_link": "The base URL or direct URL for the data source (extract this from the provided data sources context)",
       "summary": "What this section says that is relevant to the question",
       "excerpt": "<key excerpt, max 5 sentences>"
     }
@@ -94,7 +94,7 @@ Set doc_freshness_concern to true if you find indicators the documentation may b
 
 ## Rules
 - Only use the tools provided. Do not synthesise answers from general knowledge.
-- **Only search within the data sources listed below.** Do not read or reference any repository, wiki, or URL not listed here.
+- **Only search within the data sources listed below.** Do not read or reference any data source, wiki, or URL not listed here.
 - Always cite the source document and section for every finding.
 - **ANTI-SPAM DIRECTIVE:** Do NOT generate 5+ tool calls in parallel wildly guessing file locations. Check a directory first, then read the files you verified exist.
 - **EVIDENCE-DRIVEN INVESTIGATION:** Do NOT make assumptions or guess how a system works. If asked about the purpose or flow of a system, investigate it fully by reading the actual documentation. Base every finding on hard textual evidence. Never say "it likely means XYZ."
