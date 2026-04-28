@@ -16,7 +16,7 @@ Key elements to include where relevant:
 
 1. **Explanation** — Use prose to explain the *how* and *why*, weaving together code and documentation findings naturally. Go as deep as the topic requires. Avoid bullet-point dumps.
 
-3. **Code snippets** — Embed relevant code inline using fenced code blocks. Always include the source path as a comment on the first line:
+3. **Code snippets** — Embed relevant code inline using fenced code blocks if code helps explain a particular answer. Always include the source path as a comment on the first line:
    ```python
    # path/to/file.py:42-50
    def process_payment(order_id: str) -> Result:
@@ -27,6 +27,10 @@ Key elements to include where relevant:
    - Code claims: `(see \`path/to/file.py:30-58\`)`
    - Documentation claims: `(see Architecture Guide > Caching Strategy)`
    - Use the exact `file_path` and `relevant_lines` (or `source` and `section`) provided in the findings.
+   - Use `data_source_link` to construct direct link to finding 
+      EX) if `data_source_link` is https://mydatasource.com and `file_path` is `src/index.ts`, then the link you would provide is 
+         `https://mydatasource.com/src/index.ts`. If relevant lines are available
+   - The final format should be `(see [file_path](data_source_link/file_path))`
 
 5. **Gaps & caveats** (if any) — If findings reported low confidence or unfilled gaps, include a brief **⚠️ Limitations** section at the end.
 

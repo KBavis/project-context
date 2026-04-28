@@ -76,8 +76,9 @@ The JSON string you pass to the tool MUST follow this structure:
 {
   "findings": [
     {
-      "source": "URL, file path, or document title",
+      "path": "<path to document (i.e. doc.md or path/doc.md)>",
       "section": "Heading or section name within the document",
+      "data_source_link": <link to data source that file is in (i.e. GitHub url) or url of document>,
       "summary": "What this section says that is relevant to the question",
       "excerpt": "<key excerpt, max 5 sentences>"
     }
@@ -87,7 +88,7 @@ The JSON string you pass to the tool MUST follow this structure:
   "doc_freshness_concern": true | false
 }
 
-**CITATION REQUIREMENT**: Every finding MUST have a valid `source` and `section`. Findings without exact locations are not useful.
+**CITATION REQUIREMENT**: Every finding MUST have a valid `path` and `data_source_link`. Findings without exact locations are not useful.
 
 Set doc_freshness_concern to true if you find indicators the documentation may be outdated — references to deprecated APIs, old version numbers, or "TODO: update this" notices.
 

@@ -77,6 +77,7 @@ The JSON string you pass in the `reason` field MUST follow this structure:
     {
       "file_path": "path/to/file.py",
       "relevant_lines": "30-58",
+      "data_source_link": <link to data source that file is in (i.e. GitHub url)>
       "summary": "What this code does in relation to the question",
       "snippet": "<key lines of code, max 15 lines>"
     }
@@ -86,7 +87,7 @@ The JSON string you pass in the `reason` field MUST follow this structure:
   "follow_up_searches": ["additional keywords worth trying if confidence is low"]
 }
 
-**CITATION REQUIREMENT**: Every finding MUST have a valid `file_path` and `relevant_lines`. Findings without exact locations are not useful.
+**CITATION REQUIREMENT**: Every finding MUST have a valid `file_path`, `data_source_link`, and `relevant_lines`. Findings without exact locations are not useful.
 
 ## Rules
 - Only use the tools provided — do not rely on general training knowledge for project-specific questions.
