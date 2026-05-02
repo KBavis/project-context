@@ -259,7 +259,6 @@ def get_async_message_svc(
         db: AsyncSession = Depends(get_async_db_session),
         conversation_svc: ConversationService = Depends(get_async_conversation_svc),
         query_svc: QueryService = Depends(get_async_query_svc),
-        citation_svc: CitationService = Depends(get_async_citation_svc),
         agent_svc: AgentService = Depends(get_async_agent_svc),
         execution_token_usage_svc: ExecutionTokenUsageService = Depends(get_async_execution_token_usage_svc)
 ):
@@ -270,9 +269,8 @@ def get_async_message_svc(
         db (AsyncSession): async DB session
         conversation_svc (ConversationService): async conversation service dependency
         query_svc (QueryService): async query service dependency
-        citation_svc (CitationService): async citation service dependency
         agent_svc (AgentService): async agent service dependency
         execution_token_usage_svc (ExecutionTokenUsageService): async execution token usage service dependency
     """
 
-    return MessageService(db=db, conversation_svc=conversation_svc, query_svc=query_svc, citation_svc=citation_svc, agent_svc=agent_svc, execution_token_usage_svc=execution_token_usage_svc)
+    return MessageService(db=db, conversation_svc=conversation_svc, query_svc=query_svc, agent_svc=agent_svc, execution_token_usage_svc=execution_token_usage_svc)

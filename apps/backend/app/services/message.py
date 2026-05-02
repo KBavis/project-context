@@ -10,10 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models import Conversation, Sender
-from app.pydantic.file import FileCitation
 from app.services.conversation import ConversationService
 from app.services.agent import AgentService
-from app.services.citations import CitationService
 from app.services.query import QueryService
 from app.services.execution_token_usage import ExecutionTokenUsageService
 from app.models import Message
@@ -32,14 +30,12 @@ class MessageService:
         db: AsyncSession,
         conversation_svc: ConversationService,
         query_svc: QueryService,
-        citation_svc: CitationService,
         agent_svc: AgentService,
         execution_token_usage_svc: ExecutionTokenUsageService
     ):
         self.db = db
         self.conversation_svc = conversation_svc
         self.query_svc = query_svc
-        self.citation_svc = citation_svc
         self.agent_svc = agent_svc
         self.execution_token_usage_svc = execution_token_usage_svc
 
