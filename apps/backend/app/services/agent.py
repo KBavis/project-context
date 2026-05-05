@@ -81,8 +81,6 @@ class AgentService:
             internal_tools = await self.get_internal_tools(project_id) 
             logger.info(f"Retrieved {len(internal_tools)} internal tools")
 
-            # TODO: Merge the internal tooling and the MCP tools together 
-
             # 4. Get Agent Workflow & pass relevant tools to be leveraged 
             token_counter = TokenCountingHandler()
             callback_manager = CallbackManager([token_counter])

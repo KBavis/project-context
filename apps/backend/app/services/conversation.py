@@ -5,8 +5,6 @@ from app.models import Conversation
 from app.llm.providers.base import LLMBase
 from app.core import settings
 from app.llm import LLMManager
-from app.services.query import QueryService
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload

@@ -12,7 +12,6 @@ from sqlalchemy import select
 from app.models import Conversation, Sender
 from app.services.conversation import ConversationService
 from app.services.agent import AgentService
-from app.services.query import QueryService
 from app.services.execution_token_usage import ExecutionTokenUsageService
 from app.models import Message
 from app.llm import LLMManager, LLMBase
@@ -29,13 +28,11 @@ class MessageService:
         self, 
         db: AsyncSession,
         conversation_svc: ConversationService,
-        query_svc: QueryService,
         agent_svc: AgentService,
         execution_token_usage_svc: ExecutionTokenUsageService
     ):
         self.db = db
         self.conversation_svc = conversation_svc
-        self.query_svc = query_svc
         self.agent_svc = agent_svc
         self.execution_token_usage_svc = execution_token_usage_svc
 
