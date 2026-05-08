@@ -35,3 +35,31 @@ class DataProvider(ABC):
     def _get_request_headers(self) -> dict[str, str] | None:
         """Get request headers for API calls. Returns None if no auth is needed."""
         pass
+
+    @abstractmethod
+    def view_file(self, file_path: str):
+        """
+        Functionality to extract exact file contents from a particular path 
+        This function will end up being an internal tool that we can leverage in our "research" phase of 
+        our Agentic Worfklow 
+
+        Args:
+            file_path (str): The absolute path to the file to view 
+        """
+
+        pass
+
+    @abstractmethod
+    def list_directory(self, path: str):
+        """
+        Functionality to list the contents of a particular directory 
+        This function will end up being an internal tool that we can leverage in our "research" phase of 
+        our Agentic Worfklow 
+
+        NOTE: Instead of having some massive "view_project_strucutre" tool, we can just use 
+        the "list_directory" function based on retrieved files from our key word / sematnic search
+
+        Args:
+            path (str): The absolute path to the directory to list the contents of 
+        """
+        pass

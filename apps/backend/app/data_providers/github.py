@@ -28,7 +28,11 @@ class GithubDataProvider(DataProvider):
         self.repository_user = parsed_url[3]
         self.repository_name = parsed_url[4]
         self.branch_name = data_source.branch
-        self.repository_url = f"https://api.github.com/repos/{self.repository_user}/{self.repository_name}/contents?ref={self.branch_name}"
+
+        self.base_api_url = f"https://api.github.com/repos/{self.repository_user}/{self.repository_name}/contents"
+        self.branch_reference = f"?ref={self.branch_name}"
+        
+        self.file_download_base_url = f"https://raw.githubusercontent.com/{self.repository_user}/{self.repository_name}/{self.branch_name}"
 
     async def ingest_data(self):
         """
@@ -38,7 +42,8 @@ class GithubDataProvider(DataProvider):
         """
 
         # reach out to GitHub and recurisvely fetch and store documentation within our temp directory
-        await self._get_repository_data(self.repository_url)
+        root_url = f"{self.base_api_url}{self.branch_reference}"
+        await self._get_repository_data(root_url)
 
         # cleanup any files assocaited with DataSource not processed via current job
         await self.file_svc.cleanup(self.data_source.id, self.job_pk)
@@ -181,3 +186,79 @@ class GithubDataProvider(DataProvider):
         with open(full_path, "wb") as f:
             f.write(buffer.getbuffer())
    
+
+    async def view_file(self, file_path: str) -> str:
+        """
+        View the contents of a particular file based on it's absolute path 
+
+        Args:
+            file_path (str): The absolute path to the file to view 
+        """
+
+
+        try:
+            # build url to retrieve data
+            url = f"{self.file_download_base_url}/{file_path}"
+
+            # make async request to retrieve data
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.request_headers)
+                response.raise_for_status()
+
+                return response.text
+
+        except Exception as e:
+            logger.error(f"Failure viewing file={file_path} with exception={str(e)}")
+            raise Exception(
+                f"Failure occurred while attempt to view file: {file_path}", e
+            )
+
+        
+
+    async def list_directory(self, path: str) -> str:
+        """
+        List the contents of a directory
+
+        Args:
+            path (str): The absolute path to the directory to list the contents of 
+                - NOTE: should contain prefixed "/" if not root directory
+        """
+        
+        content = None 
+
+        try:
+            # build url to retrieve data
+            url = f"{self.base_api_url}{path}{self.branch_reference}"
+
+            # retrieve file from specific URL asynchronously
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.request_headers)
+                response.raise_for_status()
+
+                content = response.json() 
+
+            # iterate over nodes in response and extract file / directory names 
+            path_contents = [f"Contents of {path}:"]
+            for node in content:
+
+                # determine if the node is a directory or a file 
+                if node['type'] == 'dir':
+                    path_contents.append(f"{node['name']}/")
+                else:
+                    path_contents.append(f"{node['name']}")
+            
+
+            # return back contents of path 
+            return "\n".join(path_contents)
+
+        except Exception as e:
+            logger.error(f"Failure listing directory={path} with exception={str(e)}")
+            raise Exception(
+                f"Failure occurred while attempt to list directory: {path}", e
+            )
+        
+
+
+
+
+            
