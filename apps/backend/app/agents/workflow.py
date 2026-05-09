@@ -83,6 +83,8 @@ def _summarize_available_tools(tools: list[FunctionTool]) -> str:
 
 ##################################
 # Shared Internal Tools
+
+# TODO: SHIFT THIS LOGIC OVER TO agent/tools.py
 ##################################
 
 async def update_research_state(ctx: Context, finding: str, source: str) -> str:
