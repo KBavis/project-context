@@ -198,6 +198,7 @@ class GithubDataProvider(DataProvider):
 
         Args:
             file_path (str): The absolute path to the file to view 
+                - NOTE: should contain prefixed "/"
         """
 
 
@@ -226,7 +227,7 @@ class GithubDataProvider(DataProvider):
 
         Args:
             path (str): The absolute path to the directory to list the contents of 
-                - NOTE: should contain prefixed "/" if not root directory
+                - NOTE: should contain prefixed "/" (IF NOT ROOT DIRECTORY)
         """
         
         content = None 
