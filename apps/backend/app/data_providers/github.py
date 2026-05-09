@@ -19,8 +19,10 @@ logger = logging.getLogger(__name__)
  
 class GithubDataProvider(DataProvider):
 
-    def __init__(self, data_source: DataSource, job_pk: UUID, file_svc: FileService):
-        super().__init__(data_source, job_pk, file_svc)
+    def __init__(self, data_source: DataSource, file_svc: FileService | None, job_pk: UUID | None = None):
+        self.job_pk = job_pk
+        self.file_svc = file_svc
+        super().__init__(data_source)
         self._validate_url()
 
         # deconstruct URL 
@@ -40,6 +42,9 @@ class GithubDataProvider(DataProvider):
         to DFS through repository and retrieve relevant files to store within our
         temporary directory to be stored by Chroma DB
         """
+
+        if not self.file_svc or not self.job_pk:
+            raise Exception(f"FileService and JobPK not provided when attempting to ingest data")
 
         # reach out to GitHub and recurisvely fetch and store documentation within our temp directory
         root_url = f"{self.base_api_url}{self.branch_reference}"

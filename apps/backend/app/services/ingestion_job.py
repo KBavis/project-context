@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType, ProjectData, Project
-from app.data_providers import GithubDataProvider
+from app.data_providers import DataProvider
 from app.core import settings, get_async_session_maker
 from app.services.record_lock import RecordLockService
 from app.services.file import FileService
@@ -262,15 +262,11 @@ class IngestionJobService:
         code_path, docs_path = self._create_tmp_dirs(job_pk) 
 
         # retrieve data based on provider & store within temp directory
-        match data_source.provider:
-            case "GitHub":
-                provider = GithubDataProvider(data_source=data_source, job_pk=job_pk, file_svc=self.file_svc)
-            case _:
-                logger.error(
-                    f"The specified Data Source provider is not configured for this application"
-                )
-                raise Exception(f"Invalid specified Data Source provider: {data_source.provider}")
-            
+        provider = DataProvider.from_provider(
+            data_source=data_source,
+            file_svc=self.file_svc,
+            job_pk=job_pk
+        )
 
         await provider.ingest_data() 
         return code_path, docs_path

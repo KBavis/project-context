@@ -2,21 +2,31 @@ from __future__ import annotations
 from uuid import UUID
 
 from app.models.data_source import DataSource
-from app.services.file import FileService
+from app.data_providers.github import GithubDataProvider
 
 from abc import abstractmethod, ABC
 import logging
+from app.services import FileService
 
 logger = logging.getLogger(__name__)
 
 class DataProvider(ABC):
 
-    def __init__(self, data_source: DataSource, job_pk: UUID, file_svc: FileService):
+    def __init__(self, data_source: DataSource, file_svc: FileService | None = None, job_pk: UUID | None = None):
         self.data_source = data_source
         self.job_pk = job_pk
         self.url = data_source.url
         self.file_svc = file_svc
         self.request_headers = self._get_request_headers()
+    
+
+    @classmethod 
+    def from_provider(cls, data_source: DataSource, file_svc: FileService | None = None, job_pk: UUID | None = None):
+        match data_source.provider:
+            case "GitHub":
+                return GithubDataProvider(data_source=data_source, file_svc=file_svc, job_pk=job_pk)
+            case _:
+                raise Exception(f"The specified Data Source provider is not configured for this application")
     
 
     @abstractmethod
