@@ -1,17 +1,15 @@
 from collections import defaultdict
-from os import system
 from uuid import UUID
 from contextlib import AsyncExitStack
-from typing import AsyncGenerator, Any, Type
+from typing import AsyncGenerator
 import logging
 import json
 
-from llama_index.core.base.llms.types import MessageRole, TextBlock
-from workflows.handler import WorkflowHandler
+from llama_index.core.base.llms.types import TextBlock
 from workflows.context.context import Context
 from app.pydantic.streaming import StreamEventType
 from app.services.util import format_sse_event
-from app.pydantic.agent import AgentName, AgentType
+from app.pydantic.agent import AgentName 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
@@ -19,7 +17,7 @@ from app.agents import get_agentic_workflow
 from app.llm import LLMBase
 from app.services.mcp import MCPService
 from app.services.data_source import DataSourceService
-from app.models.data_source import DataSourceType
+from app.models.data_source import DataSource, DataSourceType
 
 
 from llama_index.core.tools import FunctionTool
@@ -67,7 +65,7 @@ class AgentService:
         async with AsyncExitStack() as async_exit_stack:
 
             # 1. Retrieve the Data Sources associated with the Project 
-            data_sources: list[dict[str, Any]] = await self.data_source_svc.aget_project_data_sources(project_id)
+            data_sources: list[DataSource] = await self.data_source_svc.aget_project_data_sources(project_id)
             if not data_sources:
                 logger.error(f"No Data Sources found for Project ID: {project_id}")
                 raise Exception(f"Unable to retreive Context for the provided Question given the lack of Data Sources associated with the selected Project: {project_id}")
@@ -77,8 +75,11 @@ class AgentService:
             total_tools = sum(len(tools) for tools in mcp_tools.values())
             logger.info(f"Retrieved {total_tools} MCP tools")
 
-            # 3. Get relevant internal tooling
-            internal_tools = await self.get_internal_tools(project_id) 
+            # 3. Leverage LLM to determine what MCP tools and data sources will be relevant for answering the User's question 
+            # TODO: Complete me 
+
+            # 4. Get relevant internal tooling TODO: This will now be used from agent/tools.py
+            internal_tools = await self.get_internal_tools(data_sources, project_id) 
             logger.info(f"Retrieved {len(internal_tools)} internal tools")
 
             # 4. Get Agent Workflow & pass relevant tools to be leveraged 

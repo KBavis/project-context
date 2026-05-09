@@ -93,7 +93,7 @@ class DataSourceService:
         }
     
 
-    async def aget_project_data_sources(self, project_id: UUID) -> list[dict[str, Any]]:
+    async def aget_project_data_sources(self, project_id: UUID) -> list[DataSource]:
         """
         Functionality to retreive persisted data_sourcs that correspond to particular Project ID
         """
@@ -110,28 +110,7 @@ class DataSourceService:
             .where(ProjectData.project_id == project_id)
         )
         data_sources = await self.async_db.execute(stmt)
-        unique_ds = data_sources.scalars().unique().all()
-
-
-        return [
-            {
-                "id": data_source.id,
-                "provider": data_source.provider,
-                "name": data_source.name,
-                "type": data_source.type,
-                "branch": data_source.branch,
-                "config": {"url": data_source.url},
-                "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
-                "mcp_config": {
-                    "id": data_source.mcp_config.id,
-                    "name": data_source.mcp_config.name,
-                    "transport_type": data_source.mcp_config.transport_type.value,
-                    "timeout": data_source.mcp_config.timeout,
-                    "config": data_source.mcp_config.config
-                } if data_source.mcp_config else None
-            }
-            for data_source in unique_ds
-        ]
+        return list(data_sources.scalars().unique().all())
 
     def get_project_data_sources(self, project_id: UUID) -> list[dict[str, Any]]:
         """

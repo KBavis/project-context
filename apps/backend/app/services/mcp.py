@@ -242,7 +242,7 @@ class MCPService:
                 
     
 
-    async def get_mcp_tools(self, data_sources: list[dict[str, Any]], async_exit_stack: AsyncExitStack) -> defaultdict[DataSourceType, list[FunctionTool]]:
+    async def get_mcp_tools(self, data_sources: list[DataSource], async_exit_stack: AsyncExitStack) -> defaultdict[DataSourceType, list[FunctionTool]]:
         """
         Get all MCP tools associated with the provided list of Data Sources
 
@@ -255,9 +255,9 @@ class MCPService:
         mcp_servers_by_type: defaultdict[DataSourceType, list[UUID]] = defaultdict(list)
         mcp_server_ids = set() 
         for ds in data_sources:
-            if ds["mcp_config"] and ds["mcp_config"]["id"] not in mcp_server_ids:
-                mcp_id = ds["mcp_config"]["id"]
-                mcp_servers_by_type[ds["type"]].append(mcp_id)
+            if ds.mcp_config and ds.mcp_config.id not in mcp_server_ids:
+                mcp_id = ds.mcp_config.id
+                mcp_servers_by_type[ds.type].append(mcp_id)
                 mcp_server_ids.add(mcp_id)
 
         if not mcp_servers_by_type:

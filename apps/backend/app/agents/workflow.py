@@ -5,7 +5,7 @@ from llama_index.core.callbacks import CallbackManager
 from workflows.context.context import Context
 
 from app.llm import LLMBase
-from app.models.data_source import DataSourceType
+from app.models.data_source import DataSource, DataSourceType
 from app.pydantic.agent import AgentType, AgentName
 from typing import Any
 from pathlib import Path
@@ -18,14 +18,14 @@ logger = logging.getLogger(__name__)
 # Helper Workflow Functions
 ###########################
 
-def _extract_context_from_data_sources(data_sources: list[dict[str, Any]], type_filter: str | None = None) -> str:
+def _extract_context_from_data_sources(data_sources: list[DataSource], type_filter: str | None = None) -> str:
     """
     Build a human-readable list of data sources for agent system prompts.
     Pass `type_filter` (e.g. DataSourceType.REPOSITORY) to restrict to one type.
     """
     filtered = [
         ds for ds in data_sources
-        if type_filter is None or ds.get("type") == type_filter
+        if type_filter is None or ds.type == type_filter
     ]
     if not filtered:
         return f"No {type_filter or ''} data sources configured for this project.".strip()
@@ -33,9 +33,9 @@ def _extract_context_from_data_sources(data_sources: list[dict[str, Any]], type_
     lines: list[str] = []
     for ds in filtered:
         lines.append(
-            f"- [{ds.get('type', 'unknown')}: {ds.get('provider', 'unknown')}] "
-            f"{ds.get('name', 'unnamed')} "
-            f"(branch: {ds.get('branch', 'n/a')}, url: {ds.get('config', {}).get('url', 'n/a')})"
+            f"- [{ds.type}: {ds.provider}] "
+            f"{ds.name} "
+            f"(branch: {ds.branch}, url: {ds.url})"
         )
     return "\n".join(lines)
 
@@ -124,7 +124,7 @@ def _build_research_state_tool() -> FunctionTool:
 def _build_orchestrator_agent(
     llm: LLMBase,
     all_tools: list[FunctionTool],
-    data_sources: list[dict[str, Any]],
+    data_sources: list[DataSource],
     available_agents: list[str],
     callback_manager: CallbackManager | None,
 ) -> FunctionAgent:
@@ -155,7 +155,7 @@ def _build_orchestrator_agent(
 def _build_code_agent(
     llm: LLMBase,
     repo_tools: list[FunctionTool],
-    data_sources: list[dict[str, Any]],
+    data_sources: list[DataSource],
     callback_manager: CallbackManager | None,
 ) -> FunctionAgent:
     """
@@ -187,7 +187,7 @@ def _build_docs_agent(
     llm: LLMBase,
     repo_tools: list[FunctionTool],
     documentation_tools: list[FunctionTool],
-    data_sources: list[dict[str, Any]],
+    data_sources: list[DataSource],
     callback_manager: CallbackManager | None,
 ) -> FunctionAgent:
     """
@@ -244,7 +244,7 @@ def _build_synth_agent(
 def get_agentic_workflow(
     tools: defaultdict[DataSourceType, list[FunctionTool]],
     llm: LLMBase,
-    data_sources: list[dict[str, Any]],
+    data_sources: list[DataSource],
     callback_manager: CallbackManager | None = None,
 ) -> AgentWorkflow:
     """Build and return the full multi-agent Project Helper workflow.
