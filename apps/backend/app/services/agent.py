@@ -13,7 +13,7 @@ from app.pydantic.agent import AgentName
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
-from app.agents import get_agentic_workflow
+from app.agents import Tools, get_agentic_workflow
 from app.llm import LLMBase
 from app.services.mcp import MCPService
 from app.services.data_source import DataSourceService
@@ -23,7 +23,6 @@ from app.models.data_source import DataSource, DataSourceType
 from llama_index.core.tools import FunctionTool
 from llama_index.core.agent.workflow import (AgentOutput, AgentSetup, AgentStream, ToolCall, ToolCallResult, AgentWorkflow, AgentInput)
 from llama_index.core.llms import ChatMessage
-from llama_index.core.workflow import Event
 
 
 logger = logging.getLogger(__name__)
@@ -78,19 +77,21 @@ class AgentService:
             # 3. Leverage LLM to determine what MCP tools and data sources will be relevant for answering the User's question 
             # TODO: Complete me 
 
-            # 4. Get relevant internal tooling TODO: This will now be used from agent/tools.py
-            internal_tools = await self.get_internal_tools(data_sources, project_id) 
-            logger.info(f"Retrieved {len(internal_tools)} internal tools")
+            # 4. Get relevant internal tooling 
+            tool_manager = Tools(data_sources, project_id) # TODO: Pass selected data sources here 
+            internal_tools = await tool_manager.get_internal_tools() 
+            if internal_tools:
+                logger.info(f"Retrieved {len(internal_tools)} internal tools")
+            else:
+                logger.info("No internal tools were retrieved")
 
-            # 4. Get Agent Workflow & pass relevant tools to be leveraged 
+            # 5. Get Agent Workflow & pass relevant tools to be leveraged 
             token_counter = TokenCountingHandler()
             callback_manager = CallbackManager([token_counter])
-            
             workflow: AgentWorkflow = get_agentic_workflow(mcp_tools, llm, data_sources, callback_manager=callback_manager)
 
-            # Create shared Context for global state across agents
-            ctx = Context(workflow)
-
+            # 6. Run the Agent Workflow
+            ctx = Context(workflow) # TODO: Can we view this shared Context?? Log it as it's updated?? Likely something like this 
             handler = workflow.run(
                 user_msg=user_prompt,
                 chat_history=conversation_history,
@@ -98,7 +99,7 @@ class AgentService:
                 max_iterations=40,
             )
 
-            # 5. Stream events back to user
+            # 7. Stream events back to user
             # TODO: This function is getting blaoted and messy, refactor some of this code 
             try:
                 async for event in handler.stream_events():

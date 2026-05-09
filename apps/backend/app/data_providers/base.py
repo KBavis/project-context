@@ -2,7 +2,6 @@ from __future__ import annotations
 from uuid import UUID
 
 from app.models.data_source import DataSource
-from app.data_providers.github import GithubDataProvider
 
 from abc import abstractmethod, ABC
 import logging
@@ -24,6 +23,7 @@ class DataProvider(ABC):
     def from_provider(cls, data_source: DataSource, file_svc: FileService | None = None, job_pk: UUID | None = None):
         match data_source.provider:
             case "GitHub":
+                from app.data_providers.github import GithubDataProvider
                 return GithubDataProvider(data_source=data_source, file_svc=file_svc, job_pk=job_pk)
             case _:
                 raise Exception(f"The specified Data Source provider is not configured for this application")
