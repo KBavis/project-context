@@ -6,7 +6,6 @@ from .conversation import ConversationService
 from .chroma import ChromaService
 from .file import FileService
 from .record_lock import RecordLockService
-from .query import QueryService
 from .message import MessageService
 from .citations import CitationService
 from .chunk_retrieval import ChunkRetrievalService
@@ -23,7 +22,6 @@ __all__ = [
     "ChromaService",
     "FileService",
     "RecordLockService",
-    "QueryService",
     "MessageService",
     "CitationService",
     "ChunkRetrievalService",

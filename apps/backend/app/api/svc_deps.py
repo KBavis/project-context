@@ -6,7 +6,6 @@ from app.services import (
     ProjectService, 
     FileService,
     RecordLockService, 
-    QueryService, 
     ConversationService,
     MessageService,
     CitationService,
@@ -163,21 +162,6 @@ def get_async_chunk_retrieval_svc(
     Setup async ChunkRetrievalService dependency 
     """
     return ChunkRetrievalService(db=db, chroma_svc=chroma_svc, data_source_svc=data_source_svc)
-
-def get_async_query_svc(
-        db: AsyncSession = Depends(get_async_db_session),
-        chunk_retrieval_svc: ChunkRetrievalService = Depends(get_async_chunk_retrieval_svc)
-):
-    """
-    Setup async QueryService dependency 
-
-    Args:
-        db (AsyncSession): async DB session
-    """
-
-    return QueryService(db=db, chunk_retrieval_svc=chunk_retrieval_svc)
-
-
 
 def get_async_record_lock_svc():
     """

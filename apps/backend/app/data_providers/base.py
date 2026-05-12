@@ -5,7 +5,7 @@ from app.models.data_source import DataSource
 
 from abc import abstractmethod, ABC
 import logging
-from app.services import FileService
+from app.services.file import FileService
 
 logger = logging.getLogger(__name__)
 
