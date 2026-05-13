@@ -17,6 +17,7 @@ from app.agents import Tools, get_agentic_workflow
 from app.llm import LLMBase
 from app.services.mcp import MCPService
 from app.services.data_source import DataSourceService
+from app.services.chunk_retrieval import ChunkRetrievalService
 from app.models.data_source import DataSource, DataSourceType
 
 
@@ -36,12 +37,14 @@ class AgentService:
         self, 
         db: AsyncSession, 
         mcp_svc: MCPService, 
-        data_source_svc: DataSourceService
+        data_source_svc: DataSourceService,
+        chunk_retrieval_svc: ChunkRetrievalService,
     ) -> None:
 
         self.db = db
         self.mcp_svc = mcp_svc
         self.data_source_svc = data_source_svc
+        self.chunk_retrieval_svc = chunk_retrieval_svc
 
 
     async def run_agent(self, llm: LLMBase, user_prompt: str, conversation_history: list[ChatMessage], project_id: UUID) -> AsyncGenerator[tuple[str, str | dict | None], None]:
@@ -74,11 +77,16 @@ class AgentService:
             total_tools = sum(len(tools) for tools in mcp_tools.values())
             logger.info(f"Retrieved {total_tools} MCP tools")
 
-            # 3. Leverage LLM to determine what MCP tools and data sources will be relevant for answering the User's question 
+            # 3. Leverage LLM to determine what MCP tools and data sources will be relevant for answering the User's question (if any)
             # TODO: Complete me 
 
             # 4. Get relevant internal tooling 
-            tool_manager = Tools(data_sources, project_id) # TODO: Pass selected data sources here 
+            tool_manager = Tools(
+                data_sources,
+                project_id,
+                llm, 
+                self.chunk_retrieval_svc
+            ) 
             internal_tools = await tool_manager.get_internal_tools() 
             if internal_tools:
                 logger.info(f"Retrieved {len(internal_tools)} internal tools")

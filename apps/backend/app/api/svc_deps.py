@@ -109,21 +109,6 @@ def get_mcp_svc(
 # Async Service Dependencies 
 ###########################
 
-def get_async_agent_svc(
-    db: AsyncSession = Depends(get_async_db_session),
-    mcp_svc: MCPService = Depends(get_mcp_svc),
-    data_source_svc: DataSourceService = Depends(get_data_source_svc)
-):
-    """
-    Setup async AgentService dependency
-
-    Args:
-        db (AsyncSession): async DB session
-        mcp_svc (MCPService): async mcp service dependency
-        data_source_svc (DataSourceService): async data source service dependency
-    """
-    return AgentService(db=db, mcp_svc=mcp_svc, data_source_svc=data_source_svc)
-
 
 def get_async_file_svc(
         db: AsyncSession = Depends(get_async_db_session),
@@ -162,6 +147,30 @@ def get_async_chunk_retrieval_svc(
     Setup async ChunkRetrievalService dependency 
     """
     return ChunkRetrievalService(db=db, chroma_svc=chroma_svc, data_source_svc=data_source_svc)
+
+
+
+def get_async_agent_svc(
+    db: AsyncSession = Depends(get_async_db_session),
+    mcp_svc: MCPService = Depends(get_mcp_svc),
+    data_source_svc: DataSourceService = Depends(get_data_source_svc),
+    chunk_retrieval_svc: ChunkRetrievalService = Depends(get_async_chunk_retrieval_svc)
+):
+    """
+    Setup async AgentService dependency
+
+    Args:
+        db (AsyncSession): async DB session
+        mcp_svc (MCPService): async mcp service dependency
+        data_source_svc (DataSourceService): async data source service dependency
+        chunk_retrieval_svc (ChunkRetrievalService): async chunk retrieval service dependency
+    """
+    return AgentService(
+        db=db, 
+        mcp_svc=mcp_svc, 
+        data_source_svc=data_source_svc,
+        chunk_retrieval_svc=chunk_retrieval_svc
+    )
 
 def get_async_record_lock_svc():
     """

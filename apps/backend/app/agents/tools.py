@@ -2,9 +2,11 @@ from collections import defaultdict
 from llama_index.core.tools import FunctionTool
 from uuid import UUID
 from typing import Callable, Any
+
+from app.llm import LLMBase
 from app.models.data_source import DataSource
 from app.data_providers import DataProvider
-
+from app.services.chunk_retrieval import ChunkRetrievalService
 
 
 class Tools:
@@ -16,9 +18,17 @@ class Tools:
     have a nice way of interfacing the tooling available to the Agent 
     """
 
-    def __init__(self, data_sources: list[DataSource], project_id: UUID):
+    def __init__(
+        self, 
+        data_sources: list[DataSource], 
+        project_id: UUID, 
+        llm: LLMBase,
+        chunk_retrieval_svc: ChunkRetrievalService
+    ):
         self.data_sources = data_sources
         self.project_id = project_id
+        self.llm = llm
+        self.chunk_retrieval_svc = chunk_retrieval_svc
 
         self._data_source_tools: defaultdict[UUID, list[FunctionTool]] = defaultdict(list)
         self._project_wide_tools: list[FunctionTool] = []
@@ -69,8 +79,83 @@ class Tools:
         
 
         # Step 2. Initalize Project-wide internal tooling that can be leveraged for any Data Source 
+        semantic_search_tool = self._build_function_tool(
+            async_fn=self._semantic_search_wrapper,
+            function_name="semantic_search",
+            description=(
+                "Use this tool to search the codebase or documentation based on conceptual or semantic meaning, "
+                "rather than exact keyword matches. Best used for questions like 'How does the authentication flow work?' "
+                "or 'Where is data ingested?'. This will retrieve the most conceptually relevant chunks of text."
+            )
+        )
 
+        grep_search_tool = self._build_function_tool(
+            async_fn=self._grep_search_wrapper,
+            function_name="grep_search",
+            description=(
+                "Use this tool to find EXACT keyword matches or variable names in the codebase or documentation. "
+                "The key_word argument accepts Postgres POSIX Regular Expressions. "
+                "CRITICAL: To catch variations (plurals, casing, spacing), you SHOULD use regex patterns. "
+                "For example, to find 'Ingestion Job', pass 'ingestion\\s*jobs?' to catch all variations."
+            )
+        )
 
+        self._project_wide_tools = [semantic_search_tool, grep_search_tool]
+    
+
+    #######################################
+    ### Wrapper Functions for Tools
+    ######################################
+
+    async def _grep_search_wrapper(self, key_word: str, data_source_ids: list[str] | None = None):
+        """
+        Wrapper function for leveraging grep search functionality, while injecting the variables 
+        that the Agent is unware of 
+
+        Args:
+            key_word: The User's keyword to grep search against
+            data_source_ids: The Data Source IDs to grep search against. If None, will default to all Data Sources in the Project 
+
+        Returns:
+            list[str]: The metadata of the grep searched chunks 
+        """ 
+
+        if not data_source_ids:
+            data_source_ids = [str(ds.id) for ds in self.data_sources]
+        
+        return await self.chunk_retrieval_svc.grep_search(
+            key_word,
+            self.project_id,
+            data_source_ids=data_source_ids
+        )
+
+    async def _semantic_search_wrapper(self, query: str, data_source_ids: list[str] | None = None):
+        """
+        Wrapper function for leveraging semantic search functionality, while injecting the variables 
+        that the Agent is unware of 
+
+        Args:
+            query: The User's query to semantically search against
+            data_source_ids: The Data Source IDs to semantically search against. If None, will default to all Data Sources in the Project 
+
+        Returns:
+            list[str]: The metadata of the semantically searched chunks 
+        """ 
+
+        if not data_source_ids:
+            data_source_ids = [str(ds.id) for ds in self.data_sources]
+        
+        return await self.chunk_retrieval_svc.semantic_search(
+            query,
+            self.project_id,
+            llm=self.llm,
+            data_source_ids=data_source_ids
+        )
+    
+
+    #######################################
+    ### Tool Utility Functions 
+    ######################################
 
 
     def _build_function_tool(self, async_fn: Callable[..., Any], function_name: str, description: str) -> FunctionTool:
