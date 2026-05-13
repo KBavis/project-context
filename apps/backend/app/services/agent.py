@@ -88,15 +88,18 @@ class AgentService:
                 self.chunk_retrieval_svc
             ) 
             internal_tools = await tool_manager.get_internal_tools() 
-            if internal_tools:
-                logger.info(f"Retrieved {len(internal_tools)} internal tools")
-            else:
-                logger.info("No internal tools were retrieved")
+            logger.info(f"Retrieved {len(internal_tools)} internal tools")
 
             # 5. Get Agent Workflow & pass relevant tools to be leveraged 
             token_counter = TokenCountingHandler()
             callback_manager = CallbackManager([token_counter])
-            workflow: AgentWorkflow = get_agentic_workflow(mcp_tools, llm, data_sources, callback_manager=callback_manager)
+            workflow: AgentWorkflow = get_agentic_workflow(
+                mcp_tools=mcp_tools, 
+                llm=llm, 
+                data_sources=data_sources, 
+                internal_tools=internal_tools,
+                callback_manager=callback_manager
+            )
 
             # 6. Run the Agent Workflow
             ctx = Context(workflow) # TODO: Can we view this shared Context?? Log it as it's updated?? Likely something like this 

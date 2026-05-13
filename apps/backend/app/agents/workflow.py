@@ -2,7 +2,6 @@ from collections import defaultdict
 from llama_index.core.agent.workflow import AgentWorkflow, FunctionAgent
 from llama_index.core.tools import FunctionTool
 from llama_index.core.callbacks import CallbackManager
-from workflows.context.context import Context
 
 from app.llm import LLMBase
 from app.models.data_source import DataSource, DataSourceType
@@ -87,36 +86,6 @@ def _summarize_available_tools(tools: list[FunctionTool]) -> str:
 # TODO: SHIFT THIS LOGIC OVER TO agent/tools.py
 ##################################
 
-async def update_research_state(ctx: Context, finding: str, source: str) -> str:
-    """
-    Updates the shared research state with a new finding and its corresponding source.
-    Call this tool every time you discover a relevant piece of information.
-
-    Args:
-        finding: A concise summary of what was found (e.g. "The ingestion job is triggered by a cron scheduler in worker.py")
-        source: The exact source location (e.g. "src/worker.py:45-62" or "README.md > Architecture")
-    """
-    async with ctx.store.edit_state() as state:
-        if "findings" not in state:
-            state["findings"] = []
-
-        state["findings"].append({"source": source, "finding": finding})
-
-    return "Finding recorded in shared state."
-
-
-def _build_research_state_tool() -> FunctionTool:
-    """Create the update_research_state FunctionTool."""
-    return FunctionTool.from_defaults(
-        async_fn=update_research_state,
-        name="update_research_state",
-        description=(
-            "Record a research finding into shared global state. "
-            "Call this EVERY TIME you discover relevant information. "
-            "Args: finding (str) — concise summary of what was found; "
-            "source (str) — exact file path and line range, or document title and section."
-        ),
-    )
 
 
 ##################################
@@ -126,6 +95,7 @@ def _build_research_state_tool() -> FunctionTool:
 def _build_orchestrator_agent(
     llm: LLMBase,
     all_tools: list[FunctionTool],
+    internal_tools: list[FunctionTool],
     data_sources: list[DataSource],
     available_agents: list[str],
     callback_manager: CallbackManager | None,
@@ -147,7 +117,7 @@ def _build_orchestrator_agent(
             "are relevant (REPOSITORY, DOCUMENTATION, etc). Always runs first."
         ),
         system_prompt=system_prompt,
-        tools=[_build_research_state_tool()],
+        tools=[*internal_tools],
         llm=llm.get_llama_idx_instance(callback_manager=callback_manager),
         # Only hand off to agents that were actually built
         can_handoff_to=available_agents,
@@ -157,6 +127,7 @@ def _build_orchestrator_agent(
 def _build_code_agent(
     llm: LLMBase,
     repo_tools: list[FunctionTool],
+    internal_tools: list[FunctionTool],
     data_sources: list[DataSource],
     callback_manager: CallbackManager | None,
 ) -> FunctionAgent:
@@ -180,7 +151,7 @@ def _build_code_agent(
             "Uses REPOSITORY tools only — focuses on source files, not markdown."
         ),
         system_prompt=system_prompt,
-        tools=[*repo_tools, _build_research_state_tool()],
+        tools=[*repo_tools, *internal_tools],
         llm=llm.get_llama_idx_instance(callback_manager=callback_manager),
         can_handoff_to=["OrchestratorAgent"],
     )
@@ -189,6 +160,7 @@ def _build_docs_agent(
     llm: LLMBase,
     repo_tools: list[FunctionTool],
     documentation_tools: list[FunctionTool],
+    internal_tools: list[FunctionTool],
     data_sources: list[DataSource],
     callback_manager: CallbackManager | None,
 ) -> FunctionAgent:
@@ -216,7 +188,7 @@ def _build_docs_agent(
             "Uses both REPOSITORY and DOCUMENTATION tools."
         ),
         system_prompt=system_prompt,
-        tools=[*repo_tools, *documentation_tools, _build_research_state_tool()],
+        tools=[*repo_tools, *documentation_tools, *internal_tools],
         llm=llm.get_llama_idx_instance(callback_manager=callback_manager),
         can_handoff_to=["OrchestratorAgent"],
     )
@@ -244,9 +216,10 @@ def _build_synth_agent(
 #########################
 
 def get_agentic_workflow(
-    tools: defaultdict[DataSourceType, list[FunctionTool]],
+    mcp_tools: defaultdict[DataSourceType, list[FunctionTool]],
     llm: LLMBase,
     data_sources: list[DataSource],
+    internal_tools: list[FunctionTool],
     callback_manager: CallbackManager | None = None,
 ) -> AgentWorkflow:
     """Build and return the full multi-agent Project Helper workflow.
@@ -261,14 +234,15 @@ def get_agentic_workflow(
     callback_manager:
         Optional LlamaIndex CallbackManager for tracing / logging.
     """
-    repo_tools: list[FunctionTool] = tools.get(DataSourceType.REPOSITORY, [])
-    documentation_tools: list[FunctionTool] = tools.get(DataSourceType.DOCUMENTATION, [])
-    all_tools: list[FunctionTool] = [*repo_tools, *documentation_tools]
+    repo_tools: list[FunctionTool] = mcp_tools.get(DataSourceType.REPOSITORY, [])
+    documentation_tools: list[FunctionTool] = mcp_tools.get(DataSourceType.DOCUMENTATION, [])
+    all_tools: list[FunctionTool] = [*repo_tools, *documentation_tools, *internal_tools]
 
     logger.info(
-        "Building ProjectHelper workflow — repo_tools=%d, documentation_tools=%d",
+        "Building ProjectHelper workflow — repo_tools=%d, documentation_tools=%d, internal_tools=%d",
         len(repo_tools),
         len(documentation_tools),
+        len(internal_tools)
     )
 
     agents: list[FunctionAgent] = []
@@ -277,18 +251,19 @@ def get_agentic_workflow(
     available_specialist_agents: list[str] = ["SynthAgent"]
 
     if repo_tools:
-        agents.append(_build_code_agent(llm, repo_tools, data_sources, callback_manager))
+        agents.append(_build_code_agent(llm, repo_tools, internal_tools, data_sources, callback_manager))
         available_specialist_agents.append("CodeAgent")
 
     # DocsAgent is useful if we have EITHER repo tools (for markdown/docs folders)
     # OR dedicated documentation platform tools — or both.
     if repo_tools or documentation_tools:
-        agents.append(_build_docs_agent(llm, repo_tools, documentation_tools, data_sources, callback_manager))
+        agents.append(_build_docs_agent(llm, repo_tools, documentation_tools, internal_tools, data_sources, callback_manager))
         available_specialist_agents.append("DocsAgent")
 
     orchestrator = _build_orchestrator_agent(
         llm=llm,
         all_tools=all_tools,
+        internal_tools=internal_tools,
         data_sources=data_sources,
         available_agents=available_specialist_agents,
         callback_manager=callback_manager,

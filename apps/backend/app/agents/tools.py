@@ -3,6 +3,8 @@ from llama_index.core.tools import FunctionTool
 from uuid import UUID
 from typing import Callable, Any
 
+from workflows.context.context import Context
+
 from app.llm import LLMBase
 from app.models.data_source import DataSource
 from app.data_providers import DataProvider
@@ -36,7 +38,7 @@ class Tools:
         self._init_tooling() 
 
 
-    async def get_internal_tools(self, data_source_id = None) -> list[FunctionTool] | None:
+    async def get_internal_tools(self, data_source_id = None) -> list[FunctionTool]:
         """
         High level function to retrieve all of the internal tooling that has been configured for Agent Workflow Execution
         """
@@ -100,12 +102,42 @@ class Tools:
             )
         )
 
-        self._project_wide_tools = [semantic_search_tool, grep_search_tool]
+        update_research_state_tool = self._build_function_tool(
+            async_fn=self._update_research_state,
+            function_name="update_research_state",
+            description=(
+                "Use this tool to record a research finding into shared global state. "
+                "Call this EVERY TIME you discover relevant information. "
+                "Args: finding (str) — concise summary of what was found; "
+                "source (str) — exact file path and line range, or document title and section."
+            ),
+        )
+
+        self._project_wide_tools = [semantic_search_tool, grep_search_tool, update_research_state_tool]
     
 
-    #######################################
-    ### Wrapper Functions for Tools
-    ######################################
+    ###########################################
+    ### Wrapper Functions for Tools to Leverage
+    ##########################################
+
+    
+    async def _update_research_state(self, ctx: Context, finding: str, source: str) -> str:
+        """
+        Updates the shared research state with a new finding and its corresponding source.
+        Call this tool every time you discover a relevant piece of information.
+
+        Args:
+            finding: A concise summary of what was found (e.g. "The ingestion job is triggered by a cron scheduler in worker.py")
+            source: The exact source location (e.g. "src/worker.py:45-62" or "README.md > Architecture")
+        """
+        async with ctx.store.edit_state() as state:
+            if "findings" not in state:
+                state["findings"] = []
+
+            state["findings"].append({"source": source, "finding": finding})
+
+        return "Finding recorded in shared state."
+
 
     async def _grep_search_wrapper(self, key_word: str, data_source_ids: list[str] | None = None):
         """
