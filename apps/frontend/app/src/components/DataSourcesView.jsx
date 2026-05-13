@@ -18,6 +18,7 @@ export default function DataSourcesView({ projectId }) {
     // Initialize with current project if available
     const [newDS, setNewDS] = useState({
         provider: 'GitHub',
+        type: 'REPOSITORY',
         url: '',
         name: '',
         branch: '',
@@ -96,10 +97,11 @@ export default function DataSourcesView({ projectId }) {
     const handleAddDataSource = async (e) => {
         e.preventDefault();
         try {
-            await createDataSource(newDS.provider, { url: newDS.url, name: newDS.name, branch: newDS.branch }, newDS.projectIds);
+            await createDataSource(newDS.provider, { type: newDS.type, url: newDS.url, name: newDS.name, branch: newDS.branch }, newDS.projectIds);
             setShowAddForm(false);
             setNewDS({
                 provider: 'GitHub',
+                type: 'REPOSITORY',
                 url: '',
                 name: '',
                 branch: '',
@@ -143,6 +145,17 @@ export default function DataSourcesView({ projectId }) {
                                     <option value="GitHub">GitHub</option>
                                     <option value="BitBucket">BitBucket</option>
                                     <option value="Confluence">Confluence</option>
+                                </select>
+                            </div>
+                            <div className="form-field">
+                                <label className="input-label">Type</label>
+                                <select
+                                    className="input"
+                                    value={newDS.type}
+                                    onChange={e => setNewDS({ ...newDS, type: e.target.value })}
+                                >
+                                    <option value="REPOSITORY">Repository</option>
+                                    <option value="DOCUMENTATION">Documentation</option>
                                 </select>
                             </div>
                             <div className="form-field">

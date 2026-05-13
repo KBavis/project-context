@@ -130,6 +130,7 @@ export const api = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     provider,
+                    type: config.type,
                     url: config.url,
                     name: config.name,
                     branch: config.branch,
