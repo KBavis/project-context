@@ -232,6 +232,7 @@ class ChunkInsertionService:
                 "file_hash": str(file.hash),
                 "ref_doc_id": str(file.id),
                 "doc_id": str(file.id),
+                "data_source_id": str(data_source_id),
             }
 
     async def chunk_code(
@@ -279,6 +280,7 @@ class ChunkInsertionService:
                     doc.metadata["file_id"] = str(file.id)
                     doc.metadata["file_hash"] = str(file.hash)
                     doc.metadata['source_type'] = CODE
+                    doc.metadata['data_source_id'] = str(data_source.id)
 
                     # get file extension and determine file type
                     ext = Path(doc.metadata["file_name"]).suffix.lower().lstrip(".")
