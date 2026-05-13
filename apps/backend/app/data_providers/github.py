@@ -20,9 +20,7 @@ logger = logging.getLogger(__name__)
 class GithubDataProvider(DataProvider):
 
     def __init__(self, data_source: DataSource, file_svc: FileService | None, job_pk: UUID | None = None):
-        self.job_pk = job_pk
-        self.file_svc = file_svc
-        super().__init__(data_source)
+        super().__init__(data_source, file_svc=file_svc, job_pk=job_pk)
         self._validate_url()
 
         # deconstruct URL 
