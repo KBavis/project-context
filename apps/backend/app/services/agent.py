@@ -77,10 +77,7 @@ class AgentService:
             total_tools = sum(len(tools) for tools in mcp_tools.values())
             logger.info(f"Retrieved {total_tools} MCP tools")
 
-            # 3. Leverage LLM to determine what MCP tools and data sources will be relevant for answering the User's question (if any)
-            # TODO: Complete me 
-
-            # 4. Get relevant internal tooling 
+            # 3. Get relevant internal tooling 
             tool_manager = Tools(
                 data_sources,
                 project_id,
@@ -89,6 +86,11 @@ class AgentService:
             ) 
             internal_tools = await tool_manager.get_internal_tools() 
             logger.info(f"Retrieved {len(internal_tools)} internal tools")
+
+            # 4. Phase 1: Diagnosis - Leverage LLM to determine what MCP tools and data sources will be relevant
+            question_type, mcp_tools, data_sources = await self.diagnose_users_question(
+                llm, user_prompt, data_sources, internal_tools, mcp_tools
+            )
 
             # 5. Get Agent Workflow & pass relevant tools to be leveraged 
             token_counter = TokenCountingHandler()
@@ -255,6 +257,52 @@ class AgentService:
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse handoff_reason: {e}. Raw value: {repr(handoff_reason)}")
             return {}
+
+    async def diagnose_users_question(
+        self,
+        llm: LLMBase,
+        user_prompt: str,
+        data_sources: list[DataSource],
+        internal_tools: list[FunctionTool],
+        mcp_tools: defaultdict[DataSourceType, list[FunctionTool]]
+    ) -> tuple[str, defaultdict[DataSourceType, list[FunctionTool]], list[DataSource]]:
+        """
+        Phase 1: Diagnosis - Leverage LLM to determine what MCP tools and data sources will be relevant
+        """
+        ds_info = "\n".join([f"- ID: {ds.id} | Name: {ds.name} | Type: {ds.type} | Provider: {ds.provider}" for ds in data_sources])
+        it_info = "\n".join([f"- {t.metadata.name}: {t.metadata.description}" for t in internal_tools])
+        
+        mcp_info_lines = []
+        for ds_type, tools in mcp_tools.items():
+            for t in tools:
+                mcp_info_lines.append(f"- {t.metadata.name}: {t.metadata.description}")
+        mcp_info = "\n".join(mcp_info_lines) if mcp_info_lines else "No MCP Tools available."
+
+        logger.info("Executing Phase 1: Diagnosis to filter Data Sources and MCP Tools")
+        diagnosis = await llm.diagnose_question(user_prompt, ds_info, it_info, mcp_info)
+        logger.info(f"Diagnosis Result: {diagnosis}")
+
+        # Filter MCP Tools
+        req_mcp_names = diagnosis.get("required_mcp_tools", [])
+        filtered_mcp_tools = defaultdict(list)
+        for ds_type, tools in mcp_tools.items():
+            for t in tools:
+                if t.metadata.name in req_mcp_names:
+                    filtered_mcp_tools[ds_type].append(t)
+        mcp_tools = filtered_mcp_tools
+
+        # Filter Data Sources
+        req_ds_ids = diagnosis.get("required_data_sources", [])
+        if req_ds_ids:
+            # Ensure we only keep valid selected data sources
+            filtered_ds = [ds for ds in data_sources if str(ds.id) in req_ds_ids]
+            if filtered_ds:
+                data_sources = filtered_ds
+
+        # Extract Question Type
+        question_type = diagnosis.get("question_type", "General Inquiry")
+
+        return question_type, mcp_tools, data_sources
 
     async def _extract_latest_message(self, event: AgentInput) -> dict:
         """

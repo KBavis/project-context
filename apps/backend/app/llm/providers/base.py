@@ -50,61 +50,63 @@ class LLMBase(ABC):
         total_input_tokens = await self.tokenize(prompt)
         
         return len(total_input_tokens) + current_token_count <= max_tokens
-    
 
-    async def decompose_query(self, prompt: str, existing_messages: str) -> dict:
+    async def diagnose_question(
+        self, 
+        prompt: str, 
+        data_sources_info: str, 
+        internal_tools_info: str, 
+        mcp_tools_info: str
+    ) -> dict:
         """
-        Decompose a complex query into simpler sub-queries that can be answered individually.
+        Phase 1: Diagnosis. Analyze the user's question against available data sources and tools to determine the 
+        optimal research trajectory and filter out unnecessary context.
+        """
+        diagnosis_prompt = f"""
+        TASK: You are the Diagnosis Agent for a coding assistant workflow. 
+        Your job is to analyze the USER_QUESTION and determine exactly which Data Sources and MCP Tools are necessary to answer it.
 
-        Args:
-            prompt (str): The prompt to decompose
-            existing_messages (str): The existing messages in the conversation
+        AVAILABLE DATA SOURCES:
+        {data_sources_info}
+
+        AVAILABLE INTERNAL TOOLS (Always active, do not select these, they are provided for context so you know what base capabilities exist):
+        {internal_tools_info}
+
+        AVAILABLE MCP TOOLS (External connections):
+        {mcp_tools_info}
+
+        CRITICAL RULES:
+        1. "required_data_sources" should be a list of Data Source IDs that are relevant. If the question requires general knowledge or all sources, include all relevant IDs.
+        2. "required_mcp_tools" should be a list of MCP Tool Names. ONLY include an MCP tool if the Internal Tools cannot accomplish the task. MCP tools are typically for external integrations (e.g. GitHub API, Jira API). If the user just wants to know about the codebase, rely on internal tools and leave this list empty.
+        3. Your ONLY output MUST be a valid JSON object. Do NOT wrap it in markdown block quotes.
+
+        OUTPUT_FORMAT:
+        {{
+            "question_type": "Brief classification of the question (e.g. 'Deep Research', 'General Inquiry', 'Action Execution')",
+            "required_data_sources": ["id1", "id2"],
+            "required_mcp_tools": ["mcp_tool_name_1"]
+        }}
+
+        USER_QUESTION: {prompt}
         """
 
-        # TODO: Add logic for ensuring that the question is sound or if we require additional clarification from user 
+        # validate context length 
+        valid = await self.validate_context_length(diagnosis_prompt)
+        if not valid:
+            raise ValueError("Prompt exceeds maximum context length")
+
+        llm_instance = self.get_llama_idx_instance()
+        response = await llm_instance.acomplete(diagnosis_prompt)
 
         try:
-
-            decompose_query_prompt = f"""
-                        TASK: You are a Query Decomposition Engine. Analyze the user's question and history to prepare search queries.
-
-                        CRITICAL RULES:
-                        1. **DO NOT answer the user's question yourself.** Your ONLY output should be a valid JSON plan.
-                        2. If the answer is already fully contained in the conversation history, set "requires_retrieval": false and "queries": [].
-                        3. Resolving Ambiguity: Turn fragmented questions like "What about that?" into standalone search queries based on previous context.
-                        4. Output MUST be a single, strict JSON block.
-
-                        OUTPUT_FORMAT:
-                        {{
-                            "requires_retrieval": boolean,
-                            "queries": [
-                                {{"query": "string"}}
-                            ]
-                        }}
-
-                        EXAMPLES:
-                        - History has the answer: {{"requires_retrieval": false, "queries": []}}
-                        - More info needed: {{"requires_retrieval": true, "queries": [{{"query": "explanation of project implementation and architecture"}}]}}
-
-                        USER_QUESTION: {prompt}
-                        CONVERSATION_HISTORY (sender:<message>): {existing_messages}
-            """
-
-
-            # validate context length 
-            valid = await self.validate_context_length(decompose_query_prompt)
-            if not valid:
-                raise ValueError("Prompt exceeds maximum context length")
-
-            llm_instance = self.get_llama_idx_instance()
-            response = await llm_instance.acomplete(decompose_query_prompt)
-
-            return json.loads(response.text)
-        
+            raw_text = response.text.strip()
+            if raw_text.startswith("```json"):
+                raw_text = raw_text[7:-3]
+            elif raw_text.startswith("```"):
+                raw_text = raw_text[3:-3]
+            return json.loads(raw_text.strip())
         except Exception as e:
-            raise ValueError(f"Failed to decompose query: {e}")
-
-        
+            raise ValueError(f"Failed to parse diagnosis JSON: {e}. Response was: {response.text}")
 
 
 
