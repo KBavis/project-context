@@ -46,7 +46,7 @@ class ChunkRetrievalService:
         key_word: str,
         project_id: UUID,
         k: int = 10,
-        data_source_ids: Optional[list[UUID]] = None
+        data_source_ids: Optional[list[str]] = None
     ):
         """
         Functionality to retrieve ingested Documentation / Code chunks based on _exeact_ variable names, function
@@ -255,7 +255,7 @@ class ChunkRetrievalService:
         return index.as_retriever(similarity_top_k=k, filters=filters) if filters else index.as_retriever(similarity_top_k=k)
         
 
-    async def _get_data_source_ids_by_project(self, project_id: UUID) -> list[UUID]:
+    async def _get_data_source_ids_by_project(self, project_id: UUID) -> list[str]:
         """
         Get all data source IDs for a given project.
 
@@ -264,5 +264,5 @@ class ChunkRetrievalService:
         """
 
         data_sources = await self.data_source_svc.aget_project_data_sources(project_id)
-        data_source_ids = [data_source.id for data_source in data_sources]
+        data_source_ids = [str(data_source.id) for data_source in data_sources]
         return data_source_ids
