@@ -9,7 +9,7 @@ from llama_index.core.base.llms.types import TextBlock
 from workflows.context.context import Context
 from app.pydantic.streaming import StreamEventType
 from app.services.util import format_sse_event
-from app.pydantic.agent import AgentName 
+from app.pydantic.agent import AgentName
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
@@ -18,8 +18,7 @@ from app.llm import LLMBase
 from app.services.mcp import MCPService
 from app.services.data_source import DataSourceService
 from app.services.chunk_retrieval import ChunkRetrievalService
-from app.models.data_source import DataSource, DataSourceType
-
+from app.models.data_source import DataSource
 
 from llama_index.core.tools import FunctionTool
 from llama_index.core.agent.workflow import (AgentOutput, AgentSetup, AgentStream, ToolCall, ToolCallResult, AgentWorkflow, AgentInput)
@@ -30,13 +29,22 @@ logger = logging.getLogger(__name__)
 
 class AgentService:
     """
-    Service to handle the full "agent" life cycle that will be performed whenever we prompt it 
+    Service to handle the full "agent" life cycle that will be performed whenever we prompt it.
+
+    Flow:
+      1. Retrieve DataSources for the Project
+      2. Retrieve MCP tools for those DataSources
+      3. Initialize internal Tools manager
+      4. Phase 1 — Diagnosis: refine question, filter DataSources and MCP tools
+      5. Re-initialize Tools with filtered DataSources
+      6. Build AgentWorkflow (Planning → Research → Synth)
+      7. Run workflow and stream events back to the caller
     """
 
     def __init__(
-        self, 
-        db: AsyncSession, 
-        mcp_svc: MCPService, 
+        self,
+        db: AsyncSession,
+        mcp_svc: MCPService,
         data_source_svc: DataSourceService,
         chunk_retrieval_svc: ChunkRetrievalService,
     ) -> None:
@@ -47,66 +55,75 @@ class AgentService:
         self.chunk_retrieval_svc = chunk_retrieval_svc
 
 
-    async def run_agent(self, llm: LLMBase, user_prompt: str, conversation_history: list[ChatMessage], project_id: UUID) -> AsyncGenerator[tuple[str, str | dict | None], None]:
+    async def run_agent(
+        self,
+        llm: LLMBase,
+        user_prompt: str,
+        conversation_history: list[ChatMessage],
+        project_id: UUID,
+    ) -> AsyncGenerator[tuple[str, str | dict | None], None]:
         """
-        Functionality to run the Agentic layer, leveraging MCP tooling and internal tooling 
-        """
+        Run the full agentic workflow and stream events back to the caller.
 
-        """
-        NOTE: The reason for AsyncExitStack is because we may need to have 
-        multiple MCP servers connected at once, so we essentially need a "bag of context 
-        managers" that we can enter and exit as needed throughout the course 
-        of the agent running. 
-
-        IF we only had a single MCP server, we could simply do something like "async with mcp_client" 
-        and that would handle the connection lifecycle for us. 
-
-        Without this, we run into issues where the MCP Client rapidly is opening and closing 
-        connections, causing race conditions such as anyio.BrokenResourceError 
+        NOTE: AsyncExitStack is used because we may need multiple MCP servers
+        connected simultaneously. Without it, rapid open/close cycles cause
+        anyio.BrokenResourceError race conditions.
         """
         async with AsyncExitStack() as async_exit_stack:
 
-            # 1. Retrieve the Data Sources associated with the Project 
+            # 1. Retrieve the DataSources associated with the Project
             data_sources: list[DataSource] = await self.data_source_svc.aget_project_data_sources(project_id)
             if not data_sources:
-                logger.error(f"No Data Sources found for Project ID: {project_id}")
-                raise Exception(f"Unable to retreive Context for the provided Question given the lack of Data Sources associated with the selected Project: {project_id}")
+                logger.error("No Data Sources found for Project ID: %s", project_id)
+                raise Exception(
+                    f"Unable to retrieve context for the provided question — "
+                    f"no DataSources are associated with Project: {project_id}"
+                )
 
-            # 2. Get relevant MCP tooling 
-            mcp_tools: dict[str, list[FunctionTool]] = await self.mcp_svc.get_mcp_tools(data_sources, async_exit_stack) 
-            total_tools = sum(len(tools) for tools in mcp_tools.values())
-            logger.info(f"Retrieved {total_tools} MCP tools")
+            # 2. Get MCP tools keyed by data_source_id
+            mcp_tools: dict[str, list[FunctionTool]] = await self.mcp_svc.get_mcp_tools(data_sources, async_exit_stack)
+            total_mcp = sum(len(t) for t in mcp_tools.values())
+            logger.info("Retrieved %d MCP tools across %d DataSources", total_mcp, len(data_sources))
 
-            # 3. Get relevant internal tooling 
+            # 3. Initialize internal tooling manager (all DataSources, pre-Diagnosis)
             tool_manager = Tools(
                 data_sources,
                 project_id,
-                llm, 
-                self.chunk_retrieval_svc
-            ) 
-            internal_tools = await tool_manager.get_internal_tools() 
-            logger.info(f"Retrieved {len(internal_tools)} internal tools")
-
-            # 4. Phase 1: Diagnosis - Leverage LLM to determine what MCP tools and data sources will be relevant
-            refined_question, question_type, mcp_tools, data_sources = await self.diagnose_users_question(
-                llm, user_prompt, data_sources, internal_tools, mcp_tools, conversation_history
+                llm,
+                self.chunk_retrieval_svc,
             )
-            
-            logger.info(f"Phase 1 Complete: QuestionType={question_type}, RefinedQuestion='{refined_question}'")
+            all_internal_tools = tool_manager.get_all_internal_tools()
+            logger.info("Initialized %d internal tools across %d DataSources", len(all_internal_tools), len(data_sources))
 
-            # 5. Get Agent Workflow & pass relevant tools to be leveraged 
+            # 4. Phase 1: Diagnosis — refine question, filter DataSources and MCP tools
+            refined_question, question_type, mcp_tools, data_sources = await self.diagnose_users_question(
+                llm, user_prompt, data_sources, all_internal_tools, mcp_tools, conversation_history
+            )
+            logger.info("Phase 1 Complete: QuestionType=%s, RefinedQuestion='%s'", question_type, refined_question)
+
+            # 5. Re-initialize tool_manager with the filtered DataSources from Diagnosis
+            tool_manager = Tools(
+                data_sources,
+                project_id,
+                llm,
+                self.chunk_retrieval_svc,
+            )
+
+            # 6. Build the Agent Workflow with per-agent tool sets
             token_counter = TokenCountingHandler()
             callback_manager = CallbackManager([token_counter])
             workflow: AgentWorkflow = get_agentic_workflow(
-                mcp_tools=mcp_tools, 
-                llm=llm, 
-                data_sources=data_sources, 
-                internal_tools=internal_tools,
-                callback_manager=callback_manager
+                mcp_tools=mcp_tools,
+                llm=llm,
+                data_sources=data_sources,
+                tool_manager=tool_manager,
+                refined_question=refined_question,
+                question_type=question_type,
+                callback_manager=callback_manager,
             )
 
-            # 6. Run the Agent Workflow
-            ctx = Context(workflow) # TODO: Can we view this shared Context?? Log it as it's updated?? Likely something like this 
+            # 7. Run the Agent Workflow
+            ctx = Context(workflow)
             handler = workflow.run(
                 user_msg=refined_question,
                 chat_history=conversation_history,
@@ -114,45 +131,36 @@ class AgentService:
                 max_iterations=40,
             )
 
-            # 7. Stream events back to user
-            # TODO: This function is getting blaoted and messy, refactor some of this code 
+            # 8. Stream events back to the caller
             try:
                 async for event in handler.stream_events():
 
-                    # handle workflow events based on Event Type 
-                    # TODO: Instead of just logging, this should get updated to stream some of the relevant information back to user 
                     match event:
-                        
+
                         case AgentStream():
-                            # stream agent's response back to calling user 
+                            # Stream only SynthAgent's final response to the user
                             if event.delta and event.current_agent_name == AgentName.SYNTH:
                                 yield format_sse_event(StreamEventType.CHUNK, event.delta), event.delta
                                 continue
-                                
-                            # NOTE: If we're seeing information getting streamed, but it's not from SynthAgent, this is the "Agent's Internal Dialogue"
-                            # This can either be directly from the `event.delta``, or if it's a reasoning model, could be the `event.thinking_delta`
+
+                            # All other agent activity is internal dialogue — log only
                             if event.delta or event.thinking_delta:
-                                
-                                # TODO: Once we start testing out reasoning models, it may be a good idea to have this information streamed back to calling user 
-                                # that way, the end user is getting periodic insights into what/why a Agent is doing something. For time being, we can just log this information out
                                 logger.debug(
-                                    "AgentStreamEvent (%s): Agent=%s, InternalDialogue:%s, ToolCalls=%d",
+                                    "AgentStreamEvent (%s): Agent=%s, Dialogue=%s, ToolCalls=%d",
                                     "Thinking" if event.thinking_delta else "Delta",
-                                    event.current_agent_name, 
-                                    event.delta if event.thinking_delta else event.delta,
-                                    len(event.tool_calls or [])
+                                    event.current_agent_name,
+                                    event.thinking_delta if event.thinking_delta else event.delta,
+                                    len(event.tool_calls or []),
                                 )
 
                         case AgentInput():
-                            # extract relevant information
                             agent_name = event.current_agent_name
                             latest_message = await self._extract_latest_message(event)
                             logger.debug(
-                                "AgentInputEvent: Agent=%s, LatestMessage=%s", 
+                                "AgentInputEvent: Agent=%s, LatestMessage=%s",
                                 agent_name,
-                                latest_message
+                                latest_message,
                             )
-                        
 
                         case AgentOutput():
                             agent_name = event.current_agent_name
@@ -163,35 +171,21 @@ class AgentService:
                                 tool_args = tool_call.tool_kwargs
 
                                 if tool_name == "handoff":
-                                    handoff_agent = tool_args.get("to_agent")
-                                    handoff_reason = tool_args.get("reason")
-
-                                    if not handoff_reason or not handoff_agent:
-                                        logger.warning(f"Invalid state for `handoff` tool call, this tool call will fail. CurrentState={tool_call}")
-                                        continue
-
-                                    reasons = await self._safe_parse_handoff_reason(handoff_reason)
                                     tool_breakdown.append({
                                         "Tool Name": tool_name,
-                                        "Handoff Agent": handoff_agent,
-                                        "Goal": reasons.get("intent", ""),
-                                        "Requires Code Agent": reasons.get("needs_code", ""),
-                                        "Requires Doc Agent": reasons.get("needs_docs", ""),
-                                        "Question Class": reasons.get("question_class", "Unknown Question Class"),
-                                        "Search Hints": reasons.get("search_hints", {}),
-                                        "Plan of Action": reasons.get("plan", []),
+                                        "Handoff To": tool_args.get("to_agent", "unknown"),
+                                        "Reason": (tool_args.get("reason", "") or "")[:300],
                                     })
                                 else:
                                     tool_breakdown.append({
                                         "Tool Name": tool_name,
                                         "Tool Arguments": tool_args,
                                     })
-                            logger.debug("AgentOutputEvent: Agent=%s, ToolBreakown=%s", agent_name, tool_breakdown)
-                                                                
+                            logger.debug("AgentOutputEvent: Agent=%s, Tools=%s", agent_name, tool_breakdown)
 
-                        
                         case ToolCall():
                             logger.debug("ToolCallEvent: Name=%s, Arguments=%s", event.tool_name, event.tool_kwargs)
+
                         case ToolCallResult():
                             try:
                                 summary = " | ".join(
@@ -201,79 +195,65 @@ class AgentService:
                                 )
                             except Exception:
                                 summary = str(event.tool_output)[:300]
-
                             logger.debug("ToolCallResultEvent: Name=%s, Output=%s", event.tool_name, summary)
-                        
-                        # default 
+
                         case _:
-                            logger.debug(f"Unknown Event Type Processed: {event}")
+                            logger.debug("Unknown Event Type: %s", event)
 
-
-                
-                # 6. Wait for the final result
+                # Wait for the final result
                 result = await handler
-                logger.info(f"Workflow Complete. Result: {result}")
+                logger.info("Workflow Complete. Result: %s", result)
 
-                # Log accumulated research state from shared Context
+                # Log plan + accumulated research findings from shared Context
                 await self._log_research_state(ctx)
 
             except Exception as e:
-                logger.error(f"Error in agent workflow: {e}", exc_info=True)
-                
-                # Identify common LLM failures and map to user-friendly messages
+                logger.error("Error in agent workflow: %s", e, exc_info=True)
+
                 error_msg = str(e).lower()
                 friendly_msg = "An unexpected error occurred during agent execution."
-                
+
                 if "context_length" in error_msg or "maximum context length" in error_msg:
                     friendly_msg = "Context window exceeded. Please try a shorter prompt or clear conversation history."
                 elif "rate_limit" in error_msg or "429" in error_msg:
                     friendly_msg = "Rate limit reached. Please wait a moment before trying again."
                 elif "timeout" in error_msg or "deadline exceeded" in error_msg:
                     friendly_msg = "The request timed out. The agent took too long to respond."
-                
-                # Yield the error event so the UI can display it immediately
+
                 yield format_sse_event(StreamEventType.ERROR, friendly_msg, "Workflow Error"), None
-                
-                # Do NOT raise the exception here. Allow for token usage to be calculated and returned
-                
+                # Do NOT re-raise — allow token usage to be calculated and returned
 
             finally:
-                # 7. Yield token usage data (always send what was consumed up to failure)
                 yield StreamEventType.TOKEN_USAGE, {
-                # Total tokens fed into the LLM (conversation history, system prompts, tool definitions, user prompt)
+                    # Tokens fed into the LLM (history, system prompts, tool defs, user prompt)
                     "input_tokens": token_counter.prompt_llm_token_count,
-                # Total tokens generated by LLM during agentic workflow (final response, JSON blocks to call MCP, hidden text while thinking)
-                    "output_tokens": token_counter.completion_llm_token_count, 
-                # Input tokens + Output tokens
-                    "total_tokens": token_counter.total_llm_token_count
+                    # Tokens generated by the LLM (responses, tool calls, thinking)
+                    "output_tokens": token_counter.completion_llm_token_count,
+                    # Combined total
+                    "total_tokens": token_counter.total_llm_token_count,
                 }
-    
-    async def _safe_parse_handoff_reason(self, handoff_reason) -> dict:
-        if isinstance(handoff_reason, dict):
-            return handoff_reason
-        if not handoff_reason or not handoff_reason.strip():
-            logger.warning(f"No hand off reason extracted, returning empty dictionary")
-            return {}  # or log a warning here
-        try:
-            return json.loads(handoff_reason)
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse handoff_reason: {e}. Raw value: {repr(handoff_reason)}")
-            return {}
 
-    def _extract_summaries(self, data_sources: list[DataSource], internal_tools: list[FunctionTool], mcp_tools: dict[str, list[FunctionTool]]) -> tuple[str, str, str]:
+
+    # ─────────────────────────────────────────────
+    # Diagnosis Phase
+    # ─────────────────────────────────────────────
+
+    def _extract_summaries(
+        self,
+        data_sources: list[DataSource],
+        internal_tools: list[FunctionTool],
+        mcp_tools: dict[str, list[FunctionTool]],
+    ) -> tuple[str, str, str]:
         """
-        Extract string summaries of data sources, internal tooling, and mcp tooling to pass to the LLM for diagnosis
-        
-        Args:
-            data_sources: List of Data Sources associated with the Project 
-            internal_tools: List of internal tools that can be leveraged 
-            mcp_tools: Dictionary of MCP tools organized by data source id 
-        
-        Returns:
-            Tuple containing string summaries of data sources, internal tools, and mcp tools 
+        Build string summaries of DataSources, internal tools, and MCP tools
+        to pass to the LLM for the Diagnosis phase.
         """
-        data_source_info = "\n".join([f"- ID: {ds.id} | Name: {ds.name} | Type: {ds.type} | Provider: {ds.provider}" for ds in data_sources])
-        internal_tool_info = "\n".join([f"- {t.metadata.name}: {t.metadata.description}" for t in internal_tools])
+        data_source_info = "\n".join(
+            [f"- ID: {ds.id} | Name: {ds.name} | Type: {ds.type} | Provider: {ds.provider}" for ds in data_sources]
+        )
+        internal_tool_info = "\n".join(
+            [f"- {t.metadata.name}: {t.metadata.description}" for t in internal_tools]
+        )
         mcp_info_dict = {
             ds_id: [f"{t.metadata.name}: {t.metadata.description}" for t in tools]
             for ds_id, tools in mcp_tools.items()
@@ -283,52 +263,47 @@ class AgentService:
 
     def _format_conversation_history(self, conversation_history: list[ChatMessage], limit: int = 4) -> str:
         """
-        Format conversation history for the LLM, taking only the last N messages to prevent context bloat 
-        
-        Args:
-            conversation_history: List of ChatMessage objects representing the conversation history 
-            limit: Maximum number of recent messages to include in the formatted history 
-        
-        Returns:
-            Formatted string of the conversation history 
+        Format the last N conversation messages as a plain string to pass to the Diagnosis LLM,
+        preventing context bloat from long histories.
         """
         recent_history = conversation_history[-limit:] if conversation_history else []
-        history_lines = [f"{str(msg.role).replace('MessageRole.', '')}: {msg.content}" for msg in recent_history]
+        history_lines = [
+            f"{str(msg.role).replace('MessageRole.', '')}: {msg.content}" for msg in recent_history
+        ]
         return "\n".join(history_lines) if history_lines else "No prior conversation history."
 
-    def _filter_mcp_tools(self, mcp_tools: dict[str, list[FunctionTool]], req_mcp_map: dict) -> dict[str, list[FunctionTool]]:
+    def _filter_mcp_tools(
+        self,
+        mcp_tools: dict[str, list[FunctionTool]],
+        req_mcp_map: dict,
+    ) -> dict[str, list[FunctionTool]]:
         """
-        Filter MCP tools based on the diagnosis result 
-        
+        Filter the full MCP tool set down to only the tools selected by the Diagnosis phase.
+
         Args:
-            mcp_tools: Dictionary of MCP tools organized by data source id 
-            req_mcp_map: Dictionary of required MCP tools organized by data source id 
-        
-        Returns:
-            Filtered dictionary of MCP tools 
+            mcp_tools: All MCP tools keyed by data_source_id
+            req_mcp_map: Diagnosis output — dict of {data_source_id: [tool_name, ...]}
         """
-        filtered_mcp_tools: dict[str, list[FunctionTool]] = {}
+        filtered: dict[str, list[FunctionTool]] = {}
         for ds_id, tools in mcp_tools.items():
             req_tools_for_ds = req_mcp_map.get(ds_id, [])
             if isinstance(req_tools_for_ds, list):
-                filtered_mcp_tools[ds_id] = [t for t in tools if t.metadata.name in req_tools_for_ds]
-        return filtered_mcp_tools
+                filtered[ds_id] = [t for t in tools if t.metadata.name in req_tools_for_ds]
+        return filtered
 
-    def _filter_data_sources(self, data_sources: list[DataSource], req_ds_ids: list) -> list[DataSource]:
+    def _filter_data_sources(
+        self,
+        data_sources: list[DataSource],
+        req_ds_ids: list,
+    ) -> list[DataSource]:
         """
-        Filter data sources based on the diagnosis result 
-        
-        Args:
-            data_sources: List of Data Sources associated with the Project 
-            req_ds_ids: List of required data source ids 
-        
-        Returns:
-            Filtered list of Data Sources 
+        Filter the full DataSource list to only those selected by the Diagnosis phase.
+        Falls back to all DataSources if the filtered list would be empty.
         """
         if not req_ds_ids:
             return data_sources
-        filtered_ds = [ds for ds in data_sources if str(ds.id) in req_ds_ids]
-        return filtered_ds if filtered_ds else data_sources
+        filtered = [ds for ds in data_sources if str(ds.id) in req_ds_ids]
+        return filtered if filtered else data_sources
 
     async def diagnose_users_question(
         self,
@@ -337,100 +312,89 @@ class AgentService:
         data_sources: list[DataSource],
         internal_tools: list[FunctionTool],
         mcp_tools: dict[str, list[FunctionTool]],
-        conversation_history: list[ChatMessage]
+        conversation_history: list[ChatMessage],
     ) -> tuple[str, str, dict[str, list[FunctionTool]], list[DataSource]]:
         """
-        Phase 1: Diagnosis - Leverage direct LLM call to determine the following inforamtion:
-            - a) What DataSources are relvant to answering the user's posed question?
-            - b) What exactly is the user trying to understand based on question and Conversation history? 
-            - c) What MCP tools (if any) would be helpful to answering this question 
-            - d) What type of question is this?
-            - e) Is there any context required from the Converation history to clarify question? 
+        Phase 1: Diagnosis — lightweight LLM call (before the full workflow) that determines:
+          a) Which DataSources are relevant to the question
+          b) A clarified/refined version of the question
+          c) Which MCP tools (if any) are actually needed
+          d) The question type/classification
+
+        Returns a tuple of (refined_question, question_type, filtered_mcp_tools, filtered_data_sources).
         """
+        logger.info(
+            "Executing Phase 1 Diagnosis via %s/%s for prompt: %s",
+            llm.provider, llm.model_name, user_prompt,
+        )
 
-        logger.info(f"Executing Phase 1: Diagnosing User's Question via LLM_Provider={llm.provider}, LLM_Model={llm.model_name} for Prompt={user_prompt}")
-
-        # 1. Prepare information for the LLM
-        data_source_info, internal_tool_info, mcp_info = self._extract_summaries(data_sources, internal_tools, mcp_tools)
+        data_source_info, internal_tool_info, mcp_info = self._extract_summaries(
+            data_sources, internal_tools, mcp_tools
+        )
         conversation_history_str = self._format_conversation_history(conversation_history)
 
-        # 2. Call the Diagnosis LLM
-        diagnosis = await llm.diagnose_question(user_prompt, data_source_info, internal_tool_info, mcp_info, conversation_history_str)
-        logger.info(f"Diagnosis Result: {diagnosis}")
+        diagnosis = await llm.diagnose_question(
+            user_prompt, data_source_info, internal_tool_info, mcp_info, conversation_history_str
+        )
+        logger.info("Diagnosis Result: %s", diagnosis)
 
-        # 3. Extract and Filter
         refined_question = diagnosis.get("refined_question", user_prompt)
         question_type = diagnosis.get("question_type", "General Inquiry")
-        
+
         mcp_tools = self._filter_mcp_tools(mcp_tools, diagnosis.get("required_mcp_tools", {}))
         data_sources = self._filter_data_sources(data_sources, diagnosis.get("required_data_sources", []))
 
         return refined_question, question_type, mcp_tools, data_sources
 
+
+    # ─────────────────────────────────────────────
+    # Helper / Debug Utilities
+    # ─────────────────────────────────────────────
+
     async def _extract_latest_message(self, event: AgentInput) -> dict:
         """
-        Extract latest message from a particular AgentInput Event for debugging purposes 
-
-        Args:
-            event (AgentInput): the event that we want to extract system prompt from 
+        Extract the most recent message from an AgentInput event for debug logging.
         """
-        
-        # extract latest message 
-        latest_input = event.input[-1] if event.input else None 
+        latest_input = event.input[-1] if event.input else None
         if not latest_input:
             raise Exception("No input messages available: Agent in corrupt state")
 
         latest_message_text = "".join(
             block.text for block in latest_input.blocks if isinstance(block, TextBlock)
         )
-        latest_message = {
-            "message": latest_message_text,
-            "role": latest_input.role
-        }
-        
-        return latest_message
-
+        return {"message": latest_message_text, "role": latest_input.role}
 
     async def _log_research_state(self, ctx: Context) -> None:
         """
-        Reads accumulated findings from the shared Context store and logs them.
-        Called after the workflow completes to provide a debug view of everything
-        the agents discovered during the session.
+        Read and log the research plan, plan revision history, and all accumulated findings
+        from the shared Context store. Called after the workflow completes.
         """
         try:
             store = ctx.store
-            findings = await store.get("findings", [])  # type: ignore[arg-type]
+            plan: str | None = await store.get("plan", None)  # type: ignore[arg-type]
+            plan_history: list = await store.get("plan_history", [])  # type: ignore[arg-type]
+            findings: list = await store.get("findings", [])  # type: ignore[arg-type]
+
+            if plan:
+                logger.info("=== RESEARCH PLAN (final) ===")
+                logger.info(plan)
+                if len(plan_history) > 1:
+                    logger.info("Plan was revised %d time(s) during research", len(plan_history) - 1)
+            else:
+                logger.info("Research State — no plan was written to shared state.")
+
             if findings:
-                logger.info(f"Research State — {len(findings)} findings accumulated:")
+                logger.info("=== RESEARCH FINDINGS (%d total) ===", len(findings))
                 for i, f in enumerate(findings, 1):
-                    logger.info(f"  [{i}] {f.get('source', 'unknown')}: {f.get('finding', 'no summary')}")
+                    logger.info(
+                        "  [%d] DS=%s | %s: %s",
+                        i,
+                        f.get("data_source_id", "unknown"),
+                        f.get("source", "unknown source"),
+                        f.get("finding", "no summary"),
+                    )
             else:
                 logger.info("Research State — no findings were recorded in shared state.")
+
         except Exception as state_err:
-            logger.warning(f"Could not read research state from Context: {state_err}")
-
-
-    async def get_internal_tools(self, project_id):
-        """
-        TODO: This is where we can go through and setup the relevant RAG tool that will allow the Agent to query the vector database 
-
-        The vector DB will have all the relevant context for the Project (Documentation & Code), allowing for quick Context gain for additional searches 
-
-        """
-
-        return []
-
-
-
-        
-        
-
-
-
-        
-
-        
-
-
-        
-        
+            logger.warning("Could not read research state from Context: %s", state_err)
