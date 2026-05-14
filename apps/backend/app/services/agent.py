@@ -132,6 +132,7 @@ class AgentService:
             )
 
             # 8. Stream events back to the caller
+            # TODO: Simplify logging in this flow
             try:
                 async for event in handler.stream_events():
 
