@@ -73,7 +73,7 @@ class AgentService:
                 raise Exception(f"Unable to retreive Context for the provided Question given the lack of Data Sources associated with the selected Project: {project_id}")
 
             # 2. Get relevant MCP tooling 
-            mcp_tools: defaultdict[DataSourceType, list[FunctionTool]] = await self.mcp_svc.get_mcp_tools(data_sources, async_exit_stack) 
+            mcp_tools: dict[str, list[FunctionTool]] = await self.mcp_svc.get_mcp_tools(data_sources, async_exit_stack) 
             total_tools = sum(len(tools) for tools in mcp_tools.values())
             logger.info(f"Retrieved {total_tools} MCP tools")
 
@@ -88,9 +88,11 @@ class AgentService:
             logger.info(f"Retrieved {len(internal_tools)} internal tools")
 
             # 4. Phase 1: Diagnosis - Leverage LLM to determine what MCP tools and data sources will be relevant
-            question_type, mcp_tools, data_sources = await self.diagnose_users_question(
-                llm, user_prompt, data_sources, internal_tools, mcp_tools
+            refined_question, question_type, mcp_tools, data_sources = await self.diagnose_users_question(
+                llm, user_prompt, data_sources, internal_tools, mcp_tools, conversation_history
             )
+            
+            logger.info(f"Phase 1 Complete: QuestionType={question_type}, RefinedQuestion='{refined_question}'")
 
             # 5. Get Agent Workflow & pass relevant tools to be leveraged 
             token_counter = TokenCountingHandler()
@@ -106,7 +108,7 @@ class AgentService:
             # 6. Run the Agent Workflow
             ctx = Context(workflow) # TODO: Can we view this shared Context?? Log it as it's updated?? Likely something like this 
             handler = workflow.run(
-                user_msg=user_prompt,
+                user_msg=refined_question,
                 chat_history=conversation_history,
                 ctx=ctx,
                 max_iterations=40,
@@ -258,51 +260,112 @@ class AgentService:
             logger.warning(f"Failed to parse handoff_reason: {e}. Raw value: {repr(handoff_reason)}")
             return {}
 
+    def _extract_summaries(self, data_sources: list[DataSource], internal_tools: list[FunctionTool], mcp_tools: dict[str, list[FunctionTool]]) -> tuple[str, str, str]:
+        """
+        Extract string summaries of data sources, internal tooling, and mcp tooling to pass to the LLM for diagnosis
+        
+        Args:
+            data_sources: List of Data Sources associated with the Project 
+            internal_tools: List of internal tools that can be leveraged 
+            mcp_tools: Dictionary of MCP tools organized by data source id 
+        
+        Returns:
+            Tuple containing string summaries of data sources, internal tools, and mcp tools 
+        """
+        data_source_info = "\n".join([f"- ID: {ds.id} | Name: {ds.name} | Type: {ds.type} | Provider: {ds.provider}" for ds in data_sources])
+        internal_tool_info = "\n".join([f"- {t.metadata.name}: {t.metadata.description}" for t in internal_tools])
+        mcp_info_dict = {
+            ds_id: [f"{t.metadata.name}: {t.metadata.description}" for t in tools]
+            for ds_id, tools in mcp_tools.items()
+        }
+        mcp_info = json.dumps(mcp_info_dict, indent=2) if mcp_info_dict else "No MCP Tools available."
+        return data_source_info, internal_tool_info, mcp_info
+
+    def _format_conversation_history(self, conversation_history: list[ChatMessage], limit: int = 4) -> str:
+        """
+        Format conversation history for the LLM, taking only the last N messages to prevent context bloat 
+        
+        Args:
+            conversation_history: List of ChatMessage objects representing the conversation history 
+            limit: Maximum number of recent messages to include in the formatted history 
+        
+        Returns:
+            Formatted string of the conversation history 
+        """
+        recent_history = conversation_history[-limit:] if conversation_history else []
+        history_lines = [f"{str(msg.role).replace('MessageRole.', '')}: {msg.content}" for msg in recent_history]
+        return "\n".join(history_lines) if history_lines else "No prior conversation history."
+
+    def _filter_mcp_tools(self, mcp_tools: dict[str, list[FunctionTool]], req_mcp_map: dict) -> dict[str, list[FunctionTool]]:
+        """
+        Filter MCP tools based on the diagnosis result 
+        
+        Args:
+            mcp_tools: Dictionary of MCP tools organized by data source id 
+            req_mcp_map: Dictionary of required MCP tools organized by data source id 
+        
+        Returns:
+            Filtered dictionary of MCP tools 
+        """
+        filtered_mcp_tools: dict[str, list[FunctionTool]] = {}
+        for ds_id, tools in mcp_tools.items():
+            req_tools_for_ds = req_mcp_map.get(ds_id, [])
+            if isinstance(req_tools_for_ds, list):
+                filtered_mcp_tools[ds_id] = [t for t in tools if t.metadata.name in req_tools_for_ds]
+        return filtered_mcp_tools
+
+    def _filter_data_sources(self, data_sources: list[DataSource], req_ds_ids: list) -> list[DataSource]:
+        """
+        Filter data sources based on the diagnosis result 
+        
+        Args:
+            data_sources: List of Data Sources associated with the Project 
+            req_ds_ids: List of required data source ids 
+        
+        Returns:
+            Filtered list of Data Sources 
+        """
+        if not req_ds_ids:
+            return data_sources
+        filtered_ds = [ds for ds in data_sources if str(ds.id) in req_ds_ids]
+        return filtered_ds if filtered_ds else data_sources
+
     async def diagnose_users_question(
         self,
         llm: LLMBase,
         user_prompt: str,
         data_sources: list[DataSource],
         internal_tools: list[FunctionTool],
-        mcp_tools: defaultdict[DataSourceType, list[FunctionTool]]
-    ) -> tuple[str, defaultdict[DataSourceType, list[FunctionTool]], list[DataSource]]:
+        mcp_tools: dict[str, list[FunctionTool]],
+        conversation_history: list[ChatMessage]
+    ) -> tuple[str, str, dict[str, list[FunctionTool]], list[DataSource]]:
         """
-        Phase 1: Diagnosis - Leverage LLM to determine what MCP tools and data sources will be relevant
+        Phase 1: Diagnosis - Leverage direct LLM call to determine the following inforamtion:
+            - a) What DataSources are relvant to answering the user's posed question?
+            - b) What exactly is the user trying to understand based on question and Conversation history? 
+            - c) What MCP tools (if any) would be helpful to answering this question 
+            - d) What type of question is this?
+            - e) Is there any context required from the Converation history to clarify question? 
         """
-        ds_info = "\n".join([f"- ID: {ds.id} | Name: {ds.name} | Type: {ds.type} | Provider: {ds.provider}" for ds in data_sources])
-        it_info = "\n".join([f"- {t.metadata.name}: {t.metadata.description}" for t in internal_tools])
-        
-        mcp_info_lines = []
-        for ds_type, tools in mcp_tools.items():
-            for t in tools:
-                mcp_info_lines.append(f"- {t.metadata.name}: {t.metadata.description}")
-        mcp_info = "\n".join(mcp_info_lines) if mcp_info_lines else "No MCP Tools available."
 
-        logger.info("Executing Phase 1: Diagnosis to filter Data Sources and MCP Tools")
-        diagnosis = await llm.diagnose_question(user_prompt, ds_info, it_info, mcp_info)
+        logger.info(f"Executing Phase 1: Diagnosing User's Question via LLM_Provider={llm.provider}, LLM_Model={llm.model_name} for Prompt={user_prompt}")
+
+        # 1. Prepare information for the LLM
+        data_source_info, internal_tool_info, mcp_info = self._extract_summaries(data_sources, internal_tools, mcp_tools)
+        conversation_history_str = self._format_conversation_history(conversation_history)
+
+        # 2. Call the Diagnosis LLM
+        diagnosis = await llm.diagnose_question(user_prompt, data_source_info, internal_tool_info, mcp_info, conversation_history_str)
         logger.info(f"Diagnosis Result: {diagnosis}")
 
-        # Filter MCP Tools
-        req_mcp_names = diagnosis.get("required_mcp_tools", [])
-        filtered_mcp_tools = defaultdict(list)
-        for ds_type, tools in mcp_tools.items():
-            for t in tools:
-                if t.metadata.name in req_mcp_names:
-                    filtered_mcp_tools[ds_type].append(t)
-        mcp_tools = filtered_mcp_tools
-
-        # Filter Data Sources
-        req_ds_ids = diagnosis.get("required_data_sources", [])
-        if req_ds_ids:
-            # Ensure we only keep valid selected data sources
-            filtered_ds = [ds for ds in data_sources if str(ds.id) in req_ds_ids]
-            if filtered_ds:
-                data_sources = filtered_ds
-
-        # Extract Question Type
+        # 3. Extract and Filter
+        refined_question = diagnosis.get("refined_question", user_prompt)
         question_type = diagnosis.get("question_type", "General Inquiry")
+        
+        mcp_tools = self._filter_mcp_tools(mcp_tools, diagnosis.get("required_mcp_tools", {}))
+        data_sources = self._filter_data_sources(data_sources, diagnosis.get("required_data_sources", []))
 
-        return question_type, mcp_tools, data_sources
+        return refined_question, question_type, mcp_tools, data_sources
 
     async def _extract_latest_message(self, event: AgentInput) -> dict:
         """
@@ -328,8 +391,6 @@ class AgentService:
         return latest_message
 
 
-
-    
     async def _log_research_state(self, ctx: Context) -> None:
         """
         Reads accumulated findings from the shared Context store and logs them.
