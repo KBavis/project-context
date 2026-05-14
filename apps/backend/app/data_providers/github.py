@@ -29,6 +29,7 @@ class GithubDataProvider(DataProvider):
         self.repository_name = parsed_url[4]
         self.branch_name = data_source.branch
 
+        self.base_url = f"https://github.com/{self.repository_user}/{self.repository_name}/blob/{self.branch_name}/"
         self.base_api_url = f"https://api.github.com/repos/{self.repository_user}/{self.repository_name}/contents"
         self.branch_reference = f"?ref={self.branch_name}"
         
@@ -216,7 +217,6 @@ class GithubDataProvider(DataProvider):
             raise Exception(
                 f"Failure occurred while attempt to view file: {file_path}", e
             )
-
         
 
     async def list_directory(self, path: str) -> str:
@@ -265,4 +265,20 @@ class GithubDataProvider(DataProvider):
 
 
 
-            
+    async def generate_citation(self, path: str) -> str:
+        """
+        Generate a citation for a particular file based on its absolute path. Returns
+        the citation in markdown format so the Agent can properly format the citation in the Chat UI
+
+        Args:
+            path (str): The absolute path to the file to generate a citation for 
+                - NOTE: should contain prefixed "/" (IF NOT ROOT DIRECTORY)
+        """
+
+        try:
+            return f"[{path}]({self.base_url}{path})"
+        except Exception as e:
+            logger.error(f"Failure generating citation for path={path} with exception={str(e)}")
+            raise Exception(
+                f"Failure occurred while attempt to generate citation for path: {path}", e
+            )

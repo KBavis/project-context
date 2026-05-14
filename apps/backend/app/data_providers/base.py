@@ -47,7 +47,7 @@ class DataProvider(ABC):
         pass
 
     @abstractmethod
-    def view_file(self, file_path: str):
+    async def view_file(self, file_path: str):
         """
         Functionality to extract exact file contents from a particular path 
         This function will end up being an internal tool that we can leverage in our "research" phase of 
@@ -60,7 +60,7 @@ class DataProvider(ABC):
         pass
 
     @abstractmethod
-    def list_directory(self, path: str):
+    async def list_directory(self, path: str):
         """
         Functionality to list the contents of a particular directory 
         This function will end up being an internal tool that we can leverage in our "research" phase of 
@@ -73,3 +73,17 @@ class DataProvider(ABC):
             path (str): The absolute path to the directory to list the contents of 
         """
         pass
+    
+
+    async def generate_citation(self, file_path: str): 
+        """
+        Generates a citation for a given file path 
+
+        Args:
+            file_path (str): The absolute path to the file to generate a citation for 
+        
+        Returns:
+            str: The citation for the file
+        """
+        pass
+        
