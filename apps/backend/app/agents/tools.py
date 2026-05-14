@@ -67,6 +67,7 @@ class Tools:
                     "The file_path argument MUST begin with a forward slash '/' if not the root directory" 
                 )
             )
+
             list_directory_tool = self._build_function_tool(
                 async_fn=data_provider.list_directory, 
                 function_name="list_directory", 
@@ -77,7 +78,16 @@ class Tools:
                 )
             )
 
-            self._data_source_tools[data_source.id] = [view_file_tool, list_directory_tool]
+            generate_citation_tool = self._build_function_tool(
+                async_fn=data_provider.generate_citation,
+                function_name="generate_citation",
+                description=(
+                    "Generate citation in markdown format for a given file path. " +
+                    "The file path does NOT need the forward slash '/' at the beginning of the path"
+                )
+            )
+
+            self._data_source_tools[data_source.id] = [view_file_tool, list_directory_tool, generate_citation_tool]
         
 
         # Step 2. Initalize Project-wide internal tooling that can be leveraged for any Data Source 
