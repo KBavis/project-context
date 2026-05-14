@@ -2,6 +2,7 @@ from collections import defaultdict
 from llama_index.core.tools import FunctionTool
 from uuid import UUID
 from typing import Callable, Any
+import re
 
 from workflows.context.context import Context
 
@@ -10,20 +11,27 @@ from app.models.data_source import DataSource
 from app.data_providers import DataProvider
 from app.services.chunk_retrieval import ChunkRetrievalService
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class Tools:
     """
-    Class to store all of the Tooling that will be available to the Agent during a particular 
-    Agentic Worfklow execution 
+    Manages all internal tooling available during an Agentic Workflow execution.
 
-    TODO: This is exclusively internal tooling at the moment, it may make since to include MCP here as well to just 
-    have a nice way of interfacing the tooling available to the Agent 
+    Tools are organized into three purpose-built sets, one per agent phase:
+      - Planning:  semantic_search, list_directory, write_plan
+      - Research:  view_file, list_directory, grep_search, update_research_state, write_plan + MCP tools
+      - Synthesis: generate_citation (per DataSource)
+
+    Per-DataSource tools are named with a unique slug (first 8 hex chars of the DS UUID)
+    so the LLM can unambiguously select the right tool for the right data source.
     """
 
     def __init__(
-        self, 
-        data_sources: list[DataSource], 
-        project_id: UUID, 
+        self,
+        data_sources: list[DataSource],
+        project_id: UUID,
         llm: LLMBase,
         chunk_retrieval_svc: ChunkRetrievalService
     ):
@@ -32,195 +40,283 @@ class Tools:
         self.llm = llm
         self.chunk_retrieval_svc = chunk_retrieval_svc
 
-        self._data_source_tools: defaultdict[UUID, list[FunctionTool]] = defaultdict(list)
-        self._project_wide_tools: list[FunctionTool] = []
+        # Per-DataSource tool buckets (keyed by DS id)
+        self._ds_view_file_tools: dict[UUID, FunctionTool] = {}
+        self._ds_list_dir_tools: dict[UUID, FunctionTool] = {}
+        self._ds_citation_tools: dict[UUID, FunctionTool] = {}
 
-        self._init_tooling() 
+        # Project-wide tools (initialized as None, set in _init_tooling)
+        self._semantic_search_tool: FunctionTool
+        self._grep_search_tool: FunctionTool
+        self._update_research_state_tool: FunctionTool
+        self._write_plan_tool: FunctionTool
+
+        self._init_tooling()
 
 
-    async def get_internal_tools(self, data_source_id = None) -> list[FunctionTool]:
+    # ─────────────────────────────────────────────
+    # Public: Per-Agent Tool Sets
+    # ─────────────────────────────────────────────
+
+    def get_planning_tools(self) -> list[FunctionTool]:
         """
-        High level function to retrieve all of the internal tooling that has been configured for Agent Workflow Execution
+        Tools for the PlanningAgent:
+          - semantic_search (find conceptual starting points)
+          - list_directory_* (one per DataSource, explore structure)
+          - write_plan (commit plan to shared state)
         """
-        if not data_source_id:
-            return self._project_wide_tools + [tool for tools in self._data_source_tools.values() for tool in tools] 
-        
-        return self._project_wide_tools + self._data_source_tools.get(data_source_id, [])
+        return [
+            self._semantic_search_tool,
+            self._write_plan_tool,
+            *self._ds_list_dir_tools.values(),
+        ]
 
-    
+    def get_research_tools(self, mcp_tools: dict[str, list[FunctionTool]]) -> list[FunctionTool]:
+        """
+        Tools for the ResearchAgent:
+          - view_file_* (read full file contents, one per DataSource)
+          - list_directory_* (navigate structure, one per DataSource)
+          - grep_search (exact keyword / regex matching)
+          - update_research_state (log findings to shared scratchpad)
+          - write_plan (revise plan when new discoveries change direction)
+          - All MCP tools for the relevant DataSources
+        """
+        tools: list[FunctionTool] = [
+            self._grep_search_tool,
+            self._update_research_state_tool,
+            self._write_plan_tool,
+            *self._ds_view_file_tools.values(),
+            *self._ds_list_dir_tools.values(),
+        ]
+        for ds_tools in mcp_tools.values():
+            tools.extend(ds_tools)
+        return tools
+
+    def get_synthesis_tools(self) -> list[FunctionTool]:
+        """
+        Tools for the SynthesisAgent:
+          - generate_citation_* (one per DataSource, produces formatted markdown citations)
+        """
+        return list(self._ds_citation_tools.values())
+
+    def get_all_internal_tools(self) -> list[FunctionTool]:
+        """
+        Returns all unique internal tools across all agent phases.
+        Used by the Diagnosis phase to summarize available tooling for the LLM.
+        """
+        return [
+            self._semantic_search_tool,
+            self._grep_search_tool,
+            self._update_research_state_tool,
+            self._write_plan_tool,
+            *self._ds_view_file_tools.values(),
+            *self._ds_list_dir_tools.values(),
+            *self._ds_citation_tools.values(),
+        ]
+
+
+    # ─────────────────────────────────────────────
+    # Private: Tooling Initialization
+    # ─────────────────────────────────────────────
+
+    def _ds_slug(self, ds: DataSource) -> str:
+        """
+        Derive a human-readable slug from the DataSource name for use as a tool name suffix.
+        Example: "Backend Repo" → "backend_repo", "Confluence Wiki" → "confluence_wiki"
+        """
+        slug = ds.name.lower()
+        slug = re.sub(r"[^a-z0-9]+", "_", slug)  # replace non-alphanumeric runs with _
+        slug = slug.strip("_")                     # remove leading/trailing underscores
+        return slug[:30]                            # cap length to keep tool names manageable
+
     def _init_tooling(self):
         """
-        Function to leverage the provided DataSources and selected Project to initalize the tooling 
-        that should be available during Agentic Workflow 
+        Initialize all internal tools. Per-DataSource tools are built once per provider
+        and stored in type-separated dicts for easy retrieval by agent phase.
         """
 
-        # Step 1. Initalize DataSource specific internal tooling based on the Data Provider 
-        for data_source in self.data_sources:
+        # Step 1: Per-DataSource tools (view_file, list_directory, generate_citation)
+        for ds in self.data_sources:
+            provider = DataProvider.from_provider(ds)
+            slug = self._ds_slug(ds)
 
-            data_provider = DataProvider.from_provider(data_source)
-            
-            view_file_tool = self._build_function_tool(
-                async_fn=data_provider.view_file, 
-                function_name="view_file", 
+            self._ds_view_file_tools[ds.id] = self._build_function_tool(
+                async_fn=provider.view_file,
+                function_name=f"view_file_{slug}",
                 description=(
-                    "View the contents of a particular file in the given DataSource. " +
-                    "The file_path argument MUST begin with a forward slash '/' if not the root directory" 
-                )
+                    f"View the full contents of a file in DataSource '{ds.name}' ({ds.type}: {ds.provider}). "
+                    "The file_path argument MUST begin with '/' unless it is the root directory."
+                ),
             )
 
-            list_directory_tool = self._build_function_tool(
-                async_fn=data_provider.list_directory, 
-                function_name="list_directory", 
+            self._ds_list_dir_tools[ds.id] = self._build_function_tool(
+                async_fn=provider.list_directory,
+                function_name=f"list_directory_{slug}",
                 description=(
-                    "List the contents of a particular directory in the given DataSource. " +
-                    "The path argument MUST begin with a forward slash '/' if not the root directory. " + 
-                    "If it's the root directory, pass an empty string '' as the path argument"
-                )
+                    f"List the contents of a directory in DataSource '{ds.name}' ({ds.type}: {ds.provider}). "
+                    "Path MUST begin with '/' or be an empty string '' for the root directory."
+                ),
             )
 
-            generate_citation_tool = self._build_function_tool(
-                async_fn=data_provider.generate_citation,
-                function_name="generate_citation",
+            self._ds_citation_tools[ds.id] = self._build_function_tool(
+                async_fn=provider.generate_citation,
+                function_name=f"generate_citation_{slug}",
                 description=(
-                    "Generate citation in markdown format for a given file path. " +
-                    "The file path does NOT need the forward slash '/' at the beginning of the path"
-                )
+                    f"Generate a formatted markdown citation link for a file in DataSource '{ds.name}' (ID: {ds.id}). "
+                    "The file_path does NOT require a leading '/'. "
+                    "Use this tool for every source cited in your answer."
+                ),
             )
 
-            self._data_source_tools[data_source.id] = [view_file_tool, list_directory_tool, generate_citation_tool]
-        
-
-        # Step 2. Initalize Project-wide internal tooling that can be leveraged for any Data Source 
-        semantic_search_tool = self._build_function_tool(
+        # Step 2: Project-wide tools (search, scratchpad, plan)
+        self._semantic_search_tool = self._build_function_tool(
             async_fn=self._semantic_search_wrapper,
             function_name="semantic_search",
             description=(
-                "Use this tool to search the codebase or documentation based on conceptual or semantic meaning, "
-                "rather than exact keyword matches. Best used for questions like 'How does the authentication flow work?' "
-                "or 'Where is data ingested?'. This will retrieve the most conceptually relevant chunks of text."
-            )
-        )
-
-        grep_search_tool = self._build_function_tool(
-            async_fn=self._grep_search_wrapper,
-            function_name="grep_search",
-            description=(
-                "Use this tool to find EXACT keyword matches or variable names in the codebase or documentation. "
-                "The key_word argument accepts Postgres POSIX Regular Expressions. "
-                "CRITICAL: To catch variations (plurals, casing, spacing), you SHOULD use regex patterns. "
-                "For example, to find 'Ingestion Job', pass 'ingestion\\s*jobs?' to catch all variations."
-            )
-        )
-
-        update_research_state_tool = self._build_function_tool(
-            async_fn=self._update_research_state,
-            function_name="update_research_state",
-            description=(
-                "Use this tool to record a research finding into shared global state. "
-                "Call this EVERY TIME you discover relevant information. "
-                "Args: finding (str) — concise summary of what was found; "
-                "source (str) — exact file path and line range, or document title and section."
+                "Search the project's data sources by conceptual/semantic meaning. "
+                "Best for questions like 'How does X work?' or 'Where is Y implemented?'. "
+                "Returns relevant file chunks with their paths and data_source_ids. "
+                "Optionally pass data_source_ids to restrict the search scope."
             ),
         )
 
-        self._project_wide_tools = [semantic_search_tool, grep_search_tool, update_research_state_tool]
-    
+        self._grep_search_tool = self._build_function_tool(
+            async_fn=self._grep_search_wrapper,
+            function_name="grep_search",
+            description=(
+                "Find EXACT keyword or regex matches across the codebase or documentation. "
+                "Accepts Postgres POSIX Regular Expressions. "
+                "Use regex to catch variations: e.g. 'ingestion\\s*jobs?' matches 'ingestion job' and 'ingestion jobs'. "
+                "Returns matching chunks with file paths and data_source_ids. "
+                "Optionally pass data_source_ids to restrict the search scope."
+            ),
+        )
 
-    ###########################################
-    ### Wrapper Functions for Tools to Leverage
-    ##########################################
+        self._update_research_state_tool = self._build_function_tool(
+            async_fn=self._update_research_state,
+            function_name="update_research_state",
+            description=(
+                "Record a research finding into the shared scratchpad. "
+                "Call this EVERY TIME you discover relevant information. "
+                "Args: finding — concise summary of what was found; "
+                "source — exact file path and line range (e.g. 'src/auth/service.py:45-62'); "
+                "data_source_id — UUID string of the DataSource this file belongs to."
+            ),
+        )
 
-    
-    async def _update_research_state(self, ctx: Context, finding: str, source: str) -> str:
+        self._write_plan_tool = self._build_function_tool(
+            async_fn=self._write_plan,
+            function_name="write_plan",
+            description=(
+                "Write or update the research plan in shared state. "
+                "PlanningAgent: call this ONCE after orientating to commit the step-by-step investigation plan. "
+                "ResearchAgent: call this if new discoveries require pivoting the research direction. "
+                "Arg: plan — full markdown-formatted step-by-step research plan."
+            ),
+        )
+
+        logger.debug(
+            "Tools initialized: %d view_file, %d list_directory, %d generate_citation tools across %d DataSources",
+            len(self._ds_view_file_tools),
+            len(self._ds_list_dir_tools),
+            len(self._ds_citation_tools),
+            len(self.data_sources),
+        )
+
+
+    # ─────────────────────────────────────────────
+    # Private: Tool Implementation Functions
+    # ─────────────────────────────────────────────
+
+    async def _write_plan(self, ctx: Context, plan: str) -> str:
         """
-        Updates the shared research state with a new finding and its corresponding source.
-        Call this tool every time you discover a relevant piece of information.
+        Write or update the current research plan in shared state.
+        Appends to plan_history so every revision is preserved for logging.
 
         Args:
-            finding: A concise summary of what was found (e.g. "The ingestion job is triggered by a cron scheduler in worker.py")
-            source: The exact source location (e.g. "src/worker.py:45-62" or "README.md > Architecture")
+            plan: Full text of the research plan (markdown step list)
+        """
+        async with ctx.store.edit_state() as state:
+            if "plan_history" not in state:
+                state["plan_history"] = []
+            state["plan_history"].append(plan)
+            state["plan"] = plan
+        return "Research plan committed to shared state."
+
+    async def _update_research_state(
+        self, ctx: Context, finding: str, source: str, data_source_id: str
+    ) -> str:
+        """
+        Record a research finding into the shared scratchpad.
+        Call this every time relevant information is discovered.
+
+        Args:
+            finding: Concise summary of what was found
+            source: Exact file path and line range (e.g. "src/auth/service.py:45-62")
+            data_source_id: UUID string of the DataSource this finding belongs to
         """
         async with ctx.store.edit_state() as state:
             if "findings" not in state:
                 state["findings"] = []
-
-            state["findings"].append({"source": source, "finding": finding})
-
+            state["findings"].append({
+                "source": source,
+                "finding": finding,
+                "data_source_id": data_source_id,
+            })
         return "Finding recorded in shared state."
 
-
-    async def _grep_search_wrapper(self, key_word: str, data_source_ids: list[str] | None = None):
+    async def _grep_search_wrapper(
+        self, key_word: str, data_source_ids: list[str] | None = None
+    ):
         """
-        Wrapper function for leveraging grep search functionality, while injecting the variables 
-        that the Agent is unware of 
+        Wrapper for grep/BM25 search that injects project_id and defaults
+        data_source_ids to all available DataSources if not specified.
 
         Args:
-            key_word: The User's keyword to grep search against
-            data_source_ids: The Data Source IDs to grep search against. If None, will default to all Data Sources in the Project 
-
-        Returns:
-            list[str]: The metadata of the grep searched chunks 
-        """ 
-
+            key_word: Keyword or POSIX regex pattern to search for
+            data_source_ids: Optional list of DataSource UUIDs to restrict search scope
+        """
         if not data_source_ids:
             data_source_ids = [str(ds.id) for ds in self.data_sources]
-        
+
         return await self.chunk_retrieval_svc.grep_search(
             key_word,
             self.project_id,
-            data_source_ids=data_source_ids
+            data_source_ids=data_source_ids,
         )
 
-    async def _semantic_search_wrapper(self, query: str, data_source_ids: list[str] | None = None):
+    async def _semantic_search_wrapper(
+        self, query: str, data_source_ids: list[str] | None = None
+    ):
         """
-        Wrapper function for leveraging semantic search functionality, while injecting the variables 
-        that the Agent is unware of 
+        Wrapper for semantic/vector search that injects project_id and defaults
+        data_source_ids to all available DataSources if not specified.
 
         Args:
-            query: The User's query to semantically search against
-            data_source_ids: The Data Source IDs to semantically search against. If None, will default to all Data Sources in the Project 
-
-        Returns:
-            list[str]: The metadata of the semantically searched chunks 
-        """ 
-
+            query: Natural language query to search semantically
+            data_source_ids: Optional list of DataSource UUIDs to restrict search scope
+        """
         if not data_source_ids:
             data_source_ids = [str(ds.id) for ds in self.data_sources]
-        
+
         return await self.chunk_retrieval_svc.semantic_search(
             query,
             self.project_id,
             llm=self.llm,
-            data_source_ids=data_source_ids
+            data_source_ids=data_source_ids,
         )
-    
-
-    #######################################
-    ### Tool Utility Functions 
-    ######################################
 
 
-    def _build_function_tool(self, async_fn: Callable[..., Any], function_name: str, description: str) -> FunctionTool:
-        """
-        Utility function to build a llama_index.core.tools.FunctionTool that can 
-        be leverage by our Agentic Workflow 
+    # ─────────────────────────────────────────────
+    # Private: Utility
+    # ─────────────────────────────────────────────
 
-        Args:
-            async_fn: The function to be wrapped in a FunctionTool
-            function_name: the function name 
-            description: the description of the function
-        """
-
+    def _build_function_tool(
+        self, async_fn: Callable[..., Any], function_name: str, description: str
+    ) -> FunctionTool:
+        """Wrap an async function as a LlamaIndex FunctionTool."""
         return FunctionTool.from_defaults(
             async_fn=async_fn,
             name=function_name,
-            description=description
+            description=description,
         )
-            
-
-
-
-
-    
-
-
