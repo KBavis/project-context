@@ -76,12 +76,14 @@ class Tools:
         Tools for the ResearchAgent:
           - view_file_* (read full file contents, one per DataSource)
           - list_directory_* (navigate structure, one per DataSource)
+          - semantic_search (find conceptually related files when stuck or pivoting)
           - grep_search (exact keyword / regex matching)
           - update_research_state (log findings to shared scratchpad)
           - write_plan (revise plan when new discoveries change direction)
           - All MCP tools for the relevant DataSources
         """
         tools: list[FunctionTool] = [
+            self._semantic_search_tool,
             self._grep_search_tool,
             self._update_research_state_tool,
             self._write_plan_tool,
