@@ -56,7 +56,8 @@ class LLMBase(ABC):
         prompt: str, 
         data_sources_info: str, 
         internal_tools_info: str, 
-        mcp_tools_info: str
+        mcp_tools_info: str,
+        conversation_history_str: str = ""
     ) -> dict:
         """
         Phase 1: Diagnosis. Analyze the user's question against available data sources and tools to determine the 
@@ -64,7 +65,10 @@ class LLMBase(ABC):
         """
         diagnosis_prompt = f"""
         TASK: You are the Diagnosis Agent for a coding assistant workflow. 
-        Your job is to analyze the USER_QUESTION and determine exactly which Data Sources and MCP Tools are necessary to answer it.
+        Your job is to analyze the USER_QUESTION and CONVERSATION_HISTORY to determine exactly what the user is asking, and which Data Sources and MCP Tools are necessary to answer it.
+
+        CONVERSATION_HISTORY:
+        {conversation_history_str}
 
         AVAILABLE DATA SOURCES:
         {data_sources_info}
@@ -72,19 +76,28 @@ class LLMBase(ABC):
         AVAILABLE INTERNAL TOOLS (Always active, do not select these, they are provided for context so you know what base capabilities exist):
         {internal_tools_info}
 
-        AVAILABLE MCP TOOLS (External connections):
+        AVAILABLE MCP TOOLS (External connections, mapped by Data Source ID):
         {mcp_tools_info}
 
         CRITICAL RULES:
-        1. "required_data_sources" should be a list of Data Source IDs that are relevant. If the question requires general knowledge or all sources, include all relevant IDs.
-        2. "required_mcp_tools" should be a list of MCP Tool Names. ONLY include an MCP tool if the Internal Tools cannot accomplish the task. MCP tools are typically for external integrations (e.g. GitHub API, Jira API). If the user just wants to know about the codebase, rely on internal tools and leave this list empty.
-        3. Your ONLY output MUST be a valid JSON object. Do NOT wrap it in markdown block quotes.
+        1. Read the CONVERSATION_HISTORY to resolve any ambiguities in the USER_QUESTION (e.g., identifying what "it" or "this file" refers to).
+        2. "refined_question": A standalone version of the user's prompt with all ambiguities resolved. You must retain the original core intent and technical constraints of the user's question, only injecting the missing context.
+        3. "required_data_sources": List of Data Source IDs that are relevant. If you are unsure whether a Data Source is relevant, DO NOT filter it out. Include its ID. Better to provide too much context than too little.
+        4. "required_mcp_tools": A dictionary mapping a Data Source ID to a list of MCP Tool Names. ONLY select MCP tools that belong to the Data Sources you selected in step 3. ONLY include an MCP tool if the Internal Tools cannot accomplish the task. If no MCP tools are needed, return an empty dictionary.
+        5. Your ONLY output MUST be a valid JSON object. Do NOT wrap it in markdown block quotes.
 
         OUTPUT_FORMAT:
         {{
-            "question_type": "Brief classification of the question (e.g. 'Deep Research', 'General Inquiry', 'Action Execution')",
+            "user_intent": "What the user is actually trying to accomplish.",
+            "contextual_clarification": "How the conversation history resolves ambiguity.",
+            "refined_question": "Standalone version of the prompt.",
+            "question_type": "Classification of the question (e.g. 'Deep Research', 'General Inquiry', 'Action Execution')",
+            "data_source_reasoning": "Brief explanation of which data sources are needed and why. Rule: If unsure, keep the data source.",
             "required_data_sources": ["id1", "id2"],
-            "required_mcp_tools": ["mcp_tool_name_1"]
+            "mcp_tool_reasoning": "Brief explanation of which MCP tools are needed, ensuring they ONLY belong to the selected data sources above.",
+            "required_mcp_tools": {{
+                "id1": ["mcp_tool_name_1"]
+            }}
         }}
 
         USER_QUESTION: {prompt}
