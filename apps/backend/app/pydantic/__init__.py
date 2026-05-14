@@ -2,7 +2,7 @@ from __future__ import annotations
 from .chat import ChatRequest
 from .data_source import DataSourceRequest
 from .project import ProjectRequest
-from .file import File, CodeFileExtension, DocsFileExtension, FileProcesingStatus, FileCitation, CitationDto
+from .file import File, CodeFileExtension, DocsFileExtension, FileProcesingStatus
 from .chroma import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse, DeleteCollectionRequest
 from .status import ProcessingStatus
 from .conversation import CreateConversationRequest, UpdateConversationRequest
@@ -21,8 +21,6 @@ __all__ = [
     "CollectionFilesResponse",
     "MessageResponse",
     "FileProcesingStatus",
-    "FileCitation",
-    "CitationDto",
     "ProcessingStatus",
     "CreateConversationRequest",
     "UpdateConversationRequest",

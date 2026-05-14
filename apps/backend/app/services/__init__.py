@@ -7,7 +7,6 @@ from .chroma import ChromaService
 from .file import FileService
 from .record_lock import RecordLockService
 from .message import MessageService
-from .citations import CitationService
 from .chunk_retrieval import ChunkRetrievalService
 from .chunk_insertion import ChunkInsertionService
 from .mcp import MCPService
@@ -23,7 +22,6 @@ __all__ = [
     "FileService",
     "RecordLockService",
     "MessageService",
-    "CitationService",
     "ChunkRetrievalService",
     "ChunkInsertionService",
     "MCPService",

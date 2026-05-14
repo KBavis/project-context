@@ -47,19 +47,3 @@ class File(BaseModel):
     size: int # number of bytes in file
     hash: str # hash based on file content 
     file_url: str # direct access URL to the file
-
-
-class FileCitation(BaseModel):
-    file_id: str
-    file_url: str 
-    file_name: str 
-    data_source_id: str
-
-
-class CitationDto(BaseModel):
-    """Enriched citation returned from GET /citation/{conversation_id}.
-    Carries the file display fields needed to render citations in the UI."""
-    message_id: str
-    file_id: str
-    file_url: str
-    file_name: str

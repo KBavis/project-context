@@ -8,7 +8,6 @@ from app.services import (
     RecordLockService, 
     ConversationService,
     MessageService,
-    CitationService,
     ExecutionTokenUsageService,
     ChunkRetrievalService,
     ChunkInsertionService,
@@ -218,22 +217,6 @@ def get_async_conversation_svc(
     """
 
     return ConversationService(db=db)
-
-
-def get_async_citation_svc(
-        db: AsyncSession = Depends(get_async_db_session),
-        file_svc: FileService = Depends(get_async_file_svc)
-):
-    """
-    Setup async CitationService dependency 
-
-    Args:
-        db (AsyncSession): async DB session
-        file_svc (FileService): async file service dependency
-    """
-
-    return CitationService(db=db, file_svc=file_svc)
-
 
 def get_async_execution_token_usage_svc(
     db: AsyncSession = Depends(get_async_db_session)
