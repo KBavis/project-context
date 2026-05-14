@@ -6,8 +6,6 @@ import asyncio
 
 import os
 import traceback
-from typing import Any
-from collections import defaultdict
 
 from app.models import DataSource, MCPConfig
 from app.models.mcp_config import MCPTransportType
@@ -242,52 +240,43 @@ class MCPService:
                 
     
 
-    async def get_mcp_tools(self, data_sources: list[DataSource], async_exit_stack: AsyncExitStack) -> defaultdict[DataSourceType, list[FunctionTool]]:
+    async def get_mcp_tools(self, data_sources: list[DataSource], async_exit_stack: AsyncExitStack) -> dict[str, list[FunctionTool]]:
         """
-        Get all MCP tools associated with the provided list of Data Sources
-
-        TODO: We currently are retrieving all MCP tools for all Data Sources that are linked to a particular Project. This will end up getting rather expensive if 
-        we end up having a lot of MCPs setup, and fairly wasteful in terms of the context window. In order to account for this, we should implement 
-        some sort of "ToolRetriever" that will consider the user's prompt, and then determine what tools are relevant based on that 
+        Get all MCP tools associated with the provided list of Data Sources. Map the available tooling for 
+        a particular DataSource in the format (<Data Source ID>: [<List of tools>])
         """
+        mcp_server_tooling : dict[str, list[FunctionTool]] = {} # cache tooling for particular MCP Server (avoid redundant connections)
+        datasource_to_tools: dict[str, list[FunctionTool]] = {} # mapping of DataSource to available tooling (LLM will filter later during Diagnosis)
 
-        # get MCP servers associated with the data sources 
-        mcp_servers_by_type: defaultdict[DataSourceType, list[UUID]] = defaultdict(list)
-        mcp_server_ids = set() 
         for ds in data_sources:
-            if ds.mcp_config and ds.mcp_config.id not in mcp_server_ids:
-                mcp_id = ds.mcp_config.id
-                mcp_servers_by_type[ds.type].append(mcp_id)
-                mcp_server_ids.add(mcp_id)
 
-        if not mcp_servers_by_type:
-            logger.info("No MCP servers found for the provided data sources")
-            return defaultdict(list)    
+            # extract data source ID 
+            data_source_id = str(ds.id)
 
+            # handle data sources with no MCP tooling available 
+            if not ds.mcp_config:
+                datasource_to_tools[data_source_id] = []
+                continue
+            
+            # handle scenarios where an MCP server tools has already been extracted for prior Data Source 
+            mcp_id = str(ds.mcp_config.id)
+            if mcp_id in mcp_server_tooling:
+                datasource_to_tools[data_source_id] = mcp_server_tooling[mcp_id]
+                continue
 
-        mcp_servers: defaultdict[DataSourceType, list[MCPConfig]] = defaultdict(list)
-        for type, server_ids in mcp_servers_by_type.items():
-            for server_id in server_ids:
-                server = self.get_mcp_by_id(server_id)
-                if server:
-                    mcp_servers[type].append(server)
-
-        # get tools associated with each MCP server 
-        all_tools: defaultdict[DataSourceType, list[FunctionTool]] = defaultdict(list)
-        for type, servers in mcp_servers.items():
-            for server in servers:
-                client = await self.get_mcp_client(server)
                 
-                # NOTE: Llama-Index's BasicMCPClient evaluates tool calls as one-off connections
-                # The following code manually enters its internal _run_session() to create a persistent connection and pushes onto 
-                # the async exit stack to ensure the connection is closed when the request completes
-                real_session = await async_exit_stack.enter_async_context(client._run_session())
+            # NOTE: Llama-Index's BasicMCPClient evaluates tool calls as one-off connections
+            # The following code manually enters its internal _run_session() to create a persistent connection and pushes onto 
+            # the async exit stack to ensure the connection is closed when the request completes
+            client = await self.get_mcp_client(ds.mcp_config)
+            real_session = await async_exit_stack.enter_async_context(client._run_session())
+            tool_spec = McpToolSpec(client=real_session)
 
-                tool_spec = McpToolSpec(client=real_session)
-                all_tools[type].extend(await tool_spec.to_tool_list_async())
+            # cache tooling by MCP server ID & map DataSource to available tooling 
+            mcp_server_tooling[mcp_id] = await tool_spec.to_tool_list_async()
+            datasource_to_tools[data_source_id] = mcp_server_tooling[mcp_id]
 
-        # return relevant tools to be leveraged by Agent
-        return all_tools 
+        return datasource_to_tools 
     
 
 
