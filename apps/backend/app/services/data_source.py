@@ -99,12 +99,13 @@ class DataSourceService:
         """
 
         from sqlalchemy.orm import selectinload
+        from app.models.data_source_mcp import DataSourceMCPConfig
 
         stmt = (
             select(DataSource)
             .options(
                 selectinload(DataSource.project_data),
-                selectinload(DataSource.mcp_config)
+                selectinload(DataSource.data_source_mcp_configs).selectinload(DataSourceMCPConfig.mcp_config)
             )
             .join(DataSource.project_data)
             .where(ProjectData.project_id == project_id)
@@ -133,13 +134,16 @@ class DataSourceService:
                 "branch": data_source.branch,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
-                "mcp_config": {
-                    "id": data_source.mcp_config.id,
-                    "name": data_source.mcp_config.name,
-                    "transport_type": data_source.mcp_config.transport_type.value,
-                    "timeout": data_source.mcp_config.timeout,
-                    "config": data_source.mcp_config.config
-                } if data_source.mcp_config else None
+                "mcp_configs": [
+                    {
+                        "id": link.mcp_config.id,
+                        "name": link.mcp_config.name,
+                        "transport_type": link.mcp_config.transport_type.value,
+                        "timeout": link.mcp_config.timeout,
+                        "config": link.mcp_config.config
+                    }
+                    for link in data_source.data_source_mcp_configs
+                ]
             }
             for data_source in data_sources
         ]
@@ -160,13 +164,16 @@ class DataSourceService:
                 "branch": data_source.branch,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
-                "mcp_config": {
-                    "id": data_source.mcp_config.id,
-                    "name": data_source.mcp_config.name,
-                    "transport_type": data_source.mcp_config.transport_type.value,
-                    "timeout": data_source.mcp_config.timeout,
-                    "config": data_source.mcp_config.config
-                } if data_source.mcp_config else None
+                "mcp_configs": [
+                    {
+                        "id": link.mcp_config.id,
+                        "name": link.mcp_config.name,
+                        "transport_type": link.mcp_config.transport_type.value,
+                        "timeout": link.mcp_config.timeout,
+                        "config": link.mcp_config.config
+                    }
+                    for link in data_source.data_source_mcp_configs
+                ]
             }
             for data_source in data_sources
         ]

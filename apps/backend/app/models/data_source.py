@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from .project_data import ProjectData
     from .file import File
     from .mcp_config import MCPConfig
+    from .data_source_mcp import DataSourceMCPConfig
 
 
 class DataSourceType(str, Enum):
@@ -50,8 +51,8 @@ class DataSource(Base):
     )
 
 
-    # one to one relationship with MCPConfig
-    mcp_config: Mapped["MCPConfig"] = relationship(
+    # many to many relationship with MCPConfig
+    data_source_mcp_configs: Mapped[List["DataSourceMCPConfig"]] = relationship(
         back_populates="data_source", cascade="all, delete-orphan"
     ) 
 

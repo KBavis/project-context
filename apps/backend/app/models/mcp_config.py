@@ -11,6 +11,7 @@ from sqlalchemy import Enum as SAEnum
 # avoid warning
 if TYPE_CHECKING:
     from .data_source import DataSource
+    from .data_source_mcp import DataSourceMCPConfig
 
 
 class MCPTransportType(Enum):
@@ -42,8 +43,7 @@ class MCPConfig(Base):
     """
     config: Mapped[JSONB] = mapped_column(JSONB, nullable=False, comment="The configuration of the MCP server (i.e command, url, headers, env variables, arguments, etc)")
 
-    # one to one relationship with DataSource
-    data_source_id: Mapped["UUID"] = mapped_column(ForeignKey("data_source.id"))
-    data_source: Mapped["DataSource"] = relationship(
-        back_populates="mcp_config"
+    # many to many relationship with DataSource
+    data_source_mcp_configs: Mapped[list["DataSourceMCPConfig"]] = relationship(
+        back_populates="mcp_config", cascade="all, delete-orphan"
     )

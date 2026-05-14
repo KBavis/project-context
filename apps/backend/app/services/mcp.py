@@ -8,6 +8,7 @@ import os
 import traceback
 
 from app.models import DataSource, MCPConfig
+from app.models.data_source_mcp import DataSourceMCPConfig
 from app.models.mcp_config import MCPTransportType
 from app.models.data_source import DataSourceType
 from app.pydantic import MCPConfig as PydanticMCPConfig, HttpConfig, StdioConfig
@@ -127,12 +128,23 @@ class MCPService:
             transport_type=mcp_config.transport_type,
             config=mcp_config.config.model_dump(),
             timeout=mcp_config.timeout,
-            data_source_id=mcp_config.data_source_id
         )
 
         self.db.add(model)
         self.db.flush()
 
+        # link the MCP config to each provided data source via the association table
+        if not mcp_config.data_source_ids:
+            raise ValueError("At least one data_source_id must be provided when creating an MCP configuration.")
+
+        for ds_id in mcp_config.data_source_ids:
+            link = DataSourceMCPConfig(
+                data_source_id=ds_id,
+                mcp_config_id=model.id,
+            )
+            self.db.add(link)
+
+        self.db.flush()
         return model
 
     def get_mcp_configs(self) -> list[MCPConfig]:
@@ -245,36 +257,34 @@ class MCPService:
         Get all MCP tools associated with the provided list of Data Sources. Map the available tooling for 
         a particular DataSource in the format (<Data Source ID>: [<List of tools>])
         """
-        mcp_server_tooling : dict[str, list[FunctionTool]] = {} # cache tooling for particular MCP Server (avoid redundant connections)
-        datasource_to_tools: dict[str, list[FunctionTool]] = {} # mapping of DataSource to available tooling (LLM will filter later during Diagnosis)
+        mcp_server_tooling: dict[str, list[FunctionTool]] = {}  # cache tooling per MCP server (avoid redundant connections)
+        datasource_to_tools: dict[str, list[FunctionTool]] = {}  # mapping of DataSource to available tooling
 
         for ds in data_sources:
-
-            # extract data source ID 
             data_source_id = str(ds.id)
+            datasource_to_tools[data_source_id] = []
 
-            # handle data sources with no MCP tooling available 
-            if not ds.mcp_config:
-                datasource_to_tools[data_source_id] = []
-                continue
-            
-            # handle scenarios where an MCP server tools has already been extracted for prior Data Source 
-            mcp_id = str(ds.mcp_config.id)
-            if mcp_id in mcp_server_tooling:
-                datasource_to_tools[data_source_id] = mcp_server_tooling[mcp_id]
-                continue
+            # iterate over all MCP configs linked to this data source
+            for link in ds.data_source_mcp_configs:
+                mcp_cfg = link.mcp_config
+                mcp_id = str(mcp_cfg.id)
 
-                
-            # NOTE: Llama-Index's BasicMCPClient evaluates tool calls as one-off connections
-            # The following code manually enters its internal _run_session() to create a persistent connection and pushes onto 
-            # the async exit stack to ensure the connection is closed when the request completes
-            client = await self.get_mcp_client(ds.mcp_config)
-            real_session = await async_exit_stack.enter_async_context(client._run_session())
-            tool_spec = McpToolSpec(client=real_session)
+                # if we've already connected to this MCP server, reuse cached tools
+                if mcp_id in mcp_server_tooling:
+                    datasource_to_tools[data_source_id].extend(mcp_server_tooling[mcp_id])
+                    continue
 
-            # cache tooling by MCP server ID & map DataSource to available tooling 
-            mcp_server_tooling[mcp_id] = await tool_spec.to_tool_list_async()
-            datasource_to_tools[data_source_id] = mcp_server_tooling[mcp_id]
+                # NOTE: Llama-Index's BasicMCPClient evaluates tool calls as one-off connections
+                # The following code manually enters its internal _run_session() to create a persistent connection and pushes onto 
+                # the async exit stack to ensure the connection is closed when the request completes
+                client = await self.get_mcp_client(mcp_cfg)
+                real_session = await async_exit_stack.enter_async_context(client._run_session())
+                tool_spec = McpToolSpec(client=real_session)
+
+                # cache tooling by MCP server ID & map DataSource to available tooling 
+                tools = await tool_spec.to_tool_list_async()
+                mcp_server_tooling[mcp_id] = tools
+                datasource_to_tools[data_source_id].extend(tools)
 
         return datasource_to_tools 
     

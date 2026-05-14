@@ -31,4 +31,4 @@ class MCPConfig(BaseModel):
     transport_type: MCPTransportType
     timeout: int
     config: StdioConfig | HttpConfig
-    data_source_id: UUID
+    data_source_ids: list[UUID] 
