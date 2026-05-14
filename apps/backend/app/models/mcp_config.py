@@ -1,5 +1,6 @@
+from uuid import UUID
 from .base import Base 
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import text, String, ForeignKey
 from typing import TYPE_CHECKING
@@ -20,7 +21,7 @@ class MCPConfig(Base):
     
     __tablename__ = "mcp_config"
 
-    id: Mapped["UUID"] = mapped_column(UUID, primary_key=True, server_default=text("gen_random_uuid()"))
+    id: Mapped["UUID"] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
 
     name: Mapped[str] = mapped_column(String(255), nullable=False, comment="The name of the MCP server")
 
