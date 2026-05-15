@@ -59,36 +59,41 @@ class ChunkRetrievalService:
             k (int): the number of chunks to retrieve --> default is 10 chunks
             data_source_ids (Optional[list[str]]): optional list of data source IDs to limit the search to
         """
-        # 1. Resolve Data Source IDs (if none provided, search the whole project)
-        if not data_source_ids:
-            data_source_ids = await self._get_data_source_ids_by_project(project_id)
-            
-        logger.info(f"Performing grep search for '{key_word}' in Data Sources: {data_source_ids}")
 
-        # 2. Build and execute the SQLAlchemy query 
-        stmt = (
-            select(DocstoreChunk)
-            .where(DocstoreChunk.namespace.in_([str(id) for id in data_source_ids]))
-            .where(
-                DocstoreChunk.value['__data__']['text'].astext.op('~*')(key_word)
+        try:
+            # 1. Resolve Data Source IDs (if none provided, search the whole project)
+            if not data_source_ids:
+                data_source_ids = await self._get_data_source_ids_by_project(project_id)
+                
+            logger.info(f"Performing grep search for '{key_word}' in Data Sources: {data_source_ids}")
+
+            # 2. Build and execute the SQLAlchemy query 
+            stmt = (
+                select(DocstoreChunk)
+                .where(DocstoreChunk.namespace.in_([str(id) for id in data_source_ids]))
+                .where(
+                    DocstoreChunk.value['__data__']['text'].astext.op('~*')(key_word)
+                )
+                .limit(k)
             )
-            .limit(k)
-        )
-        result = await self.db.execute(stmt)
-        docstore_chunks = result.scalars().all()
-        if not docstore_chunks:
-            logger.warning(f"No chunks retrieved for Keyword={key_word}, Project={project_id}, Data Sources={data_source_ids}")
+            result = await self.db.execute(stmt)
+            docstore_chunks = result.scalars().all()
+            if not docstore_chunks:
+                logger.warning(f"No chunks retrieved for Keyword={key_word}, Project={project_id}, Data Sources={data_source_ids}")
 
-        # 3. Format the chunks for the LLM
-        formatted_chunks = []
-        for chunk in docstore_chunks:
-            data_source = chunk.node_metadata.get('data_source_id', 'Unknown Data Source ID')
-            file_path = chunk.node_metadata.get('file_path', 'Unknown File Path')
-            text_content = chunk.node_text
-            
-            formatted_chunks.append(f"Data Source:{data_source}\nFile Path:{file_path}\nContent:\n{text_content}")
-            
-        return formatted_chunks
+            # 3. Format the chunks for the LLM
+            formatted_chunks = []
+            for chunk in docstore_chunks:
+                data_source = chunk.node_metadata.get('data_source_id', 'Unknown Data Source ID')
+                file_path = chunk.node_metadata.get('file_path', 'Unknown File Path')
+                text_content = chunk.node_text
+                
+                formatted_chunks.append(f"Data Source:{data_source}\nFile Path:{file_path}\nContent:\n{text_content}")
+                
+            return formatted_chunks
+        except Exception as e:
+            logger.error(f"Error performing grep search for keyword={key_word}, project_id={project_id}, data_source_ids={data_source_ids}", e)
+            return []
 
         
     async def semantic_search(
