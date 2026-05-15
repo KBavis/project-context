@@ -15,7 +15,7 @@ export default function MCPConfigsView() {
         name: '',
         transport_type: 'stdio',
         timeout: 300,
-        data_source_id: '',
+        data_source_ids: [],
         config: {
             command: 'docker',
             args: '',
@@ -95,7 +95,7 @@ export default function MCPConfigsView() {
                 name: mcpConfig.name,
                 transport_type: mcpConfig.transport_type,
                 timeout: parseInt(mcpConfig.timeout),
-                data_source_id: mcpConfig.data_source_id,
+                data_source_ids: mcpConfig.data_source_ids,
                 config: mcpConfig.transport_type === 'stdio' ? {
                     command: mcpConfig.config.command,
                     args: finalArgs,
@@ -116,7 +116,7 @@ export default function MCPConfigsView() {
                 name: '',
                 transport_type: 'stdio',
                 timeout: 300,
-                data_source_id: '',
+                data_source_ids: [],
                 config: {
                     command: 'docker',
                     args: '',
@@ -181,24 +181,35 @@ export default function MCPConfigsView() {
                                     />
                                 </div>
 
-                                <div className="form-field flex-2">
-                                    <label className="input-label">Associated Data Source</label>
-                                    <select 
-                                        className="input"
-                                        value={mcpConfig.data_source_id}
-                                        onChange={e => setMcpConfig({ ...mcpConfig, data_source_id: e.target.value })}
-                                        required
-                                    >
-                                        <option value="">Select a data source...</option>
+                                <div className="form-field flex-2 projects-field">
+                                    <label className="input-label">Associated Data Sources</label>
+                                    <div className="project-selector-container" style={{ maxHeight: '150px', overflowY: 'auto' }}>
                                         {dataSources.map(ds => {
-                                            const hasMcp = mcpConfigs.some(c => c.data_source_id === ds.id);
+                                            const isSelected = mcpConfig.data_source_ids.includes(ds.id);
                                             return (
-                                                <option key={ds.id} value={ds.id} disabled={hasMcp}>
-                                                    {ds.name} ({ds.provider}){hasMcp ? ' - Already Linked' : ''}
-                                                </option>
+                                                <div
+                                                    key={ds.id}
+                                                    className={`project-option ${isSelected ? 'selected' : ''}`}
+                                                    onClick={() => {
+                                                        const values = isSelected
+                                                            ? mcpConfig.data_source_ids.filter(id => id !== ds.id)
+                                                            : [...mcpConfig.data_source_ids, ds.id];
+                                                        setMcpConfig({ ...mcpConfig, data_source_ids: values });
+                                                    }}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={() => { }} // Handled by div onClick
+                                                    />
+                                                    <span className="project-option-name" title={ds.name}>
+                                                        {ds.name} ({ds.provider})
+                                                    </span>
+                                                </div>
                                             );
                                         })}
-                                    </select>
+                                    </div>
+                                    <small className="field-hint">Select one or more data sources to link.</small>
                                 </div>
 
                                 <div className="form-field flex-1">
@@ -382,7 +393,11 @@ export default function MCPConfigsView() {
                                         <div className="mcp-config-details">
                                             <div className="detail-row">
                                                 <span className="detail-label">Linked To:</span>
-                                                <span className="detail-value">{config.data_source?.name || 'Unknown'}</span>
+                                                <span className="detail-value">
+                                                    {config.data_sources && config.data_sources.length > 0 
+                                                        ? config.data_sources.map(ds => ds.name).join(', ') 
+                                                        : 'None'}
+                                                </span>
                                             </div>
                                             <div className="detail-row">
                                                 <span className="detail-label">Transport:</span>

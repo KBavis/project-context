@@ -288,7 +288,14 @@ export default function DataSourcesView({ projectId }) {
                                                     </div>
                                                 )}
 
-                                                {ds.mcp_config ? (
+                                                {ds.mcp_configs && ds.mcp_configs.length > 0 ? (
+                                                    ds.mcp_configs.map(mcp => (
+                                                        <div key={mcp.id} className="mcp-badge linked" title={`Connected to MCP: ${mcp.name}`}>
+                                                            <span className="mcp-icon">⚡</span>
+                                                            <span className="mcp-name">{mcp.name}</span>
+                                                        </div>
+                                                    ))
+                                                ) : ds.mcp_config ? (
                                                     <div className="mcp-badge linked" title={`Connected to MCP: ${ds.mcp_config.name}`}>
                                                         <span className="mcp-icon">⚡</span>
                                                         <span className="mcp-name">{ds.mcp_config.name}</span>
