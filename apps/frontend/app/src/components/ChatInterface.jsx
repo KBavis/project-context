@@ -90,18 +90,20 @@ export default function ChatInterface({ conversationId }) {
             const completeMessage = {
                 role: 'assistant',
                 content: assistantMessage,
+                timestamp: new Date(),
+            };
             setMessages(prev => [...prev, completeMessage]);
             setStreamingMessage('');
             setStatus('');
 
         } catch (error) {
             console.error('Failed to send message:', error);
-            
+
             // Extract the specific error message if it came from our SSE stream
-            const errorText = error.message && error.message !== 'Failed to fetch' 
+            const errorText = error.message && error.message !== 'Failed to fetch'
                 ? `**Error:** ${error.message}`
                 : 'Sorry, there was an error processing your message.';
-                
+
             const errorMessage = {
                 role: 'assistant',
                 content: errorText,

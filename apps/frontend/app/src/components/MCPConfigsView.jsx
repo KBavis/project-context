@@ -73,7 +73,7 @@ export default function MCPConfigsView() {
                 }, {});
 
                 const userArgs = mcpConfig.config.args ? mcpConfig.config.args.split(',').map(a => a.trim()) : [];
-                
+
                 if (mcpConfig.config.command === 'docker') {
                     // Auto-construct premium Docker command
                     finalArgs = ['run', '-i', '--rm'];
@@ -146,8 +146,8 @@ export default function MCPConfigsView() {
             </div>
 
             {/* Custom Delete Confirmation Modal */}
-            <Modal 
-                isOpen={!!mcpToDelete} 
+            <Modal
+                isOpen={!!mcpToDelete}
                 onClose={() => setMcpToDelete(null)}
                 title="Delete MCP Configuration"
                 actions={
@@ -246,9 +246,9 @@ export default function MCPConfigsView() {
                                             className="input"
                                             value={mcpConfig.config.command}
                                             onChange={e => {
-                                                setMcpConfig({ 
-                                                    ...mcpConfig, 
-                                                    config: { ...mcpConfig.config, command: e.target.value, args: '' } 
+                                                setMcpConfig({
+                                                    ...mcpConfig,
+                                                    config: { ...mcpConfig.config, command: e.target.value, args: '' }
                                                 });
                                             }}
                                         >
@@ -261,8 +261,8 @@ export default function MCPConfigsView() {
                                     </div>
                                     <div className="form-field flex-3">
                                         <label className="input-label">
-                                            {mcpConfig.config.command === 'docker' ? 'Image Name (e.g. ghcr.io/...)' : 
-                                             mcpConfig.config.command === 'npx' ? 'Package Name' : 'Execution Arguments'}
+                                            {mcpConfig.config.command === 'docker' ? 'Image Name (e.g. ghcr.io/...)' :
+                                                mcpConfig.config.command === 'npx' ? 'Package Name' : 'Execution Arguments'}
                                         </label>
                                         <input
                                             className="input"
@@ -272,8 +272,8 @@ export default function MCPConfigsView() {
                                             placeholder={mcpConfig.config.command === 'docker' ? "ghcr.io/github/github-mcp-server" : "@modelcontextprotocol/server-github"}
                                         />
                                         <small className="field-hint">
-                                            {mcpConfig.config.command === 'docker' ? "System will automatically add 'run -i --rm' and '-e' flags for environment variables." : 
-                                             mcpConfig.config.command === 'npx' ? "System will automatically add the '-y' flag." : "Separate arguments with commas."}
+                                            {mcpConfig.config.command === 'docker' ? "System will automatically add 'run -i --rm' and '-e' flags for environment variables." :
+                                                mcpConfig.config.command === 'npx' ? "System will automatically add the '-y' flag." : "Separate arguments with commas."}
                                         </small>
                                     </div>
                                     <div className="form-field flex-2">
@@ -307,7 +307,7 @@ export default function MCPConfigsView() {
                             <div className="kv-editor">
                                 {(mcpConfig.transport_type === 'stdio' ? mcpConfig.config.env_pairs : mcpConfig.config.header_pairs).map((pair, index) => (
                                     <div key={index} className="kv-row">
-                                        <input 
+                                        <input
                                             className="input kv-key"
                                             placeholder="KEY"
                                             value={pair.key}
@@ -318,7 +318,7 @@ export default function MCPConfigsView() {
                                                 setMcpConfig({ ...mcpConfig, config: { ...mcpConfig.config, [key]: newPairs } });
                                             }}
                                         />
-                                        <input 
+                                        <input
                                             className="input kv-value"
                                             placeholder={mcpConfig.transport_type === 'stdio' ? "VALUE (Masked if secret)" : "Header Value"}
                                             value={pair.value}
@@ -329,8 +329,8 @@ export default function MCPConfigsView() {
                                                 setMcpConfig({ ...mcpConfig, config: { ...mcpConfig.config, [key]: newPairs } });
                                             }}
                                         />
-                                        <button 
-                                            type="button" 
+                                        <button
+                                            type="button"
                                             className="kv-remove"
                                             onClick={() => {
                                                 const key = mcpConfig.transport_type === 'stdio' ? 'env_pairs' : 'header_pairs';
@@ -342,8 +342,8 @@ export default function MCPConfigsView() {
                                         </button>
                                     </div>
                                 ))}
-                                <button 
-                                    type="button" 
+                                <button
+                                    type="button"
                                     className="kv-add"
                                     onClick={() => {
                                         const key = mcpConfig.transport_type === 'stdio' ? 'env_pairs' : 'header_pairs';
@@ -394,8 +394,8 @@ export default function MCPConfigsView() {
                                             <div className="detail-row">
                                                 <span className="detail-label">Linked To:</span>
                                                 <span className="detail-value">
-                                                    {config.data_sources && config.data_sources.length > 0 
-                                                        ? config.data_sources.map(ds => ds.name).join(', ') 
+                                                    {config.data_sources && config.data_sources.length > 0
+                                                        ? config.data_sources.map(ds => ds.name).join(', ')
                                                         : 'None'}
                                                 </span>
                                             </div>
@@ -410,8 +410,8 @@ export default function MCPConfigsView() {
                                                     <code className="detail-value code-font wrap-text">
                                                         {config.transport_type === 'stdio' ? getFullCommand(config.config) : config.config.url}
                                                     </code>
-                                                    <button 
-                                                        className="copy-btn-modern" 
+                                                    <button
+                                                        className="copy-btn-modern"
                                                         onClick={() => {
                                                             const text = config.transport_type === 'stdio' ? getFullCommand(config.config) : config.config.url;
                                                             navigator.clipboard.writeText(text);
@@ -439,7 +439,7 @@ export default function MCPConfigsView() {
                                         </div>
                                     </div>
                                     <div className="data-source-actions">
-                                        <button 
+                                        <button
                                             className="delete-icon-button"
                                             onClick={() => setMcpToDelete(config)}
                                             title="Delete Configuration"
