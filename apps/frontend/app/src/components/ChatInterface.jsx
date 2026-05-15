@@ -13,7 +13,6 @@ export default function ChatInterface({ conversationId }) {
     const [loading, setLoading] = useState(false);
     const [streamingMessage, setStreamingMessage] = useState('');
     const [status, setStatus] = useState('');
-    const [citations, setCitations] = useState([]);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
 
@@ -37,7 +36,6 @@ export default function ChatInterface({ conversationId }) {
         setInput('');
         setLoading(true);
         setStreamingMessage('');
-        setCitations([]);
 
         try {
             const response = await api.messages.send(conversationId, input);
@@ -49,7 +47,6 @@ export default function ChatInterface({ conversationId }) {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let assistantMessage = '';
-            let currentCitations = [];
             let buffer = '';
 
             while (true) {
@@ -81,9 +78,6 @@ export default function ChatInterface({ conversationId }) {
                         assistantMessage += parsedEvent.data;
                         setStreamingMessage(assistantMessage);
                         setStatus('Generating...'); // Reset to "Generating" when we get actual tokens
-                    } else if (parsedEvent.event === 'citation') {
-                        currentCitations = parsedEvent.data;
-                        setCitations(currentCitations);
                     } else if (parsedEvent.event === 'metadata') {
                         // Final data (token counts, etc)
                         console.log('Stream Metadata:', parsedEvent.data);
@@ -96,12 +90,8 @@ export default function ChatInterface({ conversationId }) {
             const completeMessage = {
                 role: 'assistant',
                 content: assistantMessage,
-                timestamp: new Date(),
-                citations: currentCitations,
-            };
             setMessages(prev => [...prev, completeMessage]);
             setStreamingMessage('');
-            setCitations([]);
             setStatus('');
 
         } catch (error) {
@@ -164,15 +154,6 @@ export default function ChatInterface({ conversationId }) {
                                 <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
                                     {msg.content}
                                 </ReactMarkdown>
-                                {msg.citations && msg.citations.length > 0 && (
-                                    <div className="message-citations">
-                                        {msg.citations.map((cite, i) => (
-                                            <a key={i} href={cite.file_url} target="_blank" rel="noopener noreferrer" className="citation-badge">
-                                                <span className="citation-icon">📄</span> {cite.file_name}
-                                            </a>
-                                        ))}
-                                    </div>
-                                )}
                             </div>
                             <div className="message-timestamp">
                                 {(msg.timestamp || msg.created_at) && new Date(msg.timestamp || msg.created_at).toLocaleTimeString()}
@@ -193,15 +174,6 @@ export default function ChatInterface({ conversationId }) {
                                 ) : (
                                     <div className="typing-dots">
                                         <span></span><span></span><span></span>
-                                    </div>
-                                )}
-                                {citations.length > 0 && (
-                                    <div className="message-citations">
-                                        {citations.map((cite, i) => (
-                                            <a key={i} href={cite.file_url} target="_blank" rel="noopener noreferrer" className="citation-badge">
-                                                <span className="citation-icon">📄</span> {cite.file_name}
-                                            </a>
-                                        ))}
                                     </div>
                                 )}
                             </div>
