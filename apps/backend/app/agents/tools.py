@@ -147,7 +147,7 @@ class Tools:
                 function_name=f"view_file_{slug}",
                 description=(
                     f"View the full contents of a file in DataSource '{ds.name}' ({ds.type}: {ds.provider}). "
-                    "The file_path argument MUST begin with '/' unless it is the root directory."
+                    "The file_path argument must NOT begin with a '/'. If the file is in the root directory, pass the filename (e.g., 'compose.yaml'). If it is in a subdirectory, pass the relative path (e.g., 'sub_dir/filename.extension')."
                 ),
             )
 
@@ -156,7 +156,7 @@ class Tools:
                 function_name=f"list_directory_{slug}",
                 description=(
                     f"List the contents of a directory in DataSource '{ds.name}' ({ds.type}: {ds.provider}). "
-                    "Path MUST begin with '/' or be an empty string '' for the root directory."
+                    "The path argument MUST begin with a '/' unless listing the root directory. To list the root directory, pass an empty string ''. To list a subdirectory like 'docs', pass '/docs' (NOT 'docs/' or 'docs')."
                 ),
             )
 
