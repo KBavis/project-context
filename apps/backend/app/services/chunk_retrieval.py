@@ -76,6 +76,8 @@ class ChunkRetrievalService:
         )
         result = await self.db.execute(stmt)
         docstore_chunks = result.scalars().all()
+        if not docstore_chunks:
+            logger.warning(f"No chunks retrieved for Keyword={key_word}, Project={project_id}, Data Sources={data_source_ids}")
 
         # 3. Format the chunks for the LLM
         formatted_chunks = []
@@ -108,7 +110,7 @@ class ChunkRetrievalService:
             k (int): the number of chunks to retrieve --> default is 10 chunks
             data_source_ids (Optional[list[str]]): optional list of data source IDs to limit the search to
         """
-
+        logger.info(f"Performing semantic search for Query={query}, Project={project_id}, Data Sources={data_source_ids}")
 
         # retreive relevant Chroma Collections corresponding to Project 
         collection = self.chroma_svc.get_collection_by_project(project_id)
@@ -121,6 +123,8 @@ class ChunkRetrievalService:
         
         # retrieve chunks based on query        
         chunks = await self._get_chunks(query, collection, embedding, llm, k, data_source_ids)
+        if not chunks:
+            logger.warning(f"No chunks retrieved for Query={query}, Project={project_id}, Data Sources={data_source_ids}")
 
         # format chunks (data source ID: chunk content) 
         formatted_chunks = []
@@ -153,24 +157,31 @@ class ChunkRetrievalService:
             k (int): the number of chunks to retrieve --> default is 10 chunks
             data_source_ids (Optional[list[str]]): optional list of data source IDs to limit the search to
         """
+
+        try:
         
-        # configure the retrievers
-        chroma_retriever = await self._get_chroma_retreiver(collection, embedding, k, data_source_ids)
-        bm25_retriever = await self._get_bm25_retriever(collection, k, data_source_ids)
+            # configure the retrievers
+            chroma_retriever = await self._get_chroma_retreiver(collection, embedding, k, data_source_ids)
+            bm25_retriever = await self._get_bm25_retriever(collection, k, data_source_ids)
 
-        # configure the fusion retriever (hybrid cordinator for both seamtnic and direct comparisons)
-        fusion_retriever = QueryFusionRetriever(
-            [chroma_retriever, bm25_retriever], 
-            similarity_top_k=k,
-            num_queries=1,
-            mode=FUSION_MODES.RECIPROCAL_RANK,
-            use_async=True,
-            llm=llm
-        )
+            # configure the fusion retriever (hybrid cordinator for both seamtnic and direct comparisons)
+            fusion_retriever = QueryFusionRetriever(
+                [chroma_retriever, bm25_retriever], 
+                similarity_top_k=k,
+                num_queries=1,
+                mode=FUSION_MODES.RECIPROCAL_RANK,
+                use_async=True,
+                llm=llm.get_llama_idx_instance()
+            )
 
-        nodes = await fusion_retriever.aretrieve(query)
+            nodes = await fusion_retriever.aretrieve(query)
+            return nodes 
+        
+        except Exception as e:
+            logger.error(f"Exception occurred while attempting to recieve Chunks for Query={query}, Data Sources={data_source_ids}, and LLM={llm.provider}/{llm.model_name}", e)
+            return []
+            
 
-        return nodes 
 
 
     async def _get_bm25_retriever(
