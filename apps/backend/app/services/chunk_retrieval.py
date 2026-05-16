@@ -70,7 +70,7 @@ class ChunkRetrievalService:
             # 2. Build and execute the SQLAlchemy query 
             stmt = (
                 select(DocstoreChunk)
-                .where(DocstoreChunk.namespace.in_([str(id) for id in data_source_ids]))
+                .where(DocstoreChunk.namespace.in_([f"{str(id)}/data" for id in data_source_ids]))
                 .where(
                     or_(
                         DocstoreChunk.value['__data__']['text'].astext.op('~*')(key_word),
