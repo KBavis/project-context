@@ -19,7 +19,7 @@ from app.models.collection import ChromaCollection
 from app.embeddings import EmbeddingManager
 from app.models.docstore_chunk import DocstoreChunk
 
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import logging
@@ -72,7 +72,10 @@ class ChunkRetrievalService:
                 select(DocstoreChunk)
                 .where(DocstoreChunk.namespace.in_([str(id) for id in data_source_ids]))
                 .where(
-                    DocstoreChunk.value['__data__']['text'].astext.op('~*')(key_word)
+                    or_(
+                        DocstoreChunk.value['__data__']['text'].astext.op('~*')(key_word),
+                        DocstoreChunk.value['text'].astext.op('~*')(key_word)
+                    )
                 )
                 .limit(k)
             )

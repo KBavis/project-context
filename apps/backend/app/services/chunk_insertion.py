@@ -1,6 +1,6 @@
 from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import CodeSplitter
@@ -557,7 +557,12 @@ class ChunkInsertionService:
         # retrieve chunks that are tied to this data source
         stmt = (
             select(DocstoreChunk)
-            .where(DocstoreChunk.value['__data__']['metadata']['file_id'].astext.in_([str(file_id) for file_id in file_ids]))
+            .where(
+                or_(
+                    DocstoreChunk.value['__data__']['metadata']['file_id'].astext.in_([str(file_id) for file_id in file_ids]),
+                    DocstoreChunk.value['metadata']['file_id'].astext.in_([str(file_id) for file_id in file_ids])
+                )
+            )
         )
         res = await self.db.execute(stmt)
         doc_store_chunks = res.scalars().all()
