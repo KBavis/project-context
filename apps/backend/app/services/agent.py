@@ -147,10 +147,11 @@ class AgentService:
                             pass
 
                         case AgentInput():
-                            agent_name = event.current_agent_name.replace("Agent", "")
-                            if agent_name not in seen_agents:
-                                seen_agents.add(agent_name)
-                                logger.info("\n=== [%s Phase Started] ===", agent_name.upper())
+                            agent_name = event.current_agent_name
+                            phase_name = agent_name.replace("Agent", "")
+                            if phase_name not in seen_agents:
+                                seen_agents.add(phase_name)
+                                logger.info("\n=== [%s Phase Started] ===", phase_name.upper())
                             yield format_sse_event(StreamEventType.STATUS, f"{agent_name} is thinking..."), None
 
                         case AgentOutput():
