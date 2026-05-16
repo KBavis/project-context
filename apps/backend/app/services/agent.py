@@ -1,4 +1,3 @@
-from collections import defaultdict
 from uuid import UUID
 from contextlib import AsyncExitStack
 from typing import AsyncGenerator
@@ -21,7 +20,7 @@ from app.services.chunk_retrieval import ChunkRetrievalService
 from app.models.data_source import DataSource
 
 from llama_index.core.tools import FunctionTool
-from llama_index.core.agent.workflow import (AgentOutput, AgentSetup, AgentStream, ToolCall, ToolCallResult, AgentWorkflow, AgentInput)
+from llama_index.core.agent.workflow import (AgentOutput, AgentStream, ToolCallResult, AgentWorkflow, AgentInput)
 from llama_index.core.llms import ChatMessage
 
 
