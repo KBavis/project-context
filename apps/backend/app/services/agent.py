@@ -133,6 +133,7 @@ class AgentService:
 
             # 8. Stream events back to the caller
             try:
+                seen_agents = set()
                 async for event in handler.stream_events():
 
                     match event:
@@ -147,8 +148,10 @@ class AgentService:
                             pass
 
                         case AgentInput():
-                            agent_name = event.current_agent_name
-                            logger.info("\n=== [%s Phase Started] ===", agent_name.upper())
+                            agent_name = event.current_agent_name.replace("Agent", "")
+                            if agent_name not in seen_agents:
+                                seen_agents.add(agent_name)
+                                logger.info("\n=== [%s Phase Started] ===", agent_name.upper())
                             yield format_sse_event(StreamEventType.STATUS, f"{agent_name} is thinking..."), None
 
                         case AgentOutput():
