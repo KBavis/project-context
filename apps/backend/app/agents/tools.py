@@ -67,6 +67,7 @@ class Tools:
         """
         return [
             self._semantic_search_tool,
+            self._grep_search_tool,
             self._write_plan_tool,
             *self._ds_list_dir_tools.values(),
         ]
