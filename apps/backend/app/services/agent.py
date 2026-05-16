@@ -132,7 +132,6 @@ class AgentService:
             )
 
             # 8. Stream events back to the caller
-            # TODO: Simplify logging in this flow
             try:
                 async for event in handler.stream_events():
 
@@ -144,62 +143,49 @@ class AgentService:
                                 yield format_sse_event(StreamEventType.CHUNK, event.delta), event.delta
                                 continue
 
-                            # All other agent activity is internal dialogue — log only
-                            if event.delta or event.thinking_delta:
-                                logger.debug(
-                                    "AgentStreamEvent (%s): Agent=%s, Dialogue=%s, ToolCalls=%d",
-                                    "Thinking" if event.thinking_delta else "Delta",
-                                    event.current_agent_name,
-                                    event.thinking_delta if event.thinking_delta else event.delta,
-                                    len(event.tool_calls or []),
-                                )
+                            # All other agent activity is internal dialogue — ignore token-by-token logging to reduce clutter.
+                            pass
 
                         case AgentInput():
                             agent_name = event.current_agent_name
-                            latest_message = await self._extract_latest_message(event)
-                            logger.debug(
-                                "AgentInputEvent: Agent=%s, LatestMessage=%s",
-                                agent_name,
-                                latest_message,
-                            )
+                            logger.info("\n=== [%s Phase Started] ===", agent_name.upper())
+                            yield format_sse_event(StreamEventType.STATUS, f"{agent_name} is thinking..."), None
 
                         case AgentOutput():
                             agent_name = event.current_agent_name
-                            tool_breakdown = []
 
                             for tool_call in event.tool_calls:
                                 tool_name = tool_call.tool_name
                                 tool_args = tool_call.tool_kwargs
 
                                 if tool_name == "handoff":
-                                    tool_breakdown.append({
-                                        "Tool Name": tool_name,
-                                        "Handoff To": tool_args.get("to_agent", "unknown"),
-                                        "Reason": (tool_args.get("reason", "") or "")[:300],
-                                    })
+                                    handoff_to = tool_args.get("to_agent", "unknown").replace("Agent", "")
+                                    reason = str(tool_args.get("reason", ""))[:150]
+                                    logger.info("[%s Agent] Handoff -> %s Agent (Reason: %s)", agent_name, handoff_to, reason)
+                                    yield format_sse_event(StreamEventType.STATUS, f"Handing off to {handoff_to}..."), None
                                 else:
-                                    tool_breakdown.append({
-                                        "Tool Name": tool_name,
-                                        "Tool Arguments": tool_args,
-                                    })
-                            logger.debug("AgentOutputEvent: Agent=%s, Tools=%s", agent_name, tool_breakdown)
-
-                        case ToolCall():
-                            logger.debug("ToolCallEvent: Name=%s, Arguments=%s", event.tool_name, event.tool_kwargs)
+                                    logger.info("[%s Agent] Tool Call: %s (Args: %s)", agent_name, tool_name, str(tool_args)[:150])
+                                    yield format_sse_event(StreamEventType.STATUS, f"{agent_name} running tool: {tool_name}..."), None
 
                         case ToolCallResult():
-                            try:
-                                summary = " | ".join(
-                                    block.text[:200]
-                                    for block in event.tool_output.blocks
-                                    if isinstance(block, TextBlock)
-                                )
-                            except Exception:
-                                summary = str(event.tool_output)[:300]
-                            logger.debug("ToolCallResultEvent: Name=%s, Output=%s", event.tool_name, summary)
+                            output_str = str(event.tool_output)
+                            output_len = len(output_str)
+
+                            # Check for explicit errors or empty responses
+                            is_error = getattr(event.tool_output, "is_error", False)
+                            
+                            if is_error or (output_len < 100 and "error" in output_str.lower()):
+                                error_msg = output_str[:150].replace('\n', ' ')
+                                logger.warning("[Tool Result] %s FAILED or returned error: %s", event.tool_name, error_msg)
+                            
+                            elif output_len == 0 or output_str.strip() in ["None", "[]", "{}", ""]:
+                                logger.warning("[Tool Result] %s returned NO DATA.", event.tool_name)
+                                
+                            else:
+                                logger.info("[Tool Result] %s: returned %s characters of data.", event.tool_name, output_len)
 
                         case _:
-                            logger.debug("Unknown Event Type: %s", event)
+                            pass
 
                 # Wait for the final result
                 result = await handler
