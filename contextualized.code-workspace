@@ -12,5 +12,8 @@
 			"name": "Frontend",
 			"path": "apps/frontend"
 		}
-	]
+	],
+	"settings": {
+		"python.languageServer": "None"
+	}
 }
