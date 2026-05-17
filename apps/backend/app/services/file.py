@@ -313,7 +313,7 @@ class FileService:
         )
 
         res = await session.execute(stmt)
-        return res.scalars().all()
+        return list(res.scalars().all())
 
     
     async def get_file_by_path_and_data_source(self, path: str, data_source_id: UUID) -> File | None: 
