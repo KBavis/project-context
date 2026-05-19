@@ -31,23 +31,23 @@ class DataProvider(ABC):
 
     @abstractmethod
     async def ingest_data(self):
-        pass
+        raise NotImplementedError()
 
     @abstractmethod
     async def _download_file(self, url: str, headers: dict = {}):
-        pass
+        raise NotImplementedError()
 
     @abstractmethod
     def _validate_url(self, url: str):
-        pass
+        raise NotImplementedError()
 
     @abstractmethod
     def _get_request_headers(self) -> dict[str, str] | None:
         """Get request headers for API calls. Returns None if no auth is needed."""
-        pass
+        raise NotImplementedError()
 
     @abstractmethod
-    async def view_file(self, file_path: str):
+    async def view_file(self, file_path: str) -> str:
         """
         Functionality to extract exact file contents from a particular path 
         This function will end up being an internal tool that we can leverage in our "research" phase of 
@@ -56,11 +56,10 @@ class DataProvider(ABC):
         Args:
             file_path (str): The absolute path to the file to view 
         """
-
-        pass
+        raise NotImplementedError()
 
     @abstractmethod
-    async def list_directory(self, path: str):
+    async def list_directory(self, path: str) -> str:
         """
         Functionality to list the contents of a particular directory 
         This function will end up being an internal tool that we can leverage in our "research" phase of 
@@ -72,10 +71,10 @@ class DataProvider(ABC):
         Args:
             path (str): The absolute path to the directory to list the contents of 
         """
-        pass
+        raise NotImplementedError()
     
 
-    async def generate_citation(self, file_path: str): 
+    async def generate_citation(self, file_path: str) -> str: 
         """
         Generates a citation for a given file path 
 
@@ -85,5 +84,5 @@ class DataProvider(ABC):
         Returns:
             str: The citation for the file
         """
-        pass
+        raise NotImplementedError()
         
