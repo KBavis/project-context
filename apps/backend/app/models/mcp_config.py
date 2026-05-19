@@ -2,7 +2,7 @@ from uuid import UUID
 from .base import Base 
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import text, String, ForeignKey
+from sqlalchemy import text, String
 from typing import TYPE_CHECKING
 
 from enum import Enum
@@ -10,7 +10,6 @@ from sqlalchemy import Enum as SAEnum
 
 # avoid warning
 if TYPE_CHECKING:
-    from .data_source import DataSource
     from .data_source_mcp import DataSourceMCPConfig
 
 
