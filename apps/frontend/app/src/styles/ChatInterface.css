@@ -61,6 +61,12 @@
     margin: 0;
 }
 
+.message-text br {
+    display: block;
+    content: "";
+    margin-top: 0.5rem;
+}
+
 /* Add definitive spacing between all block elements */
 .message-text>*+* {
     margin-top: 1rem;
@@ -269,7 +275,7 @@
     font-family: inherit;
     font-size: 0.9375rem;
     resize: none;
-    transition: all 0.15s ease;
+    transition: color 0.15s ease;
     max-height: 150px;
     min-height: 24px;
     line-height: 1.5;

@@ -28,6 +28,15 @@ export default function ChatInterface({ conversationId }) {
         scrollToBottom();
     }, [messages, streamingMessage]);
 
+    // Auto-resize textarea as user types
+    useEffect(() => {
+        const textarea = inputRef.current;
+        if (textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = `${textarea.scrollHeight}px`;
+        }
+    }, [input]);
+
     const handleSend = async () => {
         if (!input.trim() || loading) return;
 
