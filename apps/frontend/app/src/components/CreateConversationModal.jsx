@@ -7,14 +7,17 @@ import '../styles/CreateConversationModal.css';
 const PROVIDERS = {
     openai: {
         label: 'OpenAI',
+        apiValue: 'OpenAI',
         models: [
-            { id: 'gpt-4o-mini', label: 'GPT-4o Mini (Cheapest & Intelligent)', value: 'gpt-4o-mini' },
-            { id: 'gpt-4o', label: 'GPT-4o (Most Capable)', value: 'gpt-4o' }
+            { id: 'gpt-4o-mini', label: 'GPT-4o Mini (Cheapest)', value: 'gpt-4o-mini' },
+            { id: 'gpt-4.1-mini', label: 'More Intelligent Mode (Balanced) - gpt-4.1-mini', value: 'gpt-4.1-mini' },
+            { id: 'gpt-4.1', label: 'Most Intelligent Mode (Higher Cost) - gpt-4.1', value: 'gpt-4.1' }
         ],
-        defaultModel: 'gpt-4o-mini'
+        defaultModel: 'gpt-4.1-mini'
     },
     ollama: {
         label: 'Ollama (Local)',
+        apiValue: 'Ollama',
         models: [
             { id: 'gpt-oss:latest', label: 'gpt-oss:latest', value: 'gpt-oss:latest' }
         ],
@@ -56,7 +59,7 @@ export default function CreateConversationModal({ isOpen, onClose }) {
         setError('');
 
         try {
-            await createConversation(selectedProjectId, model, provider);
+            await createConversation(selectedProjectId, model, PROVIDERS[provider].apiValue);
             onClose();
             // We don't reset everything if the user might want to create another one with same settings?
             // But usually closing modal resets state.
@@ -144,7 +147,7 @@ export default function CreateConversationModal({ isOpen, onClose }) {
                     </select>
                     {provider === 'openai' && (
                         <p className="field-hint">
-                            <strong>gpt-4o-mini</strong> is highly recommended as it is significantly cheaper while remaining very capable.
+                            Choose <strong>gpt-4.1-mini</strong> for a stronger balanced model, or <strong>gpt-4.1</strong> for highest quality at higher cost.
                         </p>
                     )}
                 </div>

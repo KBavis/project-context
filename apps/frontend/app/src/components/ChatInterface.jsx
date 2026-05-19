@@ -13,7 +13,6 @@ export default function ChatInterface({ conversationId }) {
     const [loading, setLoading] = useState(false);
     const [streamingMessage, setStreamingMessage] = useState('');
     const [status, setStatus] = useState('');
-    const [citations, setCitations] = useState([]);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
 
@@ -29,6 +28,15 @@ export default function ChatInterface({ conversationId }) {
         scrollToBottom();
     }, [messages, streamingMessage]);
 
+    // Auto-resize textarea as user types
+    useEffect(() => {
+        const textarea = inputRef.current;
+        if (textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = `${textarea.scrollHeight}px`;
+        }
+    }, [input]);
+
     const handleSend = async () => {
         if (!input.trim() || loading) return;
 
@@ -37,7 +45,6 @@ export default function ChatInterface({ conversationId }) {
         setInput('');
         setLoading(true);
         setStreamingMessage('');
-        setCitations([]);
 
         try {
             const response = await api.messages.send(conversationId, input);
@@ -49,7 +56,6 @@ export default function ChatInterface({ conversationId }) {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let assistantMessage = '';
-            let currentCitations = [];
             let buffer = '';
 
             while (true) {
@@ -66,27 +72,26 @@ export default function ChatInterface({ conversationId }) {
                 for (const line of lines) {
                     if (!line.startsWith('data: ')) continue;
 
+                    let parsedEvent;
                     try {
                         const jsonStr = line.replace('data: ', '');
-                        const event = JSON.parse(jsonStr);
-
-                        if (event.event === 'status') {
-                            setStatus(event.data);
-                        } else if (event.event === 'chunk') {
-                            assistantMessage += event.data;
-                            setStreamingMessage(assistantMessage);
-                            setStatus('Generating...'); // Reset to "Generating" when we get actual tokens
-                        } else if (event.event === 'citation') {
-                            currentCitations = event.data;
-                            setCitations(currentCitations);
-                        } else if (event.event === 'metadata') {
-                            // Final data (token counts, etc)
-                            console.log('Stream Metadata:', event.data);
-                        } else if (event.event === 'error') {
-                            throw new Error(event.data);
-                        }
+                        parsedEvent = JSON.parse(jsonStr);
                     } catch (e) {
                         console.error('Failed to parse SSE event:', e, line);
+                        continue;
+                    }
+
+                    if (parsedEvent.event === 'status') {
+                        setStatus(parsedEvent.data);
+                    } else if (parsedEvent.event === 'chunk') {
+                        assistantMessage += parsedEvent.data;
+                        setStreamingMessage(assistantMessage);
+                        setStatus('Generating...'); // Reset to "Generating" when we get actual tokens
+                    } else if (parsedEvent.event === 'metadata') {
+                        // Final data (token counts, etc)
+                        console.log('Stream Metadata:', parsedEvent.data);
+                    } else if (parsedEvent.event === 'error') {
+                        throw new Error(parsedEvent.data);
                     }
                 }
             }
@@ -95,18 +100,22 @@ export default function ChatInterface({ conversationId }) {
                 role: 'assistant',
                 content: assistantMessage,
                 timestamp: new Date(),
-                citations: currentCitations,
             };
             setMessages(prev => [...prev, completeMessage]);
             setStreamingMessage('');
-            setCitations([]);
             setStatus('');
 
         } catch (error) {
             console.error('Failed to send message:', error);
+
+            // Extract the specific error message if it came from our SSE stream
+            const errorText = error.message && error.message !== 'Failed to fetch'
+                ? `**Error:** ${error.message}`
+                : 'Sorry, there was an error processing your message.';
+
             const errorMessage = {
                 role: 'assistant',
-                content: 'Sorry, there was an error processing your message.',
+                content: errorText,
                 timestamp: new Date(),
                 error: true,
             };
@@ -156,15 +165,6 @@ export default function ChatInterface({ conversationId }) {
                                 <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
                                     {msg.content}
                                 </ReactMarkdown>
-                                {msg.citations && msg.citations.length > 0 && (
-                                    <div className="message-citations">
-                                        {msg.citations.map((cite, i) => (
-                                            <a key={i} href={cite.file_url} target="_blank" rel="noopener noreferrer" className="citation-badge">
-                                                <span className="citation-icon">📄</span> {cite.file_name}
-                                            </a>
-                                        ))}
-                                    </div>
-                                )}
                             </div>
                             <div className="message-timestamp">
                                 {(msg.timestamp || msg.created_at) && new Date(msg.timestamp || msg.created_at).toLocaleTimeString()}
@@ -185,15 +185,6 @@ export default function ChatInterface({ conversationId }) {
                                 ) : (
                                     <div className="typing-dots">
                                         <span></span><span></span><span></span>
-                                    </div>
-                                )}
-                                {citations.length > 0 && (
-                                    <div className="message-citations">
-                                        {citations.map((cite, i) => (
-                                            <a key={i} href={cite.file_url} target="_blank" rel="noopener noreferrer" className="citation-badge">
-                                                <span className="citation-icon">📄</span> {cite.file_name}
-                                            </a>
-                                        ))}
                                     </div>
                                 )}
                             </div>

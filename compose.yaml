@@ -14,8 +14,11 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - ANONYMIZED_TELEMETRY=FALSE
     extra_hosts:
       - "host.docker.internal:host-gateway"  # linux usage 
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
   
   frontend:
     image: frontend-app
@@ -31,9 +34,11 @@ services:
     ports:
       - "8001:8000"
     volumes:
-      - chroma_data:/chroma/chroma
+      - chroma_data:/data
     environment:
       - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/data
+      - ANONYMIZED_TELEMETRY=FALSE
     
   
   db: 

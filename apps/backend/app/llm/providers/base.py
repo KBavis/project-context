@@ -4,6 +4,7 @@ from typing import Callable
 import json
 
 from llama_index.core.llms.function_calling import FunctionCallingLLM
+from llama_index.core.callbacks import CallbackManager
 
 
 class LLMBase(ABC):
@@ -28,7 +29,7 @@ class LLMBase(ABC):
 
         
         llm_instance = self.get_llama_idx_instance()
-        return llm_instance.complete(prompt)
+        return await llm_instance.acomplete(prompt)
 
 
     
@@ -49,61 +50,76 @@ class LLMBase(ABC):
         total_input_tokens = await self.tokenize(prompt)
         
         return len(total_input_tokens) + current_token_count <= max_tokens
-    
 
-    async def decompose_query(self, prompt: str, existing_messages: str) -> dict:
+    async def diagnose_question(
+        self, 
+        prompt: str, 
+        data_sources_info: str, 
+        internal_tools_info: str, 
+        mcp_tools_info: str,
+        conversation_history_str: str = ""
+    ) -> dict:
         """
-        Decompose a complex query into simpler sub-queries that can be answered individually.
+        Phase 1: Diagnosis. Analyze the user's question against available data sources and tools to determine the 
+        optimal research trajectory and filter out unnecessary context.
+        """
+        diagnosis_prompt = f"""
+        TASK: You are the Diagnosis Agent for a coding assistant workflow. 
+        Your job is to analyze the USER_QUESTION and CONVERSATION_HISTORY to determine exactly what the user is asking, and which Data Sources and MCP Tools are necessary to answer it.
 
-        Args:
-            prompt (str): The prompt to decompose
-            existing_messages (str): The existing messages in the conversation
+        CONVERSATION_HISTORY:
+        {conversation_history_str}
+
+        AVAILABLE DATA SOURCES:
+        {data_sources_info}
+
+        AVAILABLE INTERNAL TOOLS (Always active, do not select these, they are provided for context so you know what base capabilities exist):
+        {internal_tools_info}
+
+        AVAILABLE MCP TOOLS (External connections, mapped by Data Source ID):
+        {mcp_tools_info}
+
+        CRITICAL RULES:
+        1. Read the CONVERSATION_HISTORY to resolve any ambiguities in the USER_QUESTION (e.g., identifying what "it" or "this file" refers to).
+        2. "refined_question": A standalone version of the user's prompt with all ambiguities resolved. You must retain the original core intent and technical constraints of the user's question, only injecting the missing context.
+        3. "required_data_sources": List of Data Source IDs that are relevant. If you are unsure whether a Data Source is relevant, DO NOT filter it out. Include its ID. Better to provide too much context than too little.
+        4. "required_mcp_tools": A dictionary mapping a Data Source ID to a list of MCP Tool Names. ONLY select MCP tools that belong to the Data Sources you selected in step 3. ONLY include an MCP tool if the Internal Tools cannot accomplish the task. If no MCP tools are needed, return an empty dictionary.
+        5. Your ONLY output MUST be a valid JSON object. Do NOT wrap it in markdown block quotes.
+
+        OUTPUT_FORMAT:
+        {{
+            "user_intent": "What the user is actually trying to accomplish.",
+            "contextual_clarification": "How the conversation history resolves ambiguity.",
+            "refined_question": "Standalone version of the prompt.",
+            "question_type": "Classification of the question (e.g. 'Deep Research', 'General Inquiry', 'Action Execution')",
+            "data_source_reasoning": "Brief explanation of which data sources are needed and why. Rule: If unsure, keep the data source.",
+            "required_data_sources": ["id1", "id2"],
+            "mcp_tool_reasoning": "Brief explanation of which MCP tools are needed, ensuring they ONLY belong to the selected data sources above.",
+            "required_mcp_tools": {{
+                "id1": ["mcp_tool_name_1"]
+            }}
+        }}
+
+        USER_QUESTION: {prompt}
         """
 
-        # TODO: Add logic for ensuring that the question is sound or if we require additional clarification from user 
+        # validate context length 
+        valid = await self.validate_context_length(diagnosis_prompt)
+        if not valid:
+            raise ValueError("Prompt exceeds maximum context length")
+
+        llm_instance = self.get_llama_idx_instance()
+        response = await llm_instance.acomplete(diagnosis_prompt)
 
         try:
-
-            decompose_query_prompt = f"""
-                        TASK: You are a Query Decomposition Engine. Analyze the user's question and history to prepare search queries.
-
-                        CRITICAL RULES:
-                        1. **DO NOT answer the user's question yourself.** Your ONLY output should be a valid JSON plan.
-                        2. If the answer is already fully contained in the conversation history, set "requires_retrieval": false and "queries": [].
-                        3. Resolving Ambiguity: Turn fragmented questions like "What about that?" into standalone search queries based on previous context.
-                        4. Output MUST be a single, strict JSON block.
-
-                        OUTPUT_FORMAT:
-                        {{
-                            "requires_retrieval": boolean,
-                            "queries": [
-                                {{"query": "string"}}
-                            ]
-                        }}
-
-                        EXAMPLES:
-                        - History has the answer: {{"requires_retrieval": false, "queries": []}}
-                        - More info needed: {{"requires_retrieval": true, "queries": [{{"query": "explanation of project implementation and architecture"}}]}}
-
-                        USER_QUESTION: {prompt}
-                        CONVERSATION_HISTORY (sender:<message>): {existing_messages}
-            """
-
-
-            # validate context length 
-            valid = await self.validate_context_length(decompose_query_prompt)
-            if not valid:
-                raise ValueError("Prompt exceeds maximum context length")
-
-            llm_instance = self.get_llama_idx_instance()
-            response = await llm_instance.acomplete(decompose_query_prompt)
-
-            return json.loads(response.text)
-        
+            raw_text = response.text.strip()
+            if raw_text.startswith("```json"):
+                raw_text = raw_text[7:-3]
+            elif raw_text.startswith("```"):
+                raw_text = raw_text[3:-3]
+            return json.loads(raw_text.strip())
         except Exception as e:
-            raise ValueError(f"Failed to decompose query: {e}")
-
-        
+            raise ValueError(f"Failed to parse diagnosis JSON: {e}. Response was: {response.text}")
 
 
 
@@ -158,7 +174,7 @@ class LLMBase(ABC):
         raise NotImplementedError("Subclasses must implement tokenize method.")
 
     @abstractmethod
-    def get_llama_idx_instance(self) -> FunctionCallingLLM:
+    def get_llama_idx_instance(self, callback_manager: CallbackManager | None = None) -> FunctionCallingLLM:
         """
         Get the underlying LlamaIndex LLM instance.
         """

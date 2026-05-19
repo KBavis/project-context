@@ -58,12 +58,18 @@
 
 /* Markdown Styles */
 .message-text p {
-    margin: 0;
+    margin: 0 0 0.75rem 0;
 }
 
-/* Add definitive spacing between all block elements */
-.message-text>*+* {
-    margin-top: 1rem;
+.message-text p:last-child {
+    margin-bottom: 0;
+}
+
+.message-text br {
+    display: block;
+    content: "";
+    height: 0.35rem;
+    /* Beautiful physical gap for single newlines */
 }
 
 .message-text ul,
@@ -269,10 +275,12 @@
     font-family: inherit;
     font-size: 0.9375rem;
     resize: none;
-    transition: all 0.15s ease;
+    transition: color 0.15s ease;
     max-height: 150px;
     min-height: 24px;
     line-height: 1.5;
+    overflow-y: auto;
+    word-break: break-word;
 }
 
 .chat-input:focus {
@@ -308,38 +316,4 @@
 
 .chat-empty p {
     font-size: 0.9375rem;
-}
-
-.message-citations {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid var(--color-border);
-    justify-content: flex-end;
-}
-
-.citation-badge {
-    font-size: 0.75rem;
-    padding: 2px 8px;
-    border-radius: 12px;
-    background: var(--color-surface-hover);
-    border: 1px solid var(--color-border);
-    color: var(--color-text-secondary);
-    text-decoration: none;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    transition: all 0.2s ease;
-}
-
-.citation-badge:hover {
-    background: var(--color-border-hover);
-    color: var(--color-text-primary);
-    border-color: var(--color-accent);
-}
-
-.citation-icon {
-    font-size: 0.7rem;
 }

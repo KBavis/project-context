@@ -1,27 +1,24 @@
 from __future__ import annotations
-from datetime import datetime
-from enum import Enum
+from uuid import UUID
+import logging
+import heapq
+from typing import AsyncGenerator
 
-from llama_index.core.schema import NodeWithScore
-from llama_index.core.vector_stores.types import NodeWithEmbedding
-from app.models import Conversation, Sender
+from llama_index.core.llms import ChatMessage, MessageRole
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.pydantic.file import FileCitation
+from app.models import Conversation, Sender
 from app.services.conversation import ConversationService
-from app.services.citations import CitationService
-from app.services.query import QueryService
+from app.services.agent import AgentService
+from app.services.execution_token_usage import ExecutionTokenUsageService
 from app.models import Message
-from app.llm import LLMBase, LLMManager
-from app.pydantic import QueryResponse, PromptResponse, MessageDto, MessageRequest
+from app.llm import LLMManager, LLMBase
+from app.pydantic import QueryResponse, MessageDto, MessageRequest
+from app.pydantic.streaming import StreamEventType
+from app.services.util import format_sse_event
 
-from uuid import UUID
-import heapq
-import logging
-from typing import Any, AsyncGenerator
-from app.pydantic.streaming import StreamEvent, StreamEventType
 
 
 logger = logging.getLogger(__name__)
@@ -31,13 +28,13 @@ class MessageService:
         self, 
         db: AsyncSession,
         conversation_svc: ConversationService,
-        query_svc: QueryService,
-        citation_svc: CitationService
+        agent_svc: AgentService,
+        execution_token_usage_svc: ExecutionTokenUsageService
     ):
         self.db = db
         self.conversation_svc = conversation_svc
-        self.query_svc = query_svc
-        self.citation_svc = citation_svc
+        self.agent_svc = agent_svc
+        self.execution_token_usage_svc = execution_token_usage_svc
 
     
     async def get_messages(self, conversation_id: UUID):
@@ -53,75 +50,10 @@ class MessageService:
         )
         return messages.scalars().all()
 
-
-    async def sync_send_message(self, message: MessageRequest, conversation_id: UUID) -> PromptResponse:
+    
+    async def agentic_send_message_stream(self, message: MessageRequest, conversation_id: UUID) -> AsyncGenerator[str, None]:
         """
-        Functionality to send a message to a previously created Conversation synchronously 
-
-        NOTE: Sending a message via streaming capabilities is stypically the preferred method, but this functionality 
-        can be leveraged for testing purposes 
-
-        Args:
-            message (MessageRequest): Message to be sent
-            conversation_id (UUID): ID of the conversation to send the message to
-        """
-
-        # retrieve conversation 
-        conversation = await self.conversation_svc.get_conversation(conversation_id)
-        if not conversation:
-            raise Exception(f"Conversation with id {conversation_id} not found")
-
-        # configure LLM Manager based on Conversation -- TODO: Consider caching this LLM Manager by Conversation ID for repetetive usages (and no need to continiously reinitalize)
-        llm_manager = LLMManager(model_name=conversation.ll_model_name, provider=conversation.ll_model_provider)
-
-        # add summary to conversation if this is the first sent message 
-        if conversation.summary is None:
-            await self.conversation_svc.create_conversation_summary(conversation, message.content, llm_manager)
-
-        # gather existing context from previously sent messages 
-        existing_messages = self.get_previous_k_messages(conversation)
-        if not existing_messages:
-            logger.warning(f"No existing messages found for conversation {conversation_id}")
-
-        # decompose query
-        llm = llm_manager.get_llm()
-        decomposition_result = await llm.decompose_query(message.content, existing_messages)
-        logger.debug(f"Decomposition Result for the Conversation={conversation_id} and Message={message.content}: {decomposition_result}")
-
-        # execute query
-        query_result = await self.query_svc.execute_query(
-            query=message.content, 
-            project_id=conversation.project_id, 
-            llm_manager=llm_manager, 
-            decomposition=decomposition_result, 
-            existing_messages=existing_messages, 
-            existing_tokens=conversation.total_tokens
-        )
-
-        
-        logger.debug(f"Query Result for the Conversation={conversation_id} and Message={message.content}: {query_result.model_response}")
-        logger.debug(f"Total Token Count for the Conversation={conversation_id} and Message={message.content}: {query_result.total_tokens}")
-
-        # persist updates to Message & Conversation
-        user_msg, model_msg = await self.save_messages(
-            query_result, 
-            conversation_id, 
-            message.content_type, 
-            len(conversation.messages)
-        )
-        await self.conversation_svc.update_total_tokens(conversation_id, query_result.total_tokens)
-
-        return PromptResponse(
-            user_message=self._get_message_dto(user_msg),
-            model_message=self._get_message_dto(model_msg),
-            conversation_id=conversation_id
-        ) 
-
-
-
-    async def send_message_stream(self, message: MessageRequest, conversation_id: UUID) -> AsyncGenerator[str, None]:
-        """
-        Stream the message response back to the user, providing intermediate status updates.
+        Stream response back to user, providing intermerdiate status updates, and leveraging an Agentic workflow 
 
         Args:
             message (MessageRequest): users prompt 
@@ -130,68 +62,85 @@ class MessageService:
         Yields:
             str: SSE formatted event with intermediate status updates
         """
+
         try:
             # 1. Initialize 
-            yield self._format_sse_event(StreamEventType.STATUS, "Initializing conversation context...", "Initializing")
+            import time
+            start_time = time.perf_counter()
+            yield format_sse_event(StreamEventType.STATUS, "Initializing conversation context...", "Initializing")
             
             conversation = await self.conversation_svc.get_conversation(conversation_id)
             if not conversation:
-                yield self._format_sse_event(StreamEventType.ERROR, f"Conversation {conversation_id} not found", "Error")
+                yield format_sse_event(StreamEventType.ERROR, f"Conversation {conversation_id} not found", "Error")
                 return
 
             llm_manager = LLMManager(model_name=conversation.ll_model_name, provider=conversation.ll_model_provider)
             llm = llm_manager.get_llm()
 
+
             # 2. Generate Conversation Summary (if needed)
             if conversation.summary is None:
                 logger.info(f"Conversation {conversation_id} has no summary, generating one...")
-                yield self._format_sse_event(StreamEventType.STATUS, "Generating conversation summary...", "Summarizing")
+                yield format_sse_event(StreamEventType.STATUS, "Generating conversation summary...", "Summarizing")
                 await self.conversation_svc.create_conversation_summary(conversation, message.content, llm_manager)
 
+
             # 3. Retrieve Conversation History & Decompose Query If Needed
-            existing_messages = self.get_previous_k_messages(conversation)
-            if not existing_messages:
+            conversation_history = self.get_conversation_history_for_agent(conversation)
+            if not conversation_history:
                 logger.debug(f"No existing messages found for conversation {conversation_id}")
-            
-            yield self._format_sse_event(StreamEventType.STATUS, "Analyzing query and retrieving context...", "Retrieving")
-            decomposition_result = await llm.decompose_query(message.content, existing_messages)
-            logger.info(f"Decomposition Result for the Conversation={conversation_id}: {decomposition_result}")
-            
-            # 4. Prompt LLM and retrieve relevant context
-            yield self._format_sse_event(StreamEventType.STATUS, "Generating response...", "Generating")
-            logger.info(f"Starting LLM Stream for the Conversation={conversation_id}")
 
-            chunks, llm_response_stream = await self.query_svc.execute_query_stream(
-                query=message.content,
-                project_id=conversation.project_id,
-                llm_manager=llm_manager,
-                decomposition=decomposition_result,
-                existing_messages=existing_messages,
-                existing_tokens=conversation.total_tokens
+
+            # 4. Kick of Agentic Flow 
+            yield format_sse_event(StreamEventType.STATUS, "Executing Agentic Workflow...", "Executing")
+            response_stream = self.agent_svc.run_agent( 
+                llm,
+                message.content,
+                conversation_history,
+                conversation.project_id
             )
-            full_response = ""
-            async for token in llm_response_stream:
-                full_response += token
-                yield self._format_sse_event(StreamEventType.CHUNK, token)
-
-            # 5. Generate Mesage citations based on utilized chunks 
-            yield self._format_sse_event(StreamEventType.STATUS, "Generating citations...", "Citations")
-
-            citations = await self.citation_svc.generate_citations(chunks)
-            yield self._format_sse_event(StreamEventType.CITATION, citations)
-
-            # 6. Finalize and Persist
-            yield self._format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
             
+            full_response = ""
+            usage_data = {}
+            has_error = False
+            async for sse_event, raw_chunk in response_stream:
+                # extract usage data regarding tokens 
+                if sse_event == StreamEventType.TOKEN_USAGE and isinstance(raw_chunk, dict):
+                    usage_data = raw_chunk
+                    continue
+                
+                if isinstance(raw_chunk, str):
+                    full_response += raw_chunk
+                
+                # Only yield if it's a string (SSE event)
+                if isinstance(sse_event, str) and sse_event != StreamEventType.TOKEN_USAGE:
+                    yield sse_event
+                    # Check if the event is an error event by looking for the StreamEventType.ERROR value
+                    if f'"event":"{StreamEventType.ERROR.value}"' in sse_event.replace(" ", ""):
+                        has_error = True
+
+            # 5. Finalize and Persist
+            if not has_error:
+                yield format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
+            
+
+            # 6. Determine Token Usage via Agentic Workflow (i.e. Execution Cost Metrics)
+            agent_workflow_input_tokens = usage_data.get("input_tokens", 0)
+            agent_workflow_output_tokens = usage_data.get("output_tokens", 0)
+            agent_workflow_total_tokens = usage_data.get("total_tokens", 0)
+            logger.info(f"Token Usage for Conversation={conversation_id} and Message={message.content}: {usage_data}")
+
+            # 7. Determine User Input and Model Output Token Totals (actual message content)
             user_prompt_tokens, model_output_tokens, total_tokens = await self.calculate_token_totals(message.content, full_response, llm)
+
+            # 8. Persist Updates (Messages and Conversation Metadata)
             query_result_for_save = QueryResponse(
                 user_prompt=message.content,
                 model_response=full_response,
-                user_input_tokens=user_prompt_tokens,
-                model_output_tokens=model_output_tokens,
+                input_tokens=user_prompt_tokens,
+                output_tokens=model_output_tokens,
                 total_tokens=total_tokens
             )
-
             user_msg, model_msg = await self.save_messages(
                 query_result_for_save,
                 conversation_id,
@@ -199,44 +148,36 @@ class MessageService:
                 len(conversation.messages)
             )
 
-            await self.citation_svc.save_citations(citations, model_msg.id)
             await self.conversation_svc.update_total_tokens(conversation_id, total_tokens)
+            
+            # 9. Persist execution stats
+            execution_time_seconds = time.perf_counter() - start_time
+            await self.execution_token_usage_svc.create_usage_record(
+                conversation_id=conversation_id,
+                user_message_id=user_msg.id,
+                model_message_id=model_msg.id,
+                input_tokens=agent_workflow_input_tokens,
+                output_tokens=agent_workflow_output_tokens,
+                total_tokens=agent_workflow_total_tokens,
+                execution_time_seconds=execution_time_seconds
+            )
+            await self.conversation_svc.update_total_execution_tokens(conversation_id, agent_workflow_total_tokens)
 
-            # manually commit transaction (THIS IS REQUIRED FOR STREAMINGRESPONSE) 
             await self.db.commit() 
-            await self.db.refresh(user_msg)
-            await self.db.refresh(model_msg)
 
-            # 7. Final Metadata
-            yield self._format_sse_event(StreamEventType.METADATA, {
+
+            # 10. Final Metadata
+            yield format_sse_event(StreamEventType.METADATA, {
                 "user_message": self._get_message_dto(user_msg).model_dump(),
                 "model_message": self._get_message_dto(model_msg).model_dump(),
-                "conversation_id": str(conversation_id)
+                "conversation_id": str(conversation_id),
+                "execution_time_seconds": execution_time_seconds
             }, "Metadata")
 
         except Exception as e:
-            logger.error(f"Error in streaming message for conversation {conversation_id}: {str(e)}", exc_info=True)
-            yield self._format_sse_event(StreamEventType.ERROR, str(e), "Error")
-    
-
-
-    async def calculate_token_totals(self, user_prompt: str, model_output: str, llm: LLMBase) -> tuple[int, int, int]:
-        """
-        Calculate the token totals for the user prompt and model output.
-        """
-        user_prompt_tokens = len(await llm.tokenize(user_prompt))
-        model_output_tokens = len(await llm.tokenize(model_output))
-        total_tokens = user_prompt_tokens + model_output_tokens
-        return user_prompt_tokens, model_output_tokens, total_tokens
-    
-    def _format_sse_event(self, event_type: StreamEventType, data: Any, description: str | None = None) -> str:
-        """
-        Format a single SSE event string.
-        """
-        event = StreamEvent(event=event_type, data=data, description=description)
-        # follow SSE standard (data: <json>\n\n)
-        return f"data: {event.model_dump_json()}\n\n"
-
+            logger.error(f"Error in agentic streaming for conversation {conversation_id}: {str(e)}", exc_info=True)
+            yield format_sse_event(StreamEventType.ERROR, str(e), "Error")
+            
     
     def _get_message_dto(self, message: Message) -> MessageDto:
         return MessageDto(
@@ -248,6 +189,17 @@ class MessageService:
             created_at=message.created_at,
             updated_at=message.updated_at
         )
+
+    
+
+    async def calculate_token_totals(self, user_prompt: str, model_output: str, llm: LLMBase) -> tuple[int, int, int]:
+        """
+        Calculate the token totals for the user prompt and model output.
+        """
+        user_prompt_tokens = len(await llm.tokenize(user_prompt))
+        model_output_tokens = len(await llm.tokenize(model_output))
+        total_tokens = user_prompt_tokens + model_output_tokens
+        return user_prompt_tokens, model_output_tokens, total_tokens
 
         
     async def save_messages(
@@ -276,7 +228,7 @@ class MessageService:
             sender=Sender.USER,
             sequence_number=user_sequence_number,
             content_type=message_content_type,
-            token_count=query_result.user_input_tokens,
+            token_count=query_result.input_tokens,
             conversation_id=conversation_id
         )
         model_msg = await self.save_message(
@@ -284,7 +236,7 @@ class MessageService:
             sender=Sender.MODEL,
             sequence_number=model_sequence_number,
             content_type="text", # TODO: Use enum and account for potential types 
-            token_count=query_result.model_output_tokens,
+            token_count=query_result.output_tokens,
             conversation_id=conversation_id
         )
 
@@ -326,11 +278,29 @@ class MessageService:
         await self.db.flush()
 
         return msg_to_save
-
     
-    def get_previous_k_messages(self, conversation: Conversation, k: int = 10) -> str:
+
+    def get_conversation_history_for_agent(self, conversation: Conversation) -> list[ChatMessage]:
         """
         Functionality to retrieve the last k messages for a specific Conversation
+
+        TODO: This is a fairly simplified version this function, in the long run, we should 
+        likely look to summarize old messages in order to avoid excessive token usage 
+        """
+
+        return [ChatMessage(content=msg.content, role=MessageRole.USER if msg.sender == Sender.USER else MessageRole.ASSISTANT) for msg in conversation.messages]
+        
+
+    
+    def get_conversation_history(self, conversation: Conversation, k: int = 1000) -> str:
+        """
+        Functionality to retrieve the last k messages for a specific Conversation
+
+        TODO: As of now, we will account for all messages in order to ensure that the token 
+        calculations we are performing are working as expected, but we should come back to this 
+        and update K to be a fixed number, and if its exceeded, we should leverage 
+        the compress_old_messages method to compress the oldest messages into a summary (
+        and then account for this in the token total for the conversation)
 
         TODO: Account for differnet content types 
 
@@ -344,7 +314,13 @@ class MessageService:
         if not messages:
             return ""
 
+        # TODO: Complete me!
+        # if len(messages) > k:
+        #     summary = self.compress_old_messages(messages)
+
         # retrieve converastion history and filter out older messages 
+        # TODO: This is incorrect atm, this should be taking most recent messages instead of oldest 
+        # so this should be max heap (or we should just simply sort instead)
         min_heap  = [] 
         for message in messages:
             heapq.heappush(
@@ -360,8 +336,19 @@ class MessageService:
 
         # transform into a string 
         return "\n".join(k_messages)
+    
 
+    def compress_old_messages(self, messages: list[Message]) -> str:
+        """
+        TODO:
+            1) Update conversation to have a running history attribute 
+            2) Update LLM to have a compress_messages method 
+            3) Call this method when the number of messages exceeds our threshold 
+            4) Re-evaluate how we are calculating token totals for conversations
+        """
 
+        return ""
+        
     
 
         

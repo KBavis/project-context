@@ -20,9 +20,11 @@ class DocstoreChunk(Base):
     @property
     def node_text(self) -> str | None:
         """Helper to access nested text content"""
-        return self.value.get("__data__", {}).get("text")
+        data = self.value.get("__data__", self.value)
+        return data.get("text")
 
     @property
     def node_metadata(self) -> dict:
         """Helper to access nested metadata"""
-        return self.value.get("__data__", {}).get("metadata", {})
+        data = self.value.get("__data__", self.value)
+        return data.get("metadata", {})

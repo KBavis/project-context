@@ -6,12 +6,13 @@ from app.services import (
     ProjectService, 
     FileService,
     RecordLockService, 
-    QueryService, 
     ConversationService,
     MessageService,
-    CitationService,
+    ExecutionTokenUsageService,
     ChunkRetrievalService,
-    ChunkInsertionService
+    ChunkInsertionService,
+    MCPService,
+    AgentService
 )
 
 from app.core import (
@@ -74,9 +75,9 @@ def get_project_svc(
     return ProjectService(db=db, chroma_svc=chroma_svc)
 
 
-
 def get_data_source_svc(
-        db: Session = Depends(get_sync_db_session)
+        db: Session = Depends(get_sync_db_session),
+        async_db: AsyncSession = Depends(get_async_db_session)
 ):
     """
     Setup DataSourceService dependency
@@ -85,8 +86,21 @@ def get_data_source_svc(
         db (Session): current DB session
     """
     
-    return DataSourceService(db=db)
+    return DataSourceService(db=db, async_db=async_db)
 
+
+def get_mcp_svc(
+        db: Session = Depends(get_sync_db_session),
+        async_db: AsyncSession = Depends(get_async_db_session)
+):
+    """
+    Setup MCPService dependency
+
+    Args:
+        db (Session): current DB session
+    """
+    
+    return MCPService(db=db, async_db=async_db)
 
 
 
@@ -133,20 +147,29 @@ def get_async_chunk_retrieval_svc(
     """
     return ChunkRetrievalService(db=db, chroma_svc=chroma_svc, data_source_svc=data_source_svc)
 
-def get_async_query_svc(
-        db: AsyncSession = Depends(get_async_db_session),
-        chunk_retrieval_svc: ChunkRetrievalService = Depends(get_async_chunk_retrieval_svc)
+
+
+def get_async_agent_svc(
+    db: AsyncSession = Depends(get_async_db_session),
+    mcp_svc: MCPService = Depends(get_mcp_svc),
+    data_source_svc: DataSourceService = Depends(get_data_source_svc),
+    chunk_retrieval_svc: ChunkRetrievalService = Depends(get_async_chunk_retrieval_svc)
 ):
     """
-    Setup async QueryService dependency 
+    Setup async AgentService dependency
 
     Args:
         db (AsyncSession): async DB session
+        mcp_svc (MCPService): async mcp service dependency
+        data_source_svc (DataSourceService): async data source service dependency
+        chunk_retrieval_svc (ChunkRetrievalService): async chunk retrieval service dependency
     """
-
-    return QueryService(db=db, chunk_retrieval_svc=chunk_retrieval_svc)
-
-
+    return AgentService(
+        db=db, 
+        mcp_svc=mcp_svc, 
+        data_source_svc=data_source_svc,
+        chunk_retrieval_svc=chunk_retrieval_svc
+    )
 
 def get_async_record_lock_svc():
     """
@@ -195,27 +218,24 @@ def get_async_conversation_svc(
 
     return ConversationService(db=db)
 
-
-def get_async_citation_svc(
-        db: AsyncSession = Depends(get_async_db_session),
-        file_svc: FileService = Depends(get_async_file_svc)
+def get_async_execution_token_usage_svc(
+    db: AsyncSession = Depends(get_async_db_session)
 ):
     """
-    Setup async CitationService dependency 
+    Setup async ExecutionTokenUsageService dependency 
 
-    Args:
+    Args:   
         db (AsyncSession): async DB session
-        file_svc (FileService): async file service dependency
     """
 
-    return CitationService(db=db, file_svc=file_svc)
+    return ExecutionTokenUsageService(db=db)
 
 
 def get_async_message_svc(
         db: AsyncSession = Depends(get_async_db_session),
         conversation_svc: ConversationService = Depends(get_async_conversation_svc),
-        query_svc: QueryService = Depends(get_async_query_svc),
-        citation_svc: CitationService = Depends(get_async_citation_svc)
+        agent_svc: AgentService = Depends(get_async_agent_svc),
+        execution_token_usage_svc: ExecutionTokenUsageService = Depends(get_async_execution_token_usage_svc)
 ):
     """
     Setup async MessageService dependency 
@@ -223,8 +243,8 @@ def get_async_message_svc(
     Args:
         db (AsyncSession): async DB session
         conversation_svc (ConversationService): async conversation service dependency
-        query_svc (QueryService): async query service dependency
-        citation_svc (CitationService): async citation service dependency
+        agent_svc (AgentService): async agent service dependency
+        execution_token_usage_svc (ExecutionTokenUsageService): async execution token usage service dependency
     """
 
-    return MessageService(db=db, conversation_svc=conversation_svc, query_svc=query_svc, citation_svc=citation_svc)
+    return MessageService(db=db, conversation_svc=conversation_svc, agent_svc=agent_svc, execution_token_usage_svc=execution_token_usage_svc)

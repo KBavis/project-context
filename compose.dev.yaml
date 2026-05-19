@@ -11,6 +11,7 @@ services:
       - "5678:5678"
     volumes:
       - ./apps/backend:/app
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - db
       - chromadb

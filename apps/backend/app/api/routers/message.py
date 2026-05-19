@@ -9,33 +9,8 @@ from app.api.svc_deps import get_async_message_svc
 
 router = APIRouter(prefix="/message")
 
-
-@router.post("/{conversation_id}", summary="Send a new message to a conversation with LLM regarding a project")
-async def send_message_sync(
-    conversation_id: UUID,
-    message: MessageRequest,
-    message_svc: MessageService = Depends(get_async_message_svc)
-):
-    """
-    Send a new message to a conversation with LLM regarding a project
-
-    Args:
-        message (MessageRequest): content of user sent Message
-        db (AsyncSession): database session 
-    """
-
-    try: 
-        response: PromptResponse = await message_svc.sync_send_message(message, conversation_id)
-        return response
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"{str(e)}"
-        )
-    
-@router.post("/{conversation_id}/stream", summary="Send a new message to a conversation and stream the response back via SSE")
-async def send_message_stream(
+@router.post("/{conversation_id}/agentic", summary="Send a new message to a conversation and stream the response back via SSE")
+async def send_message_agentic_stream(
     conversation_id: UUID,
     message: MessageRequest,
     message_svc: MessageService = Depends(get_async_message_svc)
@@ -44,7 +19,7 @@ async def send_message_stream(
     Send a new message to a conversation and stream the response back via SSE.
     """
     return StreamingResponse(
-        message_svc.send_message_stream(message, conversation_id),
+        message_svc.agentic_send_message_stream(message, conversation_id),
         media_type="text/event-stream"
     )
 

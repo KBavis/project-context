@@ -75,8 +75,6 @@ class FileService:
             await self.chroma_svc.adelete_nodes_associated_with_files([persisted_file.id])
             await self.remove_chunks_from_docstore([persisted_file.id])
 
-            # TODO: Delete these Nodes from Postgres Doc Store as well 
-
 
         # Step 6. Return status back to calling function
         return status
@@ -315,7 +313,7 @@ class FileService:
         )
 
         res = await session.execute(stmt)
-        return res.scalars().all()
+        return list(res.scalars().all())
 
     
     async def get_file_by_path_and_data_source(self, path: str, data_source_id: UUID) -> File | None: 

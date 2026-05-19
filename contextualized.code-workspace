@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"name": "Project Root",
+			"path": "."
+		},
+		{
+			"name": "Backend",
+			"path": "apps/backend"
+		},
+		{
+			"name": "Frontend",
+			"path": "apps/frontend"
+		}
+	],
+	"settings": {
+		"python.languageServer": "None"
+	}
+}

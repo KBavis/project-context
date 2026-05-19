@@ -47,25 +47,8 @@ export function ConversationProvider({ children }) {
                 return;
             }
             try {
-                const [messagesData, citationsData] = await Promise.all([
-                    api.messages.list(selectedConversation.id),
-                    api.citations.list(selectedConversation.id),
-                ]);
-
-                // Group citations by message_id for O(1) lookup
-                const citationsByMessage = citationsData.reduce((acc, citation) => {
-                    if (!acc[citation.message_id]) acc[citation.message_id] = [];
-                    acc[citation.message_id].push(citation);
-                    return acc;
-                }, {});
-
-                // Attach citations to their respective messages
-                const messagesWithCitations = messagesData.map(msg => ({
-                    ...msg,
-                    citations: citationsByMessage[msg.id] ?? [],
-                }));
-
-                setMessages(messagesWithCitations);
+                const messagesData = await api.messages.list(selectedConversation.id);
+                setMessages(messagesData);
             } catch (err) {
                 console.error('Failed to load messages:', err);
             }

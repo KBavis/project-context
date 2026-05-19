@@ -1,6 +1,4 @@
 from __future__ import annotations
-from sqlalchemy.ext.asyncio import AsyncSession
-from sentence_transformers import CrossEncoder
 
 from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core.schema import NodeWithScore
@@ -11,18 +9,23 @@ from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
 from llama_index.storage.docstore.postgres import PostgresDocumentStore
 from llama_index.storage.kvstore.postgres import PostgresKVStore
+from llama_index.core.vector_stores import MetadataFilter, MetadataFilters, FilterOperator
 
+from app.llm import LLMBase
 from app.services.chroma import ChromaService
 from app.services.data_source import DataSourceService
-from app.core import DOCS, CODE, settings
+from app.core import settings
 from app.models.collection import ChromaCollection
-
 from app.embeddings import EmbeddingManager
+from app.models.docstore_chunk import DocstoreChunk
+
+from sqlalchemy import select, or_
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import logging
-from typing import Any
+from typing import Optional
 from uuid import UUID
-import asyncio
+
 
 logger = logging.getLogger(__name__)
 
@@ -38,167 +41,157 @@ class ChunkRetrievalService:
         self.data_source_svc: DataSourceService = data_source_svc
 
 
-
-    async def retrieve_chunks_by_decomposition(
+    async def grep_search(
         self, 
-        decomposition: dict[str, Any], 
+        key_word: str,
         project_id: UUID,
-        original_query: str,
-        llm: Any | None = None
-    ) -> list["NodeWithScore"]:
+        k: int = 10,
+        data_source_ids: Optional[list[str]] = None
+    ):
         """
-        Retrieve chunks by the decompositon of the User's Query 
+        Functionality to retrieve ingested Documentation / Code chunks based on _exeact_ variable names, function
+        defintiions, or error codes. This functionality WILL NOT be leveraging any semantic meaning, it will only be 
+        searching for raw chunks that could help provide context to the Agent 
 
         Args:
-            decomposition (dict[str, Any]): The decomposition of the User's Query
-            project_id (UUID): The project the query corresponds to
-            original_query (str): The original query the user passed in
-
-        Returns:
-            list["NodeWithScore"]: The chunks retrieved by the decomposition
+            key_word (str): the exact text string to search for
+            project_id (UUID): the project the search corresponds to
+            k (int): the number of chunks to retrieve --> default is 10 chunks
+            data_source_ids (Optional[list[str]]): optional list of data source IDs to limit the search to
         """
 
-        if not decomposition['requires_retrieval']:
+        try:
+            # 1. Resolve Data Source IDs (if none provided, search the whole project)
+            if not data_source_ids:
+                data_source_ids = await self._get_data_source_ids_by_project(project_id)
+                
+            logger.info(f"Performing grep search for '{key_word}' in Data Sources: {data_source_ids}")
+
+            # 2. Build and execute the SQLAlchemy query 
+            stmt = (
+                select(DocstoreChunk)
+                .where(DocstoreChunk.namespace.in_([f"{str(id)}/data" for id in data_source_ids]))
+                .where(
+                    or_(
+                        DocstoreChunk.value['__data__']['text'].astext.op('~*')(key_word),
+                        DocstoreChunk.value['text'].astext.op('~*')(key_word)
+                    )
+                )
+                .limit(k)
+            )
+            result = await self.db.execute(stmt)
+            docstore_chunks = result.scalars().all()
+            if not docstore_chunks:
+                logger.warning(f"No chunks retrieved for Keyword={key_word}, Project={project_id}, Data Sources={data_source_ids}")
+
+            # 3. Format the chunks for the LLM
+            formatted_chunks = []
+            for chunk in docstore_chunks:
+                data_source = chunk.node_metadata.get('data_source_id', 'Unknown Data Source ID')
+                file_path = chunk.node_metadata.get('file_path', 'Unknown File Path')
+                text_content = chunk.node_text
+                
+                formatted_chunks.append(f"Data Source:{data_source}\nFile Path:{file_path}\nContent:\n{text_content}")
+                
+            return formatted_chunks
+        except Exception as e:
+            logger.error(f"Error performing grep search for keyword={key_word}, project_id={project_id}, data_source_ids={data_source_ids}", e)
             return []
 
-        # retrieve all chunks for each query (decomposition of users original query)
-        all_chunks: list["NodeWithScore"] = []
-
-        for item in decomposition['queries']:
-            logger.info(f"Retrieving chunks for query: {item['query']}")
-            
-            query_chunks = await self.get_relevant_chunks(
-                query=item['query'], 
-                project_id=project_id,
-                llm=llm
-            )
-
-            logger.info(f"Retrieved {len(query_chunks)} chunks for sub-query")
-            all_chunks.extend(query_chunks)
-        
-
-        logger.debug(f"Chunks retrieved based on decomposition:\n\t{all_chunks}")
-            
-
-        # deduplicate chunks 
-        deduplicated_chunks = await self.deduplicate_chunks_by_type(all_chunks)
-
-        # rank chunks 
-        ranked_chunks = await self.get_rankings(
-                chunks=deduplicated_chunks,
-                query=original_query,
-                top_k=5 # TODO: Make this a configuration 
-            )
-
-        # return ranked chunks 
-        return ranked_chunks
-
-
-    async def get_relevant_chunks(
-        self, 
-        query: str, 
-        project_id: UUID,
-        llm: Any | None = None
-    ) -> list["NodeWithScore"]: 
+    async def retrieve_sequential_chunks(self, file_path: str, data_source_id: UUID) -> str:
         """
-        Retrieve relevant code and documentation chunks from Chroma based on the query and project ID.
+        Retrieve all chunks for a given file_path, ordered by their sequence index in the DocStore.
+        This allows viewing the text content of documents (like PDFs) without downloading the raw binary.
+        """
+        try:
+            db_namespace = f"{str(data_source_id)}/data"
+            logger.info(f"Retrieving sequential chunks for file='{file_path}' in DocStore namespace='{db_namespace}'")
+            
+            stmt = (
+                select(DocstoreChunk)
+                .where(DocstoreChunk.namespace == db_namespace)
+                .where(
+                    or_(
+                        DocstoreChunk.value['__data__']['metadata']['file_path'].astext == file_path,
+                        DocstoreChunk.value['metadata']['file_path'].astext == file_path
+                    )
+                )
+            )
+            result = await self.db.execute(stmt)
+            chunks = result.scalars().all()
+            
+            if not chunks:
+                logger.warning(f"No chunks found in DocStore for file path '{file_path}' under namespace '{db_namespace}'")
+                return f"No chunks found in DocStore for file path: {file_path}"
+
+            # Sort chunks by their original index (suffix of the key/id_ e.g., 'file_id_hash_idx')
+            def get_chunk_idx(c: DocstoreChunk) -> int:
+                try:
+                    parts = c.key.split('_')
+                    return int(parts[-1])
+                except Exception:
+                    return 0
+
+            sorted_chunks = sorted(chunks, key=get_chunk_idx)
+            logger.info(f"Retrieved and sorted {len(sorted_chunks)} chunks for file '{file_path}'")
+            
+            # Combine the chunk text contents
+            reconstructed_text = []
+            for chunk in sorted_chunks:
+                text = chunk.node_text
+                if text:
+                    reconstructed_text.append(text)
+            
+            return "\n\n--- Chunk Divider ---\n\n".join(reconstructed_text)
+            
+        except Exception as e:
+            logger.error(f"Error retrieving sequential chunks for file={file_path}", exc_info=True)
+            return f"Error retrieving sequential chunks from DocStore: {str(e)}"
+
+    async def semantic_search(
+        self, 
+        query: str,
+        project_id: UUID,
+        llm: LLMBase,
+        k: int = 10,
+        data_source_ids: Optional[list[str]] = None
+    ):
+        """
+        Functionality to retrieve ingested Documentation / Code based on a) semantic reasoning (from vector's stored
+        in ChromaDB), b) key word search (BM25)
 
         Args:
-            query (str): user passed in query 
-            project_id (UUID): the project the query corresponds to 
+            query (str): query to retrieve chunks for 
+            project_id (UUID): the project to retrieve chunks for 
+            llm (LLMBase): the LLM associated with the Conversation 
+            k (int): the number of chunks to retrieve --> default is 10 chunks
+            data_source_ids (Optional[list[str]]): optional list of data source IDs to limit the search to
         """
-
+        logger.info(f"Performing semantic search for Query={query}, Project={project_id}, Data Sources={data_source_ids}")
 
         # retreive relevant Chroma Collections corresponding to Project 
         collection = self.chroma_svc.get_collection_by_project(project_id)
         if not collection:
             raise Exception(f"No ingested data found for Project ID: {project_id}")
         
-        # Create embedding manager with project_id for caching
+        # retreive cached embedding model
         embedding_manager = EmbeddingManager(collection, project_id=project_id)
-
-        # load required embeddin models (with caching)
-        embedding_docs = await embedding_manager.aget_embedding_model_cached()
-
-        chunks = await self._get_chunks(query, collection, embedding_docs, llm)
-
-        return chunks
-
-
-    async def deduplicate_chunks_by_type(
-        self, 
-        chunks: list["NodeWithScore"]
-    ) -> list["NodeWithScore"]:
-        """
-        Deduplicate chunks based on their content.
-
-        Args:
-            chunks (list["NodeWithScore"]): The chunks to deduplicate
-        """
-
-        # deduplicate doc chunks 
-        unique_chunk_ids = set()
-        unique_chunks = []
-
-        for curr_chunk in chunks:
-            if curr_chunk.id_ not in unique_chunk_ids:
-                logger.debug(f"Deduplicated chunk: {curr_chunk.id_}")
-                unique_chunk_ids.add(curr_chunk.id_)
-                unique_chunks.append(curr_chunk)
-            else:
-                logger.debug(f"Duplicate chunk: {curr_chunk.id_}")
+        embedding = await embedding_manager.aget_embedding_model_cached()
         
-        return unique_chunks
-    
+        # retrieve chunks based on query        
+        chunks = await self._get_chunks(query, collection, embedding, llm, k, data_source_ids)
+        if not chunks:
+            logger.warning(f"No chunks retrieved for Query={query}, Project={project_id}, Data Sources={data_source_ids}")
 
-    async def get_rankings(self, chunks: list["NodeWithScore"], query: str, top_k: int = 5) -> list["NodeWithScore"]:
-        """
-        Rank code and documentation chunks based on relevance to query 
+        # format chunks (data source ID: chunk content) 
+        formatted_chunks = []
+        for chunk in chunks:
+            data_source = chunk.node.metadata.get('data_source_id', "Unknown Data Source ID")
+            file_path = chunk.node.metadata.get('file_path', "Unknown File Path")
+            text_content = chunk.node.get_content()
+            formatted_chunks.append(f"Data Source:{data_source}\nFile Path:{file_path}\nContent:\n{text_content}")
 
-        Args:
-            chunks (list["NodeWithScore"]): The chunks to rank.
-            query (str): The query to rank chunks against.
-            top_k (int): The number of chunks to return.
-        """
-
-        logger.debug(f"Ranking top {top_k} chunks for query: {query}")
-
-        # initialize cross encoder model 
-        cross_encoder = await asyncio.to_thread(self._get_cross_encoder, settings.CROSS_ENCODING_MODEL)
-
-        # construct pairs for cross encoder scoring
-        pairs = [[query, chunk.get_content()] for chunk in chunks]
-
-        # score & sort pairs 
-        scores = cross_encoder.predict(pairs)
-        scored_nodes = list(zip(chunks, scores))
-        scored_nodes.sort(key=lambda x: x[1], reverse=True)
-
-        # log re-ranked nodes for debugging
-        logger.debug(f"Top ranked chunks after re-ranking: \n")
-        for i, chunk in enumerate(scored_nodes):
-            logger.debug(f"\tRanked Chunk {i+1}: Score={chunk[1]}, Text={chunk[0].node.get_content()}")
-
-        return [node for node, _ in scored_nodes[:top_k]]
-
-
-    def _get_cross_encoder(self, model_name: str) -> CrossEncoder:
-        """
-        Retrieve CrossEncoder configured in configurations in a seperate worker thread 
-        in order to no block main thread with long I/O process
-
-        TODO: Cache this model for performance gains 
-
-        Args:
-            modeL_name (str): the name of the cross encoding model 
-        """
-        try:
-
-            return CrossEncoder(model_name)
-        
-        except Exception as e:
-            logger.error(f"Failure occurred while downloading the following CrossEncoder: {model_name}", exc_info=True) 
-            raise e
+        return formatted_chunks
 
 
     async def _get_chunks(
@@ -206,7 +199,9 @@ class ChunkRetrievalService:
         query: str, 
         collection: ChromaCollection, 
         embedding: BaseEmbedding,
-        llm: Any | None = None
+        llm: LLMBase,
+        k: int,
+        data_source_ids: Optional[list[str]] = None
     ) -> list["NodeWithScore"]:
         """
         Retrieve chunks directly from ChromaDB based on the query and specified collection
@@ -215,34 +210,51 @@ class ChunkRetrievalService:
             query (str): user passed in query
             collection (ChromaCollection): the Chroma collection to query against
             embedding: the LlamaIndex embedding model to use for querying
+            llm (LLMBase): the LLM associated with the Conversation
+            k (int): the number of chunks to retrieve --> default is 10 chunks
+            data_source_ids (Optional[list[str]]): optional list of data source IDs to limit the search to
         """
+
+        try:
         
-        # configure the retrievers
-        chroma_retriever = await self.get_chroma_retreiver(collection, embedding)
-        bm25_retriever = await self.get_bm25_retriever(collection)
+            # configure the retrievers
+            chroma_retriever = await self._get_chroma_retreiver(collection, embedding, k, data_source_ids)
+            bm25_retriever = await self._get_bm25_retriever(collection, k, data_source_ids)
 
-        # configure the fusion retriever (hybrid cordinator for both seamtnic and direct comparisons)
-        fusion_retriever = QueryFusionRetriever(
-            [chroma_retriever, bm25_retriever], 
-            similarity_top_k=5,
-            num_queries=3, # TODO: Determine if this is needed
-            mode=FUSION_MODES.RECIPROCAL_RANK,
-            use_async=True,
-            llm=llm
-        )
+            # configure the fusion retriever (hybrid cordinator for both seamtnic and direct comparisons)
+            fusion_retriever = QueryFusionRetriever(
+                [chroma_retriever, bm25_retriever], 
+                similarity_top_k=k,
+                num_queries=1,
+                mode=FUSION_MODES.RECIPROCAL_RANK,
+                use_async=True,
+                llm=llm.get_llama_idx_instance()
+            )
 
-        nodes = await fusion_retriever.aretrieve(query)
+            nodes = await fusion_retriever.aretrieve(query)
+            return nodes 
+        
+        except Exception as e:
+            logger.error(f"Exception occurred while attempting to recieve Chunks for Query={query}, Data Sources={data_source_ids}, and LLM={llm.provider}/{llm.model_name}", e)
+            return []
+            
 
-        return nodes 
 
 
-    async def get_bm25_retriever(self, collection: ChromaCollection) -> BaseRetriever:
+    async def _get_bm25_retriever(
+        self, 
+        collection: ChromaCollection, 
+        k: int,
+        data_source_id_filter: Optional[list[str]] = None
+    ) -> BaseRetriever:
         """
         Configure BM25 Retriever for Hybrid Search functionality based on all 
         nodes assocaited with Project in Postgres KV Store 
 
         Args:
             collection (ChromaCollection): the Chroma collection to retrieve retriever from
+            k (int): the number of chunks to retrieve
+            data_source_ids (list): optional list of data source's to filter search by (if not provided, all will be used)
         """
 
         # configure Postgres KV Store
@@ -255,9 +267,11 @@ class ChunkRetrievalService:
             perform_setup=True
         )
 
-        # retrieve all nodes associated with the project (PLAIN TEXT)
+        # retrieve all nodes associated with Project or filtered Data Source IDs
         all_nodes = []
-        data_source_ids = await self.get_data_source_ids_by_project(collection.project_id)
+        data_source_ids = await self._get_data_source_ids_by_project(collection.project_id) if not data_source_id_filter else data_source_id_filter
+        logger.info(f"Filtering BM25 Retreiver based on Data Source IDs: {data_source_ids}")
+
         for id in data_source_ids:
             doc_store = PostgresDocumentStore(
                 kv_store, 
@@ -269,29 +283,47 @@ class ChunkRetrievalService:
         # configure BM25 retreiver based on all nodes 
         return BM25Retriever.from_defaults(
             nodes=all_nodes,
-            similarity_top_k=5
+            similarity_top_k=k
         )
         
 
-    async def get_chroma_retreiver(self, collection: ChromaCollection, embedding: BaseEmbedding) -> BaseRetriever:
+    async def _get_chroma_retreiver(self, collection: ChromaCollection, embedding: BaseEmbedding, k: int, data_source_ids: Optional[list[str]] = None) -> BaseRetriever:
         """
         Get retriever associated with relevant Chroma Collection 
 
         Args:
             collection (ChromaCollection): the Chroma collection to retrieve retriever from
             embedding (BaseEmbedding): the LlamaIndex embedding model to use for querying
+            k (int): the number of chunks to retrieve
+            data_source_ids (Optional[list[str]]): optional list of data source's to filter search by (if not provided, all will be used)
         """
 
         # get actual Chroma Collection 
         chroma_collection = self.chroma_svc.get_real_chroma_collection(collection_name=collection.name)
 
+        # configure filter (if needed)
+        filters = None 
+        if data_source_ids:
+            logger.info(f"Filtering ChromaRetriever based on selected Data Source IDs: {data_source_ids}")
+
+            filters = MetadataFilters(
+                filters=[
+                    MetadataFilter(
+                        key="data_source_id",
+                        value=data_source_ids,
+                        operator=FilterOperator.IN
+                    )
+                ]
+            )
+
         # configure LlamaIndex retriever from Chroma collection 
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
         index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embedding) # pass embed_model explicitly to avoid race conditions with global Settings
-        return index.as_retriever(similarity_top_k=5) # TODO: Make this configurable 
+        
+        return index.as_retriever(similarity_top_k=k, filters=filters) if filters else index.as_retriever(similarity_top_k=k)
         
 
-    async def get_data_source_ids_by_project(self, project_id: UUID) -> list[object]:
+    async def _get_data_source_ids_by_project(self, project_id: UUID) -> list[str]:
         """
         Get all data source IDs for a given project.
 
@@ -299,7 +331,6 @@ class ChunkRetrievalService:
             project_id (UUID): The project ID.
         """
 
-        data_sources = self.data_source_svc.get_project_data_sources(project_id)
-        data_source_ids = [data_source['id'] for data_source in data_sources]
+        data_sources = await self.data_source_svc.aget_project_data_sources(project_id)
+        data_source_ids = [str(data_source.id) for data_source in data_sources]
         return data_source_ids
-

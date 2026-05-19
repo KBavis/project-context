@@ -1,6 +1,6 @@
 from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import CodeSplitter
@@ -222,7 +222,7 @@ class ChunkInsertionService:
             return {
                 "chunk_idx": f"{get_normalized_project_name(project)}_{uuid4()}",
                 "source": origin_file,
-                "file_path": file_path,
+                "file_path": cleaned_file_path,  # use cleaned repo-relative path, not raw temp path
                 "mimetype": mimetype,
                 "headings": " > ".join(headings) if headings else "No Headings",
                 "document_hash": document_hash,
@@ -232,6 +232,7 @@ class ChunkInsertionService:
                 "file_hash": str(file.hash),
                 "ref_doc_id": str(file.id),
                 "doc_id": str(file.id),
+                "data_source_id": str(data_source_id),
             }
 
     async def chunk_code(
@@ -276,9 +277,11 @@ class ChunkInsertionService:
                     doc.id_ = str(file.id)
 
                     # add meta data for file ID 
+                    doc.metadata["file_path"] = file_path  # overwrite temp path with cleaned repo-relative path
                     doc.metadata["file_id"] = str(file.id)
                     doc.metadata["file_hash"] = str(file.hash)
                     doc.metadata['source_type'] = CODE
+                    doc.metadata['data_source_id'] = str(data_source.id)
 
                     # get file extension and determine file type
                     ext = Path(doc.metadata["file_name"]).suffix.lower().lstrip(".")
@@ -554,7 +557,12 @@ class ChunkInsertionService:
         # retrieve chunks that are tied to this data source
         stmt = (
             select(DocstoreChunk)
-            .where(DocstoreChunk.value['__data__']['metadata']['file_id'].astext.in_([str(file_id) for file_id in file_ids]))
+            .where(
+                or_(
+                    DocstoreChunk.value['__data__']['metadata']['file_id'].astext.in_([str(file_id) for file_id in file_ids]),
+                    DocstoreChunk.value['metadata']['file_id'].astext.in_([str(file_id) for file_id in file_ids])
+                )
+            )
         )
         res = await self.db.execute(stmt)
         doc_store_chunks = res.scalars().all()

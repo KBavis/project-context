@@ -190,6 +190,7 @@ def setup_logging():
         "httpcore.connection",
         "chromadb.config",
         "fsspec.local",
-        "llama_index.core.readers.file.base"
+        "llama_index.core.readers.file.base",
+        "openai._base_client" # NOTE: Remove me if we want to see exactly what requests we're making during Agentic Workflow
     ]:
         logging.getLogger(noisy).setLevel(logging.WARNING)

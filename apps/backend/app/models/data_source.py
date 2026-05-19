@@ -2,14 +2,22 @@ from __future__ import annotations
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import List, TYPE_CHECKING
-from sqlalchemy import text
+from sqlalchemy import text, ForeignKey, Enum as SQLEnum
 from uuid import UUID
+from enum import Enum
 
 # avoid warning
 if TYPE_CHECKING:
     from .ingestion_job import IngestionJob
     from .project_data import ProjectData
     from .file import File
+    from .mcp_config import MCPConfig
+    from .data_source_mcp import DataSourceMCPConfig
+
+
+class DataSourceType(str, Enum):
+    REPOSITORY = "REPOSITORY"
+    DOCUMENTATION = "DOCUMENTATION"
 
 
 class DataSource(Base):
@@ -35,6 +43,18 @@ class DataSource(Base):
         nullable=True,
         comment="Branch of the data source (i.e main, master, etc) if one is applicable",
     )
+
+    type: Mapped["DataSourceType"] = mapped_column(
+        SQLEnum(DataSourceType),
+        nullable=False,
+        comment="Type of data source",
+    )
+
+
+    # many to many relationship with MCPConfig
+    data_source_mcp_configs: Mapped[List["DataSourceMCPConfig"]] = relationship(
+        back_populates="data_source", cascade="all, delete-orphan"
+    ) 
 
     # one to many relationship with IngestionJob
     ingestion_jobs: Mapped[List["IngestionJob"]] = relationship(
