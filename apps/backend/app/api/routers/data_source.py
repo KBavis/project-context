@@ -61,3 +61,20 @@ def get_project_data_sources(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
         )
+
+
+@router.post("/{data_source_id}/mcp/configs/{mcp_config_id}", summary="Associate MCP configuration with data source")
+def link_mcp_config(
+    data_source_id: UUID,
+    mcp_config_id: UUID,
+    svc: DataSourceService = Depends(get_data_source_svc)
+):
+    """
+    Associate an existing MCP Configuration with a Data Source
+    """
+    try:
+        return svc.link_mcp_config_to_data_source(data_source_id, mcp_config_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
+        )

@@ -187,3 +187,50 @@ class DataSourceService:
             raise Exception(
                 f"Invalid provider specified when attempting to create Data Source. Valid Providers: {settings.VALID_DATA_PROVIDERS}"
             )
+
+    def link_mcp_config_to_data_source(self, data_source_id: UUID, mcp_config_id: UUID) -> dict[str, Any]:
+        """
+        Link an existing MCP Config to this DataSource
+        """
+        from app.models.data_source_mcp import DataSourceMCPConfig
+        from app.models.mcp_config import MCPConfig
+
+        try:
+            # check if relationship already exists
+            stmt = select(DataSourceMCPConfig).where(
+                DataSourceMCPConfig.data_source_id == data_source_id,
+                DataSourceMCPConfig.mcp_config_id == mcp_config_id
+            )
+            existing = self.db.execute(stmt).scalar_one_or_none()
+            
+            if existing:
+                return {"message": "MCP config is already linked to this data source", "status": "already_linked"}
+
+            # verify that both elements exist
+            ds_stmt = select(DataSource).where(DataSource.id == data_source_id)
+            ds = self.db.execute(ds_stmt).scalar_one_or_none()
+            if not ds:
+                raise Exception(f"Data source {data_source_id} not found")
+
+            mcp_stmt = select(MCPConfig).where(MCPConfig.id == mcp_config_id)
+            mcp = self.db.execute(mcp_stmt).scalar_one_or_none()
+            if not mcp:
+                raise Exception(f"MCP config {mcp_config_id} not found")
+
+            # create association
+            association = DataSourceMCPConfig(
+                data_source_id=data_source_id,
+                mcp_config_id=mcp_config_id
+            )
+            self.db.add(association)
+            self.db.flush()
+            
+            return {
+                "message": f"Successfully linked MCP config {mcp_config_id} to data source {data_source_id}",
+                "status": "success",
+                "data_source_id": str(data_source_id),
+                "mcp_config_id": str(mcp_config_id)
+            }
+        except Exception as e:
+            logger.exception(f"Failure occurred while linking MCP config to data source: {str(e)}")
+            raise e
