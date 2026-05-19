@@ -58,18 +58,18 @@
 
 /* Markdown Styles */
 .message-text p {
-    margin: 0;
+    margin: 0 0 0.75rem 0;
+}
+
+.message-text p:last-child {
+    margin-bottom: 0;
 }
 
 .message-text br {
     display: block;
     content: "";
-    margin-top: 0.5rem;
-}
-
-/* Add definitive spacing between all block elements */
-.message-text>*+* {
-    margin-top: 1rem;
+    height: 0.35rem;
+    /* Beautiful physical gap for single newlines */
 }
 
 .message-text ul,
@@ -279,6 +279,8 @@
     max-height: 150px;
     min-height: 24px;
     line-height: 1.5;
+    overflow-y: auto;
+    word-break: break-word;
 }
 
 .chat-input:focus {
