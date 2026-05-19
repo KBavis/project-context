@@ -52,7 +52,7 @@ def _build_data_source_context(data_sources: list[DataSource]) -> str:
     for ds in data_sources:
         slug = re.sub(r"[^a-z0-9]+", "_", ds.name.lower()).strip("_")[:30]
         lines.append(
-            f"- [{ds.type}: {ds.provider}] **{ds.name}** (ID: {ds.id})\n"
+            f"- [{ds.type}: {ds.provider}] **{ds.name}** (ID: {ds.id}, URL: {ds.url})\n"
             f"  Tools: `view_file_{slug}`, `list_directory_{slug}`, `generate_citation_{slug}`"
         )
     return "\n".join(lines)

@@ -49,7 +49,23 @@ Structure your response to best serve the question. Use markdown headings, prose
 4. **Stale documentation warning** — If a finding notes a discrepancy between docs and code, add:
    > ⚠️ The documentation for this topic may be outdated. Verify against the source code.
 
-5. **Citations** — You MUST include a section titled `## Citations` at the very end. For every source referenced, call `generate_citation_<slug>` to get the markdown link, then list each as a bullet. Example output from the tool: `* [apps/backend/app/models/project.py:10-25](https://github.com/KBavis/contextualized/blob/main/apps/backend/app/models/project.py#L10-L25)`
+5. **Citations** — You MUST include a section titled `## Citations` at the very end.
+   - Group the file citations by the DataSource they belong to.
+   - For each DataSource, render a group sub-heading in the format: `### 📂 [DataSource Name](DataSource URL)` using the name and URL metadata supplied in the context.
+   - For every source referenced within that DataSource, call the correct `generate_citation_<slug>` tool to retrieve the formatted citation link, then list them as bullets under the appropriate heading.
+   - Do not mix citations from different DataSources under a single heading.
+
+   Example structured output under the `## Citations` section:
+   ```markdown
+   ## Citations
+
+   ### 📂 [KBavis/contextualized](https://github.com/KBavis/contextualized)
+   * [apps/backend/app/models/project.py:10-25](https://github.com/KBavis/contextualized/blob/main/apps/backend/app/models/project.py#L10-L25)
+   * [apps/backend/app/agents/workflow.py:40-60](https://github.com/KBavis/contextualized/blob/main/apps/backend/app/agents/workflow.py#L40-L60)
+
+   ### 📂 [Other Wiki](https://example.com/wiki)
+   * [docs/setup.md](https://example.com/wiki/docs/setup.md)
+   ```
 
 ## Tone and Length
 
