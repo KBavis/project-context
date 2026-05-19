@@ -98,7 +98,56 @@ class ChunkRetrievalService:
             logger.error(f"Error performing grep search for keyword={key_word}, project_id={project_id}, data_source_ids={data_source_ids}", e)
             return []
 
-        
+    async def retrieve_sequential_chunks(self, file_path: str, data_source_id: UUID) -> str:
+        """
+        Retrieve all chunks for a given file_path, ordered by their sequence index in the DocStore.
+        This allows viewing the text content of documents (like PDFs) without downloading the raw binary.
+        """
+        try:
+            db_namespace = f"{str(data_source_id)}/data"
+            logger.info(f"Retrieving sequential chunks for file='{file_path}' in DocStore namespace='{db_namespace}'")
+            
+            stmt = (
+                select(DocstoreChunk)
+                .where(DocstoreChunk.namespace == db_namespace)
+                .where(
+                    or_(
+                        DocstoreChunk.value['__data__']['metadata']['file_path'].astext == file_path,
+                        DocstoreChunk.value['metadata']['file_path'].astext == file_path
+                    )
+                )
+            )
+            result = await self.db.execute(stmt)
+            chunks = result.scalars().all()
+            
+            if not chunks:
+                logger.warning(f"No chunks found in DocStore for file path '{file_path}' under namespace '{db_namespace}'")
+                return f"No chunks found in DocStore for file path: {file_path}"
+
+            # Sort chunks by their original index (suffix of the key/id_ e.g., 'file_id_hash_idx')
+            def get_chunk_idx(c: DocstoreChunk) -> int:
+                try:
+                    parts = c.key.split('_')
+                    return int(parts[-1])
+                except Exception:
+                    return 0
+
+            sorted_chunks = sorted(chunks, key=get_chunk_idx)
+            logger.info(f"Retrieved and sorted {len(sorted_chunks)} chunks for file '{file_path}'")
+            
+            # Combine the chunk text contents
+            reconstructed_text = []
+            for chunk in sorted_chunks:
+                text = chunk.node_text
+                if text:
+                    reconstructed_text.append(text)
+            
+            return "\n\n--- Chunk Divider ---\n\n".join(reconstructed_text)
+            
+        except Exception as e:
+            logger.error(f"Error retrieving sequential chunks for file={file_path}", exc_info=True)
+            return f"Error retrieving sequential chunks from DocStore: {str(e)}"
+
     async def semantic_search(
         self, 
         query: str,

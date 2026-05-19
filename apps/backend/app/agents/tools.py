@@ -144,10 +144,12 @@ class Tools:
             slug = self._ds_slug(ds)
 
             self._ds_view_file_tools[ds.id] = self._build_function_tool(
-                async_fn=provider.view_file,
+                async_fn=self._make_view_file_fn(ds, provider),
                 function_name=f"view_file_{slug}",
                 description=(
                     f"View the full contents of a file in DataSource '{ds.name}' ({ds.type}: {ds.provider}). "
+                    "For standard text and code files, this retrieves their contents directly. "
+                    "For PDF files (.pdf), this automatically retrieves the parsed plain text chunks sequentially from our document store, avoiding binary file downloads. "
                     "The file_path argument must NOT begin with a '/'. If the file is in the root directory, pass the filename (e.g., 'compose.yaml'). If it is in a subdirectory, pass the relative path (e.g., 'sub_dir/filename.extension')."
                 ),
             )
@@ -231,6 +233,23 @@ class Tools:
     # Private: Tool Implementation Functions
     # ─────────────────────────────────────────────
 
+    def _make_view_file_fn(self, ds: DataSource, provider: DataProvider) -> Callable[[str], Any]:
+        """
+        Creates a custom view_file wrapper for a specific DataSource and DataProvider.
+        Intercepts PDF view requests to route them through chunk retrieval, while
+        standard files are routed directly to the provider.
+        """
+
+        # wrapper to route PDFs through DocStore instead of HTTP 
+        async def view_file_wrapper(file_path: str) -> str:
+            if file_path.lower().endswith('.pdf'):
+                logger.info(f"Intercepted PDF view request for file='{file_path}' in DataSource='{ds.name}'")
+                return await self.chunk_retrieval_svc.retrieve_sequential_chunks(file_path, ds.id)
+            return await provider.view_file(file_path)
+        
+        
+        return view_file_wrapper
+
     async def _write_plan(self, ctx: Context, plan: str) -> str:
         """
         Write or update the current research plan in shared state.
@@ -308,6 +327,7 @@ class Tools:
             llm=self.llm,
             data_source_ids=data_source_ids,
         )
+
 
 
     # ─────────────────────────────────────────────
