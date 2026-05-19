@@ -7,7 +7,7 @@ import '../styles/IngestionJobsView.css';
 
 export default function DataSourcesView({ projectId }) {
     const { projects } = useProjects();
-    const { dataSources, loading: dsLoading, error, deleteDataSource, createDataSource, mcpConfigs, linkMcp } = useDataSources();
+    const { dataSources, loading: dsLoading, error, deleteDataSource, createDataSource, mcpConfigs, linkProjectToDataSource, linkMcpToDataSource } = useDataSources();
     const { ingestionJobs, createIngestionJob } = useIngestionJobs();
     const { showAlert } = useAlert();
 
@@ -275,37 +275,99 @@ export default function DataSourcesView({ projectId }) {
                                             <p className="data-source-url" title={url}>{url}</p>
 
                                             <div className="data-source-meta-row">
-                                                {ds.linked_projects && ds.linked_projects.length > 0 && (
-                                                    <div className="data-source-projects">
-                                                        {ds.linked_projects.map(pId => {
-                                                            const p = projects.find(proj => proj.id === pId);
+                                                <div className="data-source-projects">
+                                                    {ds.linked_projects && ds.linked_projects.map(pId => {
+                                                        const p = projects.find(proj => proj.id === pId);
+                                                        return (
+                                                            <span key={pId} className={`project-tag ${pId === projectId ? 'active' : ''}`}>
+                                                                {p?.project_name || p?.name || 'Unknown Project'}
+                                                            </span>
+                                                        );
+                                                    })}
+                                                    {(() => {
+                                                        const unlinked = projects.filter(p => !ds.linked_projects?.includes(p.id));
+                                                        if (unlinked.length > 0) {
                                                             return (
-                                                                <span key={pId} className={`project-tag ${pId === projectId ? 'active' : ''}`}>
-                                                                    {p?.project_name || p?.name || 'Unknown Project'}
-                                                                </span>
+                                                                <select
+                                                                    className="link-selector projects-link-select"
+                                                                    defaultValue=""
+                                                                    onChange={async (e) => {
+                                                                        const val = e.target.value;
+                                                                        if (!val) return;
+                                                                        try {
+                                                                            await linkProjectToDataSource(val, ds.id);
+                                                                            showAlert('Project linked successfully', 'success');
+                                                                        } catch (err) {
+                                                                            showAlert('Failed to link project: ' + err.message, 'error');
+                                                                        }
+                                                                        e.target.value = "";
+                                                                    }}
+                                                                >
+                                                                    <option value="" disabled>+ Link Project</option>
+                                                                    {unlinked.map(p => (
+                                                                        <option key={p.id} value={p.id}>
+                                                                            {p.project_name || p.name}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
                                                             );
-                                                        })}
-                                                    </div>
-                                                )}
+                                                        }
+                                                        return null;
+                                                    })()}
+                                                </div>
 
-                                                {ds.mcp_configs && ds.mcp_configs.length > 0 ? (
-                                                    ds.mcp_configs.map(mcp => (
-                                                        <div key={mcp.id} className="mcp-badge linked" title={`Connected to MCP: ${mcp.name}`}>
+                                                <div className="data-source-mcps">
+                                                    {ds.mcp_configs && ds.mcp_configs.length > 0 ? (
+                                                        ds.mcp_configs.map(mcp => (
+                                                            <div key={mcp.id} className="mcp-badge linked" title={`Connected to MCP: ${mcp.name}`}>
+                                                                <span className="mcp-icon">⚡</span>
+                                                                <span className="mcp-name">{mcp.name}</span>
+                                                            </div>
+                                                        ))
+                                                    ) : ds.mcp_config ? (
+                                                        <div className="mcp-badge linked" title={`Connected to MCP: ${ds.mcp_config.name}`}>
                                                             <span className="mcp-icon">⚡</span>
-                                                            <span className="mcp-name">{mcp.name}</span>
+                                                            <span className="mcp-name">{ds.mcp_config.name}</span>
                                                         </div>
-                                                    ))
-                                                ) : ds.mcp_config ? (
-                                                    <div className="mcp-badge linked" title={`Connected to MCP: ${ds.mcp_config.name}`}>
-                                                        <span className="mcp-icon">⚡</span>
-                                                        <span className="mcp-name">{ds.mcp_config.name}</span>
-                                                    </div>
-                                                ) : (
-                                                    <div className="mcp-badge none" title="This data source is not currently linked to an MCP protocol server">
-                                                        <span className="mcp-icon">⚙️</span>
-                                                        <span>MCP: None</span>
-                                                    </div>
-                                                )}
+                                                    ) : (
+                                                        <div className="mcp-badge none" title="This data source is not currently linked to an MCP protocol server">
+                                                            <span className="mcp-icon">⚙️</span>
+                                                            <span>MCP: None</span>
+                                                        </div>
+                                                    )}
+
+                                                    {(() => {
+                                                        const linkedMcpIds = ds.mcp_configs ? ds.mcp_configs.map(mcp => mcp.id) : (ds.mcp_config ? [ds.mcp_config.id] : []);
+                                                        const unlinked = mcpConfigs.filter(mcp => !linkedMcpIds.includes(mcp.id));
+                                                        if (unlinked.length > 0) {
+                                                            return (
+                                                                <select
+                                                                    className="link-selector mcp-link-select"
+                                                                    defaultValue=""
+                                                                    onChange={async (e) => {
+                                                                        const val = e.target.value;
+                                                                        if (!val) return;
+                                                                        try {
+                                                                            await linkMcpToDataSource(ds.id, val);
+                                                                            showAlert('MCP server linked successfully', 'success');
+                                                                        } catch (err) {
+                                                                            showAlert('Failed to link MCP server: ' + err.message, 'error');
+                                                                        }
+                                                                        e.target.value = "";
+                                                                    }}
+                                                                >
+                                                                    <option value="" disabled>+ Link MCP</option>
+                                                                    {unlinked.map(mcp => (
+                                                                        <option key={mcp.id} value={mcp.id}>
+                                                                            {mcp.name}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })()}
+                                                </div>
                                             </div>
                                         </div>
                                     </div>

@@ -5,7 +5,7 @@ import Modal from './Modal';
 import '../styles/DataSourcesView.css'; // Reuse existing styles for now
 
 export default function MCPConfigsView() {
-    const { dataSources, mcpConfigs, loading, error, createMcpConfig, deleteMcpConfig, fetchData } = useDataSources();
+    const { dataSources, mcpConfigs, loading, error, createMcpConfig, deleteMcpConfig, fetchData, linkMcpToDataSource } = useDataSources();
     const { showAlert } = useAlert();
     const [showAddForm, setShowAddForm] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
@@ -393,10 +393,46 @@ export default function MCPConfigsView() {
                                         <div className="mcp-config-details">
                                             <div className="detail-row">
                                                 <span className="detail-label">Linked To:</span>
-                                                <span className="detail-value">
-                                                    {config.data_sources && config.data_sources.length > 0
-                                                        ? config.data_sources.map(ds => ds.name).join(', ')
-                                                        : 'None'}
+                                                <span className="detail-value" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                                                    {config.data_sources && config.data_sources.map(ds => (
+                                                        <span key={ds.id} className="project-tag" style={{ borderStyle: 'solid' }}>
+                                                            {ds.name || ds.url}
+                                                        </span>
+                                                    ))}
+                                                    {(!config.data_sources || config.data_sources.length === 0) && (
+                                                        <span style={{ fontSize: '12px', color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>None</span>
+                                                    )}
+                                                    {(() => {
+                                                        const linkedDsIds = config.data_sources ? config.data_sources.map(ds => ds.id) : [];
+                                                        const unlinked = dataSources.filter(ds => !linkedDsIds.includes(ds.id));
+                                                        if (unlinked.length > 0) {
+                                                            return (
+                                                                <select
+                                                                    className="link-selector ds-link-select"
+                                                                    defaultValue=""
+                                                                    onChange={async (e) => {
+                                                                        const val = e.target.value;
+                                                                        if (!val) return;
+                                                                        try {
+                                                                            await linkMcpToDataSource(val, config.id);
+                                                                            showAlert('Data Source linked successfully', 'success');
+                                                                        } catch (err) {
+                                                                            showAlert('Failed to link Data Source: ' + err.message, 'error');
+                                                                        }
+                                                                        e.target.value = "";
+                                                                    }}
+                                                                >
+                                                                    <option value="" disabled>+ Link Data Source</option>
+                                                                    {unlinked.map(ds => (
+                                                                        <option key={ds.id} value={ds.id}>
+                                                                            {ds.name || ds.url}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })()}
                                                 </span>
                                             </div>
                                             <div className="detail-row">

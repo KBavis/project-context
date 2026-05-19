@@ -82,6 +82,26 @@ export const DataSourcesProvider = ({ children }) => {
         }
     };
 
+    const linkProjectToDataSource = async (projectId, dataSourceId) => {
+        try {
+            await api.projects.linkDataSource(projectId, dataSourceId);
+            await fetchData();
+        } catch (err) {
+            setError('Failed to link project to data source');
+            throw err;
+        }
+    };
+
+    const linkMcpToDataSource = async (dataSourceId, mcpConfigId) => {
+        try {
+            await api.dataSources.linkMcp(dataSourceId, mcpConfigId);
+            await fetchData();
+        } catch (err) {
+            setError('Failed to link MCP configuration to data source');
+            throw err;
+        }
+    };
+
     return (
         <DataSourcesContext.Provider value={{ 
             dataSources, 
@@ -92,7 +112,9 @@ export const DataSourcesProvider = ({ children }) => {
             deleteDataSource, 
             createDataSource,
             createMcpConfig,
-            deleteMcpConfig
+            deleteMcpConfig,
+            linkProjectToDataSource,
+            linkMcpToDataSource
         }}>
             {children}
         </DataSourcesContext.Provider>
