@@ -65,6 +65,8 @@ class MessageService:
 
         try:
             # 1. Initialize 
+            import time
+            start_time = time.perf_counter()
             yield format_sse_event(StreamEventType.STATUS, "Initializing conversation context...", "Initializing")
             
             conversation = await self.conversation_svc.get_conversation(conversation_id)
@@ -149,13 +151,15 @@ class MessageService:
             await self.conversation_svc.update_total_tokens(conversation_id, total_tokens)
             
             # 9. Persist execution stats
+            execution_time_seconds = time.perf_counter() - start_time
             await self.execution_token_usage_svc.create_usage_record(
                 conversation_id=conversation_id,
                 user_message_id=user_msg.id,
                 model_message_id=model_msg.id,
                 input_tokens=agent_workflow_input_tokens,
                 output_tokens=agent_workflow_output_tokens,
-                total_tokens=agent_workflow_total_tokens
+                total_tokens=agent_workflow_total_tokens,
+                execution_time_seconds=execution_time_seconds
             )
             await self.conversation_svc.update_total_execution_tokens(conversation_id, agent_workflow_total_tokens)
 
@@ -166,7 +170,8 @@ class MessageService:
             yield format_sse_event(StreamEventType.METADATA, {
                 "user_message": self._get_message_dto(user_msg).model_dump(),
                 "model_message": self._get_message_dto(model_msg).model_dump(),
-                "conversation_id": str(conversation_id)
+                "conversation_id": str(conversation_id),
+                "execution_time_seconds": execution_time_seconds
             }, "Metadata")
 
         except Exception as e:

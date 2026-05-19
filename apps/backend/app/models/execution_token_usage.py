@@ -23,6 +23,7 @@ class ExecutionTokenUsage(Base):
     input_tokens: Mapped[int] = mapped_column(nullable=False, comment="Total input tokens for this execution")
     output_tokens: Mapped[int] = mapped_column(nullable=False, comment="Total output tokens for this execution")
     total_tokens: Mapped[int] = mapped_column(nullable=False, comment="Total tokens used in this execution")
+    execution_time_seconds: Mapped[float | None] = mapped_column(nullable=True, comment="Total execution time in seconds")
 
     # Relationships
     conversation: Mapped["Conversation"] = relationship(back_populates="execution_token_usages")

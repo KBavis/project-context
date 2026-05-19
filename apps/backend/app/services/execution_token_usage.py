@@ -18,7 +18,8 @@ class ExecutionTokenUsageService:
         model_message_id: UUID,
         input_tokens: int,
         output_tokens: int,
-        total_tokens: int
+        total_tokens: int,
+        execution_time_seconds: float | None = None
     ) -> ExecutionTokenUsage:
         """
         Record the token usage metrics for a specific conversation turn.
@@ -30,7 +31,8 @@ class ExecutionTokenUsageService:
             model_message_id=model_message_id,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            total_tokens=total_tokens
+            total_tokens=total_tokens,
+            execution_time_seconds=execution_time_seconds
         )
         self.db.add(execution)
         await self.db.flush()
