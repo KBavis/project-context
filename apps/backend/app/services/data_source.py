@@ -51,7 +51,8 @@ class DataSourceService:
             url=data_source_request.url, 
             name=data_source_request.name, 
             branch=data_source_request.branch,
-            type=data_source_request.type
+            type=data_source_request.type,
+            scope_by_issues=data_source_request.scope_by_issues
         )
 
         # persist & flush new record
@@ -88,6 +89,7 @@ class DataSourceService:
             "name": data_source.name,
             "type": data_source.type,
             "branch": data_source.branch,
+            "scope_by_issues": data_source.scope_by_issues,
             "config": {"url": data_source.url},
             "linked_projects": [str(pd.project_id) for pd in data_source.project_data]
         }
@@ -132,6 +134,7 @@ class DataSourceService:
                 "name": data_source.name,
                 "type": data_source.type,
                 "branch": data_source.branch,
+                "scope_by_issues": data_source.scope_by_issues,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
                 "mcp_configs": [
@@ -162,6 +165,7 @@ class DataSourceService:
                 "name": data_source.name,
                 "type": data_source.type,
                 "branch": data_source.branch,
+                "scope_by_issues": data_source.scope_by_issues,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
                 "mcp_configs": [

@@ -7,7 +7,7 @@ from pathlib import Path
 import httpx
 from io import BytesIO
 
-from .base import DataProvider
+from .base import RepositoryDataProvider
 from app.core import settings
 from app.pydantic import File, FileProcesingStatus
 from app.models.data_source import DataSource
@@ -17,7 +17,7 @@ from app.services.file import FileService
 logger = logging.getLogger(__name__)
 
  
-class GithubDataProvider(DataProvider):
+class GithubDataProvider(RepositoryDataProvider):
 
     def __init__(self, data_source: DataSource, file_svc: FileService | None, job_pk: UUID | None = None):
         super().__init__(data_source, file_svc=file_svc, job_pk=job_pk)
@@ -190,6 +190,59 @@ class GithubDataProvider(DataProvider):
         with open(full_path, "wb") as f:
             f.write(buffer.getbuffer())
    
+
+    async def resolve_prs(self, story_keys: list[str]) -> list[int]:
+        """
+        Find PRs associated with the given story keys using GitHub Search API.
+        Returns a list of PR numbers.
+        """
+        if not story_keys:
+            return []
+            
+        prs = []
+        try:
+            # Construct a search query that ORs the story keys
+            # Format: repo:owner/name is:pr "KEY-1" OR "KEY-2"
+            repo_filter = f"repo:{self.repository_user}/{self.repository_name}"
+            keys_query = " OR ".join([f'"{key}"' for key in story_keys])
+            query = f"{repo_filter} is:pr {keys_query}"
+            
+            url = f"https://api.github.com/search/issues"
+            params = {"q": query, "per_page": 100}
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, params=params, headers=self.request_headers)
+                response.raise_for_status()
+                data = response.json()
+                
+                for item in data.get("items", []):
+                    # GitHub search returns PRs as issues, but they have a pull_request node
+                    if "pull_request" in item:
+                        prs.append(item["number"])
+                        
+        except Exception as e:
+            logger.error(f"Failure resolving PRs for story keys {story_keys}: {str(e)}")
+            
+        return list(set(prs))
+
+    async def get_pr_diff(self, pr_number: int) -> str:
+        """
+        Get the unified diff for a specific PR.
+        Returns the raw diff string.
+        """
+        try:
+            url = f"https://api.github.com/repos/{self.repository_user}/{self.repository_name}/pulls/{pr_number}"
+            # Use specific accept header for diff
+            headers = self.request_headers.copy() if self.request_headers else {}
+            headers["Accept"] = "application/vnd.github.v3.diff"
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                return response.text
+        except Exception as e:
+            logger.error(f"Failure getting diff for PR #{pr_number}: {str(e)}")
+            return ""
 
     async def view_file(self, file_path: str) -> str:
         """

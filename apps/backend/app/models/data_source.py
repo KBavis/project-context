@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 class DataSourceType(str, Enum):
     REPOSITORY = "REPOSITORY"
     DOCUMENTATION = "DOCUMENTATION"
+    ISSUE_TRACKER = "ISSUE_TRACKER"
 
 
 class DataSource(Base):
@@ -48,6 +49,11 @@ class DataSource(Base):
         SQLEnum(DataSourceType),
         nullable=False,
         comment="Type of data source",
+    )
+
+    scope_by_issues: Mapped[bool] = mapped_column(
+        default=False, 
+        comment="Whether to scope ingestion for this data source to specific issues configured on the project"
     )
 
 

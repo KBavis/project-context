@@ -23,8 +23,11 @@ class DataProvider(ABC):
     def from_provider(cls, data_source: DataSource, file_svc: FileService | None = None, job_pk: UUID | None = None):
         match data_source.provider:
             case "GitHub":
-                from app.data_providers.github import GithubDataProvider
+                from app.data_providers.repository.github import GithubDataProvider
                 return GithubDataProvider(data_source=data_source, file_svc=file_svc, job_pk=job_pk)
+            case "Jira":
+                from app.data_providers.issue_tracker.jira import JiraDataProvider
+                return JiraDataProvider(data_source=data_source, file_svc=file_svc, job_pk=job_pk)
             case _:
                 raise Exception(f"The specified Data Source provider is not configured for this application")
     
@@ -33,9 +36,6 @@ class DataProvider(ABC):
     async def ingest_data(self):
         raise NotImplementedError()
 
-    @abstractmethod
-    async def _download_file(self, url: str, headers: dict = {}):
-        raise NotImplementedError()
 
     @abstractmethod
     def _validate_url(self, url: str):

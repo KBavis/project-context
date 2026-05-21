@@ -108,6 +108,21 @@ class IngestionJobService:
         # begin processing for current IngestionJob
         data_source_id = data_source.id
 
+        if data_source.type == "ISSUE_TRACKER":
+            logger.info(f"Skipping ingestion for DataSource={data_source_id} as it is an ISSUE_TRACKER")
+            
+            # fast-track success
+            job_end_time = datetime.now(ZoneInfo("America/New_York"))
+            duration = job_end_time - job_start_time
+            await self.update_ingestion_job(
+                job_pk=job_pk, 
+                status=ProcessingStatus.SUCCESS,
+                end_time=job_end_time,
+                duration=duration.seconds,
+                session=self.db
+            )
+            return
+
         try:
 
             # use data source information to fetch relevant data & store in temp directory
