@@ -16,6 +16,7 @@ from app.core import settings, get_async_session_maker
 from app.services.record_lock import RecordLockService
 from app.services.file import FileService
 from app.services.chunk_insertion import ChunkInsertionService
+from app.data_providers.ingestible.base import IngestibleDataProvider
 
 
 logger = logging.getLogger(__name__)
@@ -105,18 +106,19 @@ class IngestionJobService:
             2. Look into total amount of time processing takes when ONLY using CPU (any optimizations we can make?)
         """
 
-        # begin processing for current IngestionJob
         data_source_id = data_source.id
 
-        if data_source.type == "ISSUE_TRACKER":
-            logger.info(f"Skipping ingestion for DataSource={data_source_id} as it is an ISSUE_TRACKER")
+        try:
+            provider = IngestibleDataProvider.from_provider(data_source)
+        except Exception as e:
+            logger.info(f"Skipping ingestion for DataSource={data_source_id} as it is not an IngestibleDataProvider: {e}")
             
-            # fast-track success
+            # skip ingestion & update DB 
             job_end_time = datetime.now(ZoneInfo("America/New_York"))
             duration = job_end_time - job_start_time
             await self.update_ingestion_job(
                 job_pk=job_pk, 
-                status=ProcessingStatus.SUCCESS,
+                status=ProcessingStatus.SKIPPED,
                 end_time=job_end_time,
                 duration=duration.seconds,
                 session=self.db
@@ -127,7 +129,7 @@ class IngestionJobService:
 
             # use data source information to fetch relevant data & store in temp directory
             # TODO: Add configuration possibility to only retrieve data specific to the Jira Tickets provided in Project
-            code_path, docs_path = await self._retrieve_data(data_source, project_id, job_pk)
+            code_path, docs_path = await self._retrieve_data(provider, project_id, job_pk)
 
             # determine which data source types were downloaded
             has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(code_path)
@@ -257,14 +259,14 @@ class IngestionJobService:
     
 
     async def _retrieve_data(
-        self, data_source: DataSource, project_id: UUID | None, job_pk: UUID,
+        self, provider, project_id: UUID | None, job_pk: UUID,
     ) -> tuple[Path, Path]:
         """
         Retrieve relevant data from specified Data Source and store within temporary /data directory
         in order to be ingested into Chroma DB
 
         Args:
-            data_source (DataSource) - data source to ingest data from
+            provider - instantiated IngestibleDataProvider to ingest data from
             project_id (UUID) - optional specific project_id to only retrieve data for
 
         NOTE: In future, we should make some sort of "diff" calculation each time we retreive data from data source
@@ -276,14 +278,7 @@ class IngestionJobService:
 
         code_path, docs_path = self._create_tmp_dirs(job_pk) 
 
-        # retrieve data based on provider & store within temp directory
-        provider = DataProvider.from_provider(
-            data_source=data_source,
-            file_svc=self.file_svc,
-            job_pk=job_pk
-        )
-
-        await provider.ingest_data() 
+        await provider.ingest_data(job_pk=job_pk, file_svc=self.file_svc) 
         return code_path, docs_path
 
 

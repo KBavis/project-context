@@ -10,6 +10,7 @@ from app.llm import LLMBase
 from app.models.data_source import DataSource
 from app.data_providers import DataProvider
 from app.services.chunk_retrieval import ChunkRetrievalService
+from app.data_providers.ingestible.base import IngestibleDataProvider
 
 import logging
 logger = logging.getLogger(__name__)
@@ -140,7 +141,12 @@ class Tools:
 
         # Step 1: Per-DataSource tools (view_file, list_directory, generate_citation)
         for ds in self.data_sources:
-            provider = DataProvider.from_provider(ds)
+            try:
+                provider = IngestibleDataProvider.from_provider(ds)
+            except Exception as e:
+                logger.info(f"Skipping tool creation for DataSource={ds.id}: {e}")
+                continue
+                
             slug = self._ds_slug(ds)
 
             self._ds_view_file_tools[ds.id] = self._build_function_tool(
@@ -233,7 +239,7 @@ class Tools:
     # Private: Tool Implementation Functions
     # ─────────────────────────────────────────────
 
-    def _make_view_file_fn(self, ds: DataSource, provider: DataProvider) -> Callable[[str], Any]:
+    def _make_view_file_fn(self, ds: DataSource, provider: IngestibleDataProvider) -> Callable[[str], Any]:
         """
         Creates a custom view_file wrapper for a specific DataSource and DataProvider.
         Intercepts PDF view requests to route them through chunk retrieval, while
