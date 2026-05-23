@@ -1,5 +1,4 @@
 from __future__ import annotations
-from uuid import UUID
 from enum import Enum
 
 from app.models.data_source import DataSource
