@@ -13,12 +13,20 @@ class JiraDataProvider(IssueTrackerDataProvider):
     """
     Implementation of IssueTrackerDataProvider for Jira.
     """
-    def __init__(self, data_source, file_svc=None, job_pk=None, base_url: str = "", email: str = "", api_token: str = ""):
-        super().__init__(data_source, file_svc, job_pk)
+    def __init__(self, data_source, base_url: str = "", email: str = "", api_token: str = ""):
+        super().__init__(data_source=data_source)
         # Assuming URL/creds are passed or retrieved from data_source metadata
         self.base_url = base_url.rstrip("/") if base_url else data_source.url.rstrip("/")
         # Note: in real implementation, email/api_token might come from Secrets Manager. 
         self.auth = (email, api_token)
+
+    def _validate_url(self, url: str):
+        # TODO: Implement URL validation
+        pass
+
+    def _get_request_headers(self) -> dict[str, str] | None:
+        # TODO: Implement request headers extraction
+        return None
 
     async def get_issues(self, epics: list[str]) -> list[str]:
         """

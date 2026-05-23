@@ -1,8 +1,8 @@
 from __future__ import annotations
 from abc import abstractmethod
-from app.data_providers.base import DataProvider
+from app.data_providers.fetchable import FetchableDataProvider
 
-class IssueTrackerDataProvider(DataProvider):
+class IssueTrackerDataProvider(FetchableDataProvider):
     """
     Abstract base class for Issue Tracker data providers.
     """

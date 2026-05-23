@@ -1,8 +1,10 @@
 from __future__ import annotations
 from abc import abstractmethod
-from app.data_providers.base import DataProvider
+from uuid import UUID
+from app.data_providers.ingestible.base import IngestibleDataProvider
+from app.services.file import FileService
 
-class RepositoryDataProvider(DataProvider):
+class RepositoryDataProvider(IngestibleDataProvider):
     """
     Abstract base class for Repository data providers (like GitHub, BitBucket, etc).
     Contains methods specific to pulling source code and PR diffs.
@@ -23,22 +25,16 @@ class RepositoryDataProvider(DataProvider):
         raise NotImplementedError()
         
     @abstractmethod
-    async def _get_repository_data(self, curr_url: str):
+    async def _get_repository_data(self, curr_url: str, file_svc: FileService, job_pk: UUID):
         """
         Recursively pull down the repository contents.
         """
         raise NotImplementedError()
         
     @abstractmethod
-    async def _download_file(self, url: str, file_name: str, file_path: str, size: int):
+    async def _download_file(self, url: str, file_name: str, file_path: str, size: int, file_svc: FileService, job_pk: UUID):
         """
         Download a file to the temporary directory.
         """
         raise NotImplementedError()
         
-    @abstractmethod
-    def _write_file(self, full_path, buffer):
-        """
-        Write buffered file content to disk.
-        """
-        raise NotImplementedError()
