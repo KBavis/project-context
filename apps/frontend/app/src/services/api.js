@@ -133,6 +133,7 @@ export const api = {
                     url: config.url,
                     name: config.name,
                     branch: config.branch,
+                    scope_by_issues: config.scope_by_issues,
                     project_ids: projectIds
                 }),
             });

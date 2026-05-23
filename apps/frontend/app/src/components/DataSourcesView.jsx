@@ -22,6 +22,7 @@ export default function DataSourcesView({ projectId }) {
         url: '',
         name: '',
         branch: '',
+        scope_by_issues: false,
         projectIds: projectId ? [projectId] : []
     });
 
@@ -97,7 +98,7 @@ export default function DataSourcesView({ projectId }) {
     const handleAddDataSource = async (e) => {
         e.preventDefault();
         try {
-            await createDataSource(newDS.provider, { type: newDS.type, url: newDS.url, name: newDS.name, branch: newDS.branch }, newDS.projectIds);
+            await createDataSource(newDS.provider, { type: newDS.type, url: newDS.url, name: newDS.name, branch: newDS.branch, scope_by_issues: newDS.scope_by_issues }, newDS.projectIds);
             setShowAddForm(false);
             setNewDS({
                 provider: 'GitHub',
@@ -105,6 +106,7 @@ export default function DataSourcesView({ projectId }) {
                 url: '',
                 name: '',
                 branch: '',
+                scope_by_issues: false,
                 projectIds: projectId ? [projectId] : []
             });
             showAlert('Data source added successfully', 'success');
@@ -190,6 +192,19 @@ export default function DataSourcesView({ projectId }) {
                                         onChange={e => setNewDS({ ...newDS, branch: e.target.value })}
                                         placeholder="main"
                                     />
+                                </div>
+                            )}
+                            {newDS.type === 'REPOSITORY' && (
+                                <div className="form-field fade-in">
+                                    <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={newDS.scope_by_issues}
+                                            onChange={e => setNewDS({ ...newDS, scope_by_issues: e.target.checked })}
+                                        />
+                                        Scope by Issues
+                                    </label>
+                                    <p className="field-hint" style={{ marginTop: '4px' }}>Whether to scope ingestion to specific issues configured on the project.</p>
                                 </div>
                             )}
                             <div className="form-field projects-field">
