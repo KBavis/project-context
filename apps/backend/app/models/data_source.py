@@ -51,6 +51,7 @@ class DataSource(Base):
         comment="Type of data source",
     )
 
+    # NOTE: on data source since o/w would imply that a two Projects could "own" same pieces of code (one has flag, one doesn't)
     scope_by_issues: Mapped[bool] = mapped_column(
         default=False, 
         comment="Whether to scope ingestion for this data source to specific issues configured on the project"
