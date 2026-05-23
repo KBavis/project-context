@@ -290,8 +290,13 @@ export default function DataSourcesView({ projectId }) {
                                             <p className="data-source-url" title={url}>{url}</p>
 
                                             <div className="data-source-meta-row">
-                                                <div className="meta-section">
-                                                    <span className="meta-section-label">Projects</span>
+                                                 <div className="meta-section">
+                                                    <div className="meta-section-label-row">
+                                                        <span className="meta-section-label">Projects</span>
+                                                        {ds.scope_by_issues && ds.type === 'REPOSITORY' && (
+                                                            <span className="scope-indicator" title="Ingestion is scoped to project issues">scoped</span>
+                                                        )}
+                                                    </div>
                                                     <div className="meta-section-tags">
                                                         {ds.linked_projects && ds.linked_projects.map(pId => {
                                                             const p = projects.find(proj => proj.id === pId);

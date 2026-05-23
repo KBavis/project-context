@@ -503,6 +503,25 @@
     color: var(--color-text-tertiary);
 }
 
+.meta-section-label-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.scope-indicator {
+    font-size: 0.55rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(var(--color-accent-rgb), 0.08);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.25);
+    color: var(--color-accent);
+    opacity: 0.75;
+}
+
 .meta-section-tags {
     display: flex;
     flex-wrap: wrap;
