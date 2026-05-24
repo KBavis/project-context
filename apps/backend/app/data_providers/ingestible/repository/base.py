@@ -1,7 +1,9 @@
 from __future__ import annotations
 from abc import abstractmethod
 from uuid import UUID
+
 from app.data_providers.ingestible.base import IngestibleDataProvider
+from app.models.data_source import DataSource
 from app.services.file import FileService
 
 class RepositoryDataProvider(IngestibleDataProvider):
@@ -9,6 +11,65 @@ class RepositoryDataProvider(IngestibleDataProvider):
     Abstract base class for Repository data providers (like GitHub, BitBucket, etc).
     Contains methods specific to pulling source code and PR diffs.
     """
+
+    def __init__(self, data_source: DataSource):
+        super().__init__(data_source=data_source)
+
+        # validate URL is in expected format for Repository 
+        self._validate_url()
+
+        # extract relevant from URL & data source
+        repository_owner, repository_name = self._parse_repository_ref()
+        self._repository_name = repository_name
+        self._branch_name = data_source.branch
+        self._repository_owner = repository_owner
+
+        # construct requried URLs
+        self._construct_base_urls()
+
+
+    @property
+    def repository_owner(self) -> str:
+        """
+        The username of the repository owner.
+        """
+        return self._repository_owner
+
+    @property
+    def repository_name(self) -> str:
+        """
+        The name of the repository.
+        """
+        return self._repository_name
+
+    @property
+    def branch_name(self) -> str:
+        """
+        The name of the branch.
+        """
+        return self._branch_name
+
+    @property
+    def full_name(self) -> str:
+        """
+        Full name of repository (owner & repo name)
+        """
+        return f"{self._repository_owner}/{self._repository_name}"
+    
+
+    @abstractmethod
+    def _parse_repository_ref(self) -> tuple[str, str]:
+        """
+        Extract (repository_owner, repository_name) from provided Data Source URL 
+        """
+        raise NotImplementedError()
+    
+    @abstractmethod
+    def _construct_base_urls(self):
+        """
+        Construct the base URLs for the repository.
+        """
+        raise NotImplementedError()
     
     @abstractmethod
     async def resolve_prs(self, story_keys: list[str]) -> list[int]:

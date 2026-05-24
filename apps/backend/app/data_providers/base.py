@@ -35,7 +35,10 @@ class DataProvider(ABC):
                 raise Exception(f"The specified Data Source provider is not configured for this application")
     
     @abstractmethod
-    def _validate_url(self, url: str):
+    def _validate_url(self):
+        """
+        Validate the given URL corresponds to the expected Data Provider
+        """
         raise NotImplementedError()
 
     @abstractmethod

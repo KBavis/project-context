@@ -21,19 +21,31 @@ class GithubDataProvider(RepositoryDataProvider):
 
     def __init__(self, data_source: DataSource):
         super().__init__(data_source)
-        self._validate_url()
+    
 
-        # deconstruct URL 
+    def _parse_repository_ref(self) -> tuple[str, str]:
+        """
+        Extract relevant information from the specified URL 
+
+        Returns
+            (repository_owner, repository_name)
+        """
+
         parsed_url = self.url.split("/")
-        self.repository_user = parsed_url[3]
-        self.repository_name = parsed_url[4]
-        self.branch_name = data_source.branch
 
-        self.base_url = f"https://github.com/{self.repository_user}/{self.repository_name}/blob/{self.branch_name}/"
-        self.base_api_url = f"https://api.github.com/repos/{self.repository_user}/{self.repository_name}/contents"
+        owner = parsed_url[3]
+        repo_name = parsed_url[4]
+
+        return owner, repo_name
+    
+
+    def _construct_base_urls(self):
+
+        self.base_url = f"https://github.com/{self.repository_owner}/{self.repository_name}/blob/{self.branch_name}/"
+        self.base_api_url = f"https://api.github.com/repos/{self.repository_owner}/{self.repository_name}/contents"
         self.branch_reference = f"?ref={self.branch_name}"
-        
-        self.file_download_base_url = f"https://raw.githubusercontent.com/{self.repository_user}/{self.repository_name}/{self.branch_name}"
+        self.file_download_base_url = f"https://raw.githubusercontent.com/{self.repository_owner}/{self.repository_name}/{self.branch_name}"
+
 
     async def ingest_data(self, file_svc: FileService, job_pk: UUID):
         """
@@ -199,7 +211,7 @@ class GithubDataProvider(RepositoryDataProvider):
         try:
             # Construct a search query that ORs the story keys
             # Format: repo:owner/name is:pr "KEY-1" OR "KEY-2"
-            repo_filter = f"repo:{self.repository_user}/{self.repository_name}"
+            repo_filter = f"repo:{self.repository_owner}/{self.repository_name}"
             keys_query = " OR ".join([f'"{key}"' for key in story_keys])
             query = f"{repo_filter} is:pr {keys_query}"
             
@@ -227,7 +239,7 @@ class GithubDataProvider(RepositoryDataProvider):
         Returns the raw diff string.
         """
         try:
-            url = f"https://api.github.com/repos/{self.repository_user}/{self.repository_name}/pulls/{pr_number}"
+            url = f"https://api.github.com/repos/{self.repository_owner}/{self.repository_name}/pulls/{pr_number}"
             # Use specific accept header for diff
             headers = self.request_headers.copy() if self.request_headers else {}
             headers["Accept"] = "application/vnd.github.v3.diff"
