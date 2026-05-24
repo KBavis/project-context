@@ -59,12 +59,10 @@ class FileDiff(Base):
     )
 
     project_id: Mapped[UUID] = mapped_column(
-        ForeignKey("project_repository_changes.project_id"),
         index=True,
         nullable=False,
     )
     data_source_id: Mapped[UUID] = mapped_column(
-        ForeignKey("project_repository_changes.data_source_id"),
         index=True,
         nullable=False,
     )

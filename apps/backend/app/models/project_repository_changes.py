@@ -32,12 +32,10 @@ class ProjectRepositoryChanges(Base):
     )
 
     project_id: Mapped[UUID] = mapped_column(
-        ForeignKey("project_data.project_id"),
         primary_key=True,
         comment="Part of 1:1 PK with ProjectData",
     )
     data_source_id: Mapped[UUID] = mapped_column(
-        ForeignKey("project_data.data_source_id"),
         primary_key=True,
         comment="Part of 1:1 PK with ProjectData",
     )
