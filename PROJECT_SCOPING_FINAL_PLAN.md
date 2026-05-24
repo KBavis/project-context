@@ -53,9 +53,9 @@ Today, when a **Project** links to a **Repository DataSource**, the agent treats
 | Chroma collection | **Same** project collection as code chunks | Filter with metadata; parent-child via `IndexNode.index_id`. |
 | General search | `semantic_search` / `grep_search` exclude `source_type=DIFF` | Prevents diff chunks from polluting broad codebase search. |
 | Traversal tools | `view_file` / `list_directory` **unrestricted** | Agent needs full repo context beyond project edits. |
-| Relational storage for diff text | **Per-file in `file_diff`** — unified diff + metadata; not one blob on `project_changes` | Enables incremental sync and per-file commit attribution. Agent-facing narrative text remains in DocStore. Lifecycle decoupled from `File` (§5.4.1). |
+| Relational storage for diff text | **Per-file in `file_diff`** — unified diff + metadata; not one blob on `project_repository_changes` | Enables incremental sync and per-file commit attribution. Agent-facing narrative text remains in DocStore. No `File` FK (§5.4.1). |
 | Issue tracker linkage | Project must have **exactly one** linked `ISSUE_TRACKER` DataSource | Per `flow.md`; fail ingestion step for that project if missing. |
-| Incremental sync | `project_changes` + `last_synced_at` via `IngestionJob` FK | Re-fetch only new commits since last successful sync. |
+| Incremental sync | `project_repository_changes` + `ingestion_job.end_time` | Re-fetch only new commits since last successful sync. |
 | Branch tip tracking | **No `base_ref_sha` in v1** | Commit-driven sync is sufficient for attribution; branch-tip refresh deferred (see §5.4.2, §17). |
 | `file_diff` vs `File` lifecycle | **Decoupled** — no FK cascade from `file` → `file_diff` | Code ingest may delete stale `File` rows; project diff history (especially **deleted** paths) must survive for the agent (see §5.4.1). |
 | Deleted / moved paths | **Retain** `file_diff` + DIFF nodes when project net-deletes or path is abandoned | Agent must still answer “what did we remove?” even when `File` row is gone; cleanup only via project-diff sync rules. |
@@ -88,7 +88,7 @@ Today, when a **Project** links to a **Repository DataSource**, the agent treats
 
 ### Not done (this plan)
 
-- `project_changes` + `file_diff` tables and Alembic migrations
+- `project_repository_changes` + `file_diff` tables and Alembic migrations
 - Commit discovery by message (GitHub API)
 - `CompositionDiffService` (clone, apply, diff)
 - `diff_parser` / `FileDiffHistory` builder
@@ -113,11 +113,11 @@ Today, when a **Project** links to a **Repository DataSource**, the agent treats
 │       For each ProjectData on this DataSource:                                 │
 │         a. Resolve issue keys (Jira)                                         │
 │         b. Discover new commits (GitHub, message match, since last_sync)       │
-│         c. Merge commit set → project_changes.commit_hashes                      │
+│         c. Merge commit set → project_repository_changes.commit_hashes           │
 │         d. ONE clone per job → composition_diff(all commits)                   │
 │         e. Per file: upsert file_diff (skip if commit set + base unchanged)    │
 │         f. Parse → FileDiffHistory → DocStore parent + Chroma children         │
-│         g. Update project_changes + file_diff rows                             │
+│         g. Update project_repository_changes + file_diff rows                  │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -143,100 +143,62 @@ Today, when a **Project** links to a **Repository DataSource**, the agent treats
 scope_by_issues: Mapped[bool] = mapped_column(default=False, ...)
 ```
 
-### 5.2 New: `project_changes` (aggregate sync state)
+### 5.2 New: `project_repository_changes` (aggregate sync state)
 
-One row per `ProjectData` (composite FK to `project` + `data_source`). Tracks **project-wide** commit discovery and denormalized summaries. Does **not** store the full multi-file unified diff.
+**Implemented:** `app/models/project_repository_changes.py`
 
-Aligns with in-progress model at `app/models/project_changes.py`:
+One row per `ProjectData` link (composite PK = `project_id` + `data_source_id`). Tracks this **project’s attributed commits on this repository** — not the whole project across all data sources. Does **not** store the full multi-file unified diff.
 
 ```python
-# app/models/project_changes.py
+class ProjectRepositoryChanges(Base):
+    __tablename__ = "project_repository_changes"
 
-class ProjectChanges(Base):
-    __tablename__ = "project_changes"
+    project_id: Mapped[UUID]       # PK + FK → project_data
+    data_source_id: Mapped[UUID]   # PK + FK → project_data
 
-    # PK = project_data composite key (one row per project ↔ repository DS)
-    project_data_id: Mapped[UUID]  # FK → project_data (project_id + data_source_id)
-
-    ingestion_job_id: Mapped[UUID] = mapped_column(ForeignKey("ingestion_job.id"))
-
-    # Full ordered set of SHAs attributed to this project on this repo (not delta-only)
-    commit_hashes: Mapped[list[str]] = mapped_column(ARRAY(String))
-
-    # Denormalized manifest (recomputed each sync from file_diff rows)
-    files_touched: Mapped[list[str]] = mapped_column(ARRAY(String))
-    file_count: Mapped[int] = mapped_column(default=0)
-
-    # Relationships: project_data, ingestion_job, file_diffs (one-to-many)
+    commit_hashes: Mapped[list[str]]
+    files_touched: Mapped[list[str]]
+    file_count: Mapped[int]
+    ingestion_job_id: Mapped[UUID]   # many repository_changes → one IngestionJob
 ```
-
-**`last_synced_at`:** Derive from `ingestion_job.end_time` (or `created_at` on the linked job) rather than duplicating on this row.
 
 **Relationships:**
 
-- `project_data_id` ↔ `ProjectData` (same scope as ingestion loop in `flow.md`).
-- `ingestion_job_id` → which job last successfully updated this aggregate row.
-- `file_diffs` → one row per touched path (see §5.3).
+| From | To | Cardinality |
+|------|-----|-------------|
+| `ProjectData` | `ProjectRepositoryChanges` | 1 : 0..1 |
+| `ProjectRepositoryChanges` | `IngestionJob` | many : 1 (`ingestion_job_id` = last sync) |
+| `ProjectRepositoryChanges` | `FileDiff` | 1 : many |
+
+**`last_synced_at`:** Use `ingestion_job.end_time` from the linked job (no duplicate column on this row).
 
 ### 5.3 New: `file_diff` (per-file composition + incremental unit)
 
-One row per `(project_changes, file path)` for each file in the net composition diff.
+**Implemented:** `app/models/file_diff.py`
+
+One row per `(project_repository_changes, file_path)` with meaningful net change (see §5.5.1 whitespace). **No `File` FK or ORM relationship** — only `file_path` + composite FK to `project_repository_changes`.
 
 ```python
-# app/models/file_diff.py
-
 class FileDiff(Base):
-    __tablename__ = "file_diff"
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, server_default=gen_random_uuid())
-
-    project_changes_id: Mapped[UUID] = mapped_column(
-        ForeignKey("project_changes.project_data_id"), index=True
-    )
-
-    file_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("file.id"), index=True, nullable=True,
-        comment="Resolved File row for this path on the data source; NULL if not yet ingested as code",
-    )
-    file_path: Mapped[str] = mapped_column(
-        String, nullable=False,
-        comment="Repo-relative path; kept when file row is removed",
-    )
-
-    # Subset of project_changes.commit_hashes that modify this path
-    commit_hashes: Mapped[list[str]] = mapped_column(ARRAY(String))
-
-    change_type: Mapped[str]  # added | modified | deleted (see §5.4.1)
-
-    # Canonical machine representation (see §5.5)
-    unified_diff: Mapped[str | None] = mapped_column(Text, nullable=True)
-    diff_hash: Mapped[str] = mapped_column(String(64))  # sha256(unified_diff or '')
-
-  # When True, do not delete this row when FileService removes the linked File row (deleted/moved paths)
-    retain_after_file_removed: Mapped[bool] = mapped_column(default=False)
-
-    ingestion_job_id: Mapped[UUID] = mapped_column(ForeignKey("ingestion_job.id"))
-    synced_at: Mapped[datetime]  # copy of ingestion_job.end_time when this row was written; agent "as of" label
-
-    __table_args__ = (
-        UniqueConstraint("project_changes_id", "file_path", name="uq_file_diff_project_changes_path"),
-    )
+    id: Mapped[UUID]                    # PK; stable file_diff_id in DocStore metadata
+    project_id, data_source_id          # FK → project_repository_changes
+    file_path: Mapped[str]
+    commit_hashes: Mapped[list[str]]     # ⊆ parent commit_hashes for this path
+    change_type: ChangeType             # added | modified | deleted
+    unified_diff: Mapped[str | None]    # see §5.5
+    diff_hash: Mapped[str]              # sha256 of stored unified_diff bytes
+    diff_truncated: Mapped[bool]
+    ingestion_job_id: Mapped[UUID]
 ```
 
-**Why both `file_id` and `file_path`:**
-
-- `file_path` is the **primary identity** for diff rows and DocStore metadata (matches composition output).
-- `file_id` is an **optional link** to the current code-ingest `File` at that path when it exists — used for convenience only, **not** for lifecycle/cascade delete (see §5.4.1).
+**ORM relationships (only):** `project_repository_changes`, `ingestion_job` — no `File` relationship.
 
 **Per-file commit attribution:**
 
 ```python
-# After merge into project_changes.commit_hashes:
 for sha in all_commits:
-    touched_paths = provider.get_commit_changed_paths(sha)  # or git show --name-only
-    for path in touched_paths:
+    for path in get_commit_changed_paths(sha):
         file_commit_map[path].add(sha)
-# file_diff.commit_hashes = sorted chronologically ⊆ project_changes.commit_hashes
 ```
 
 ### 5.4 Incremental sync (commit-driven; no `base_ref_sha` in v1)
@@ -246,7 +208,7 @@ Incremental behavior is driven by **project commit discovery**, not branch-tip t
 **Tier 0 — entire project diff step**
 
 ```text
-new_shas = commits from API since last_sync not already in project_changes.commit_hashes
+new_shas = commits from API since last_sync not already in project_repository_changes.commit_hashes
 IF new_shas is empty:
   SKIP composition + skip all file_diff / DocStore / Chroma work for this ProjectData
 ```
@@ -256,7 +218,7 @@ This matches `flow.md`: if nothing new attributed to the project, do not re-run 
 **Tier 1 — composition (only when Tier 0 has new SHAs)**
 
 ```text
-all_commits = merge_unique(project_changes.commit_hashes, new_shas)
+all_commits = merge_unique(project_repository_changes.commit_hashes, new_shas)
 composition = CompositionDiffService.build(..., all_commits)  # always full set
 ```
 
@@ -269,7 +231,7 @@ Build `file_commit_map[path]` = subset of `all_commits` whose patches touch `pat
 ```text
 FOR each path in composition_result.files:
   new_file_commits = file_commit_map[path]
-  existing = file_diff WHERE project_changes_id AND file_path
+  existing = file_diff WHERE project_id, data_source_id, file_path
 
   IF existing
      AND set(existing.commit_hashes) == set(new_file_commits)
@@ -279,11 +241,11 @@ FOR each path in composition_result.files:
        upsert file_diff; rewrite DIFF nodes for this path
 
 FOR each existing file_diff row:
-  IF file_path NOT IN composition.paths_with_net_change:
-    IF existing.change_type == 'deleted' OR existing.retain_after_file_removed:
-      KEEP row + DIFF nodes (refresh only if per-file commit_hashes changed)
+  IF file_path NOT IN composition.paths_with_meaningful_change:
+    IF existing.change_type == DELETED:
+      KEEP row + DIFF nodes (project removed this path; refresh if commit_hashes changed)
     ELSE:
-      DELETE file_diff + DIFF nodes   # net-zero revert: project no longer changes this path
+      DELETE file_diff + DIFF nodes   # net-zero revert (incl. former whitespace-only rows)
 ```
 
 **Detecting new files:** A path appears in `composition_result` but has no `file_diff` row → create row + ingest (no separate “new file detector” beyond composition + missing row).
@@ -298,35 +260,35 @@ FOR each existing file_diff row:
 
 | Event | `File` / code chunks | `file_diff` / DIFF nodes |
 |-------|----------------------|---------------------------|
-| Code stale delete (path gone from repo walk) | Delete `File`; remove code DocStore/Chroma by `file_id` | **Do not** auto-delete `file_diff` if `retain_after_file_removed` or `change_type=deleted` |
-| Project net-delete in composition | `File` may already be gone | **Upsert** `file_diff` at path with `change_type=deleted`, `retain_after_file_removed=True`, keep FileDiffHistory + embeddings |
-| Project rename (our model) | Old `File` stale-deleted; new `File` at new path | Old path: **deleted** row retained; new path: **added** row |
-| Project net-zero revert (path no longer in composition) | Unaffected | **Delete** `file_diff` + DIFF nodes (project no longer claims this path) |
-| Unlink project / clear scope | Policy TBD | Delete all `file_diff` for that `project_changes_id` |
+| Code stale delete (path gone from repo walk) | Delete `File`; remove **code** DocStore/Chroma by `file_id` | **Never** delete `file_diff` from `FileService` |
+| Project net-delete in composition | `File` may already be gone | **Upsert** `file_diff` with `change_type=deleted`; keep row + DELETED FileDiffHistory |
+| Project rename (our model) | Old `File` stale-deleted; new `File` at new path | Old path: **deleted** row kept; new path: **added** row |
+| Project net-zero revert | Unaffected | **Delete** `file_diff` where `change_type` was added/modified and path has no meaningful net change |
+| Unlink project / clear scope | Policy TBD | Delete all `file_diff` for that `(project_id, data_source_id)` |
 
 **Implementation rules:**
 
-1. **No `ON DELETE CASCADE`** from `file.id` → `file_diff.file_id`. Nullable `file_id` only.
-2. **`FileService.delete_stale_files` / `remove_chunks_from_docstore`:** Must **not** call project-diff deletion.
-3. **`ChunkInsertionService` DIFF delete:** Key off `file_diff_id` / `file_path` + `project_id`, never “all diffs for `file_id`” when removing code.
-4. On upsert of `change_type=deleted`, set `retain_after_file_removed=True` and populate DELETED FileDiffHistory (§8.2).
-5. **`synced_at`** on `file_diff` (and in DIFF metadata) so prompts can say “project change as of {iso_timestamp}”.
+1. **No `file_id` column** on `file_diff` — decoupling is structural, not a flag.
+2. **`FileService` stale-file paths** must not call project-diff delete.
+3. **`ChunkInsertionService` DIFF delete:** By `file_diff_id` / `(project_id, data_source_id, file_path)` only.
+4. **Reconcile** deletes rows only for net-zero (not `change_type=deleted`). Deleted paths stay until explicitly cleared by scope policy.
+5. **DIFF metadata:** `file_diff_id`, `file_path`, `project_id`, `data_source_id`, `synced_at` (= `ingestion_job.end_time` at write time).
 
-**Renames / moves (align with `FileService` path semantics, not `File` FK continuity):**
+**Renames / moves (handled in project-diff sync, not `File` ORM):**
 
 | Git / composition shows | `file_diff` behavior |
 |-------------------------|----------------------|
-| New path with content | `change_type=added`, new row at `file_path`; link `file_id` when code ingest creates `File` |
-| Old path net-removed by **project** | `change_type=deleted`, `retain_after_file_removed=True` at **old** `file_path` — **keep** row and DIFF nodes after `File` stale delete |
-| Git “rename” hunk | Normalize to **deleted** at old path + **added** at new path (two rows / two parents) |
+| New path with meaningful change | `change_type=added`, new row at `file_path` |
+| Old path removed by **project** | `change_type=deleted` at old `file_path` — **retain** row after code `File` delete |
+| Git “rename” hunk | Split → **deleted** at old path + **added** at new path |
 
-If composition emits a single rename hunk, split at parse time so agent text matches code-ingest semantics.
+If composition emits a single rename hunk, normalize at parse time before persist.
 
 ### 5.4.2 Known staleness without new project commits (v1 acceptance + follow-ons)
 
 **v1 policy:** Skip project-diff work when **no new issue-linked SHAs** (Tier 0). We intentionally **do not** store `base_ref_sha` or re-compose on unrelated `main` movement alone.
 
-**What still works:** Composition only cherry-picks `project_changes.commit_hashes`, so unrelated team commits are **not attributed** as project work in the stored diff.
+**What still works:** Composition only cherry-picks `project_repository_changes.commit_hashes`, so unrelated team commits are **not attributed** as project work in the stored diff.
 
 **Known gap (accepted for v1):** If the diff was generated earlier and **no new project commits** arrive, but another team **refactors surrounding context** or **moves** a file we touched, the stored FileDiffHistory can show stale SURROUNDING CONTEXT / BEFORE/AFTER framing while `view_file` shows current `main`. The agent might over-interpret context lines unless prompted otherwise — e.g. “we only added `OR`” but surrounding code changed later.
 
@@ -343,22 +305,58 @@ This is **staleness / grounding**, not false commit attribution. Mitigations are
 | Narrow context in FileDiffHistory | Prefer minimal BEFORE/AFTER hunks; trim SURROUNDING CONTEXT when regenerating to reduce misleading context |
 | Conflict / failed cherry-pick surfacing | Expose `failed_commits` in planning summary so agent does not trust partial diffs |
 
-### 5.5 What to store in `file_diff` (storage format)
+### 5.5 `unified_diff` and `diff_hash` (what they contain)
+
+| Field | What it is | What it is **not** |
+|-------|------------|---------------------|
+| **`unified_diff`** | Standard **git unified diff text for one path**: file header (`---` / `+++`) plus **all hunks** for that file from `git diff BASE COMPOSITE_HEAD -- <path>` | A single hunk; the full file contents; the whole-repo diff |
+| **`diff_hash`** | `sha256(stored_unified_diff_bytes).hexdigest()` (use `""` if null) | Something the agent reads; a hash of FileDiffHistory prose |
+
+**Pipeline:**
+
+1. Composition produces per-path unified diff text.
+2. Apply size cap → set `diff_truncated=True` if capped; hash the **stored** bytes → `diff_hash`.
+3. Parse unified diff in memory → build **FileDiffHistory** → DocStore parent + Chroma children.
+4. Tier 2 skip: same per-file `commit_hashes` **and** same `diff_hash` → skip DocStore/Chroma rewrite.
 
 | Store in Postgres | Store in DocStore | Do **not** use (v1) |
 |-------------------|-------------------|---------------------|
-| Per-file **unified diff** string (`git diff` hunk output for one path) | **FileDiffHistory** — formatted BEFORE/AFTER narrative for the agent | One row per hunk |
-| `diff_hash` for cheap equality checks | Parent `TextNode.text` | Full-repo diff on `project_changes` |
-| `commit_hashes` per file | — | Duplicate full FileDiffHistory in Postgres |
+| `unified_diff`, `diff_hash`, `diff_truncated` | FileDiffHistory parent `TextNode.text` | One DB row per hunk |
+| `commit_hashes` per file | — | Duplicate full narrative in Postgres |
 
-**Recommendation:** Store the **file-scoped unified diff** (output of `unidiff` / `git diff BASE COMPOSITE_HEAD -- <path>`), not individual hunks as separate rows. Hunks are parsed **in memory** at ingest to build FileDiffHistory; optionally cache parsed hunks in JSONB later if profiling shows parse cost matters.
+**Large files:** `MAX_FILE_DIFF_BYTES` (e.g. 512 KB). Cap `unified_diff`; set `diff_truncated=True`; DocStore may still trim SURROUNDING CONTEXT while keeping BEFORE/AFTER hunks (§8.4).
 
-For very large files:
+**UI “whole project diff”:** Concatenate per-file `unified_diff` rows for `(project_id, data_source_id)` — not used for agent search.
 
-- Cap `unified_diff` size (e.g. 512 KB); set `truncated: true` in metadata.
-- Optionally `BYTEA` + gzip for UI export only; agent path uses truncated FileDiffHistory in DocStore.
+### 5.5.1 Whitespace-only and no-op diffs (skip persist)
 
-**Reconstructing “whole project diff”:** `SELECT unified_diff FROM file_diff WHERE project_changes_id = ? ORDER BY file_path` and concatenate — suitable for a future UI viewer, not for agent search.
+Cherry-pick / `git apply` may use `--ignore-whitespace`; a path can appear “touched” by commit metadata but have **no meaningful net change** in the composition output.
+
+**v1 policy — skip, do not store:**
+
+After parsing a per-file unified diff:
+
+1. Classify hunks (§8.1). Drop `context_only` hunks.
+2. If every remaining hunk is **whitespace-only** (only `-`/`+` lines that are empty or whitespace), treat the file as **no meaningful change**:
+   - **Do not** insert/update `file_diff` or DocStore/Chroma for that path.
+   - If a `file_diff` row existed from a prior sync, **delete** it on reconcile (net-zero).
+   - Log at debug: `skipped_whitespace_only path=...`.
+
+**Helper (implement in `diff_parser.py`):**
+
+```python
+def has_meaningful_changes(hunks: list[DiffHunk]) -> bool:
+    for h in hunks:
+        if h.change_type == "context_only":
+            continue
+        if any(line.strip() for line in h.before_lines + h.after_lines):
+            return True
+    return False
+```
+
+**Optional git-side check (Phase 3):** When extracting per-file diff, `git diff -w BASE COMPOSITE_HEAD -- <path>` empty → skip before parse.
+
+**Document for operators:** A commit may list a path in `git show --name-only` but produce no storable project diff if the net change is whitespace-only or cancels out in composition.
 
 ### 5.6 DocStore vs Postgres — division of responsibility
 
@@ -367,13 +365,13 @@ For very large files:
 | Incremental sync / skip unchanged | Tier 0: no new project SHAs; Tier 2: per-file `commit_hashes` + `diff_hash` | — |
 | Per-file commit attribution | `file_diff.commit_hashes` | optional copy in parent metadata |
 | Semantic / grep search for agent | — | **Required** — existing parent/child pattern |
-| Cleanup when code `File` stale-deleted | **No** auto-delete of `file_diff` | DIFF nodes kept when `retain_after_file_removed` or `change_type=deleted` |
+| Cleanup when code `File` stale-deleted | **No** auto-delete of `file_diff` | DIFF kept for `change_type=deleted` paths |
 | Cleanup when project drops path (net-zero) | Delete `file_diff` row | Delete DIFF by `file_diff_id` / `file_path` + `project_id` |
 | UI “view diff” later | `unified_diff` per file | optional mirror |
 
 **Answer:** Yes, keep DocStore (and Chroma). Postgres holds **sync truth and canonical diff bytes**; DocStore holds **agent-optimized narrative**; Chroma holds **embeddings**. Querying all `file_diff` rows replaces semantic search only if you load everything into the LLM — not viable for large projects.
 
-Add `file_diff_id` (and `file_id`) to DIFF node metadata so deletes are precise without scanning the whole namespace.
+Add `file_diff_id`, `file_path`, `project_id`, `data_source_id`, `synced_at` to DIFF metadata (no `file_id`).
 
 ### 5.7 Pydantic / service DTOs (ingestion internals)
 
@@ -412,8 +410,8 @@ All DIFF nodes **must** include:
     "project_id": str(project_id),
     "data_source_id": str(data_source_id),
     "file_diff_id": str(file_diff.id),
-    "file_id": str(file_id) if file_id else None,
     "file_path": "src/auth/handler.py",
+    "synced_at": "2026-05-24T12:00:00Z",
     "change_type": "modified",           # file-level on parent
     "change_types": ["modified"],        # list for multi-hunk files
     "commit_count": 3,                   # len(file_diff.commit_hashes)
@@ -495,12 +493,12 @@ Fetch metadata via `GET /repos/{owner}/{repo}/commits/{sha}` or `git log --forma
 |---------|--------|
 | Single commit conflicts on cherry-pick | Fall back to `git apply --3way` for that commit only |
 | Apply still fails | Add SHA to `failed_commits`; log warning; optionally exclude file from composition or abort project sync |
-| Clone timeout / disk | Fail `project_changes` update; leave previous sync row; mark ingestion job partial success (define policy) |
+| Clone timeout / disk | Fail `project_repository_changes` update; leave previous sync row; mark ingestion job partial success (define policy) |
 | Empty commit set | Skip diff persistence; clear DIFF nodes if previously existed |
 
 ### 6.5 Per-file diff extraction
 
-After `git diff BASE COMPOSITE_HEAD`, split by file (via `unidiff.PatchSet` or path-filtered `git diff BASE COMPOSITE_HEAD -- <path>`) and persist each slice on `file_diff.unified_diff`. Do **not** store the full multi-file blob on `project_changes`.
+After `git diff BASE COMPOSITE_HEAD`, split by file (via `unidiff.PatchSet` or path-filtered `git diff BASE COMPOSITE_HEAD -- <path>`) and persist each slice on `file_diff.unified_diff` when meaningful (§5.5.1). Do **not** store the full multi-file blob on `project_repository_changes`.
 
 ### 6.6 Container requirements
 
@@ -546,7 +544,7 @@ self._cleanup_tmp_dirs(job_pk)  # existing
 For each `project_data` where `data_source` is the repository being ingested:
 
 ```
-1. Load Project (epics), ProjectData, existing project_changes (if any)
+1. Load Project (epics), ProjectData, existing project_repository_changes (if any)
 
 2. Resolve IssueTrackerDataProvider:
    - Find linked DataSources for project where type == ISSUE_TRACKER
@@ -555,29 +553,29 @@ For each `project_data` where `data_source` is the repository being ingested:
 3. task_issue_keys = IssueTracker.get_issues(project.epics)
    - Always refresh (new stories may appear under epics)
 
-4. last_sync_time = project_changes.last_synced_at if exists else None
+4. last_sync_time = project_repository_changes.ingestion_job.end_time if row exists else None
 
 5. new_commits = RepositoryProvider.get_commits_matching_issues(
        issue_keys=task_issue_keys,
        since=last_sync_time,
    )
-   - If no project_changes: all matching commits on branch (paginated)
+   - If no project_repository_changes row: all matching commits on branch (paginated)
    - Else: commits after last_sync_time with message containing any issue key
 
-6. all_commits = merge_unique(project_changes.commit_hashes, new_commits.shas)
+6. all_commits = merge_unique(project_repository_changes.commit_hashes, new_commits.shas)
 
 7. composition = CompositionDiffService.build(repo_path, data_source.branch, all_commits)
 
 8. For each file in composition:
        - Compute per-file commit_hashes (subset of all_commits)
-       - Resolve file_id from File table (data_source_id + path)
+       - If parse → no meaningful change (§5.5.1): skip or delete existing file_diff
        - If file_diff unchanged (§5.4): skip vector/doc rewrite
        - Else: upsert file_diff; persist_project_file_diff → DocStore + Chroma
 
-9. Upsert project_changes:
+9. Upsert project_repository_changes:
        commit_hashes, files_touched, file_count, ingestion_job_id
 
-10. Reconcile file_diff rows (§5.4): delete only net-zero paths; retain deleted / retain_after_file_removed
+10. Reconcile file_diff rows (§5.4): delete net-zero; retain change_type=deleted; drop whitespace-only
 ```
 
 ### 7.4 Issue key matching in commit messages
@@ -599,8 +597,8 @@ On each successful project diff sync:
 
 1. Recompute composition from full `commit_hashes` (composition is always whole-set).
 2. **Per file:** if `file_diff` row is new or per-file `commit_hashes` / `diff_hash` changed → delete DIFF nodes for that `file_path` (or `file_diff_id`) only, then re-insert.
-3. **Paths dropped** from net composition → delete `file_diff` only if not `deleted` / `retain_after_file_removed` (net-zero revert).
-4. Upsert `project_changes` aggregate fields.
+3. **Paths dropped** from meaningful composition → delete `file_diff` unless `change_type=deleted` (retain removed-path history).
+4. Upsert `project_repository_changes` aggregate fields.
 
 Full wipe of all DIFF nodes for `(project_id, data_source_id)` remains a valid fallback on schema migration or corruption recovery, but is not required every sync when file-level hashing is in place.
 
@@ -627,7 +625,9 @@ def parse_unified_diff(raw: str) -> list[FileDiff]:
 | yes | yes | `modified` |
 | no | yes | `added` |
 | yes | no | `deleted` |
-| whitespace only | whitespace only | `context_only` → **skip** |
+| whitespace only | whitespace only | `context_only` → **skip** (see §5.5.1) |
+
+**Whitespace-only hunk:** all `-`/`+` lines are empty or whitespace-only → does not count as meaningful; file may be omitted entirely.
 
 Extract:
 
@@ -889,9 +889,9 @@ At workflow start, compute:
 
 ```python
 {
-  "commit_count": len(project_changes.commit_hashes),
-  "file_count": project_changes.file_count,
-  "top_files": project_changes.files_touched[:10],
+  "commit_count": len(project_repository_changes.commit_hashes),
+  "file_count": project_repository_changes.file_count,
+  "top_files": project_repository_changes.files_touched[:10],
   "failed_commits": composition.failed_commits if any,
 }
 ```
@@ -996,12 +996,11 @@ async def get_issue_tracker_for_project(db, project_id: UUID) -> DataSource:
 
 ### Phase 1 — Schema & tracking (S)
 
-- [ ] Alembic: `project_changes` + `file_diff` tables
-- [ ] SQLAlchemy models + export in `models/__init__.py` (align `project_changes` with `ProjectData` PK)
-- [ ] `ProjectChangesService` CRUD (get by project_data, upsert)
-- [ ] `FileDiffService` CRUD (list by project_changes, upsert, delete stale paths)
-- [ ] Resolve `file_id` from `(data_source_id, file_path)` during diff persist (nullable; no cascade delete)
-- [ ] `retain_after_file_removed` + `synced_at` on `file_diff`; verify `FileService` stale path does not delete DIFF nodes
+- [x] SQLAlchemy: `project_repository_changes` + `file_diff` (`app/models/`)
+- [ ] Alembic migration for both tables
+- [ ] `ProjectRepositoryChangesService` CRUD (get by `project_id` + `data_source_id`, upsert)
+- [ ] `FileDiffService` CRUD + reconcile (net-zero delete; retain `change_type=deleted`)
+- [ ] Verify `FileService` stale path does **not** delete `file_diff` or DIFF nodes
 
 ### Phase 2 — Commit discovery (M)
 
@@ -1015,7 +1014,7 @@ async def get_issue_tracker_for_project(db, project_id: UUID) -> DataSource:
 - [ ] `CompositionDiffService` (clone, cherry-pick -n chain, diff BASE..HEAD)
 - [ ] `unidiff` dependency in `pyproject.toml` / requirements
 - [ ] Conflict fallback (`git apply --3way`)
-- [ ] `diff_parser.py` → `FileDiff` / `DiffHunk`
+- [ ] `diff_parser.py` → `FileDiff` DTO / `DiffHunk` + `has_meaningful_changes` (§5.5.1)
 
 ### Phase 4 — Persistence (M)
 
@@ -1053,15 +1052,16 @@ async def get_issue_tracker_for_project(db, project_id: UUID) -> DataSource:
 
 | Edge case | Handling |
 |-----------|----------|
-| No commits match issue keys | Clear DIFF nodes; `project_changes` with empty hashes or skip row |
+| No commits match issue keys | Clear DIFF nodes; `project_repository_changes` with empty hashes or skip row |
 | `git apply --3way` fails | Record in `failed_commits`; optional per-file fallback to single-commit diff via `git show <sha> -- <path>` |
 | Commits already on main (double-apply risk) | `cherry-pick -n` may noop or conflict; prefer `git show` patch format from each commit **as isolated patch** applied sequentially—document that patches are relative to parent trees; test heavily |
 | Merge commits in list | Skip merge commits without direct changes (`git show -m` policy) or use first parent only |
 | Forked repo / wrong branch | Use `data_source.branch`; log warning if zero commits |
-| Multiple projects on same DS | Each has own `project_changes` + DIFF metadata `project_id`; shared clone OK |
+| Multiple projects on same DS | Each has own `project_repository_changes` + DIFF metadata `project_id`; shared clone OK |
 | Re-ingest code without scoping | General code chunks refresh independently |
 | Issue tracker down | Fail project diff step; do not delete previous DIFF nodes unless policy says otherwise |
-| Code ingest deletes `File`; project had deleted that path | Keep `file_diff` + DIFF (`retain_after_file_removed`); agent still sees REMOVED CODE |
+| Code ingest deletes `File`; project had deleted that path | Keep `file_diff` (`change_type=deleted`); agent still sees REMOVED CODE in DIFF |
+| Path touched in commits but whitespace-only net diff | Skip `file_diff` persist; delete prior row if any (§5.5.1) |
 | Other team changes file after project sync; no new project SHAs | Stored diff unchanged (v1); prompt + `view_file` for live truth; see §5.4.2 / §17 |
 | Other team moves file we touched | Old path `file_diff` may retain; `view_file` at old path fails — follow-on relocation hints (§17) |
 
@@ -1103,7 +1103,7 @@ on a branch that tracks only applied project state (not BASE’s full history).
 
 - **UI diff viewer:** Render concatenated `file_diff.unified_diff` (or per-file tabs) with diff2html
 - **Webhook-triggered ingestion** instead of nightly-only
-- **PR list on `project_changes`** for display-only (derived from commits)
+- **PR list on `project_repository_changes`** for display-only (derived from commits)
 
 ### Providers & performance
 
@@ -1116,7 +1116,7 @@ These address cases where **no new project commits** sync runs, but **shared `ma
 
 - **`base_ref_sha` + optional branch refresh job:** Re-compose when branch tip changes even if `commit_hashes` unchanged; update per-file `diff_hash` only where output differs
 - **Stronger prompt + tool contracts:** Always surface `synced_at`; require `view_file` before citing line-level surrounding context from project search
-- **Drift detection:** After code ingest, compare live paths/hashes to `file_diff.file_path` / `file_id`; emit warnings in `{project_scoping_context}` for planning
+- **Drift detection:** After code ingest, compare live paths to `file_diff.file_path` (provider `view_file`); emit warnings in `{project_scoping_context}` for planning
 - **Path relocation assistance:** If diff path missing on provider, search/suggest new path (filename match, git log follow) — read-only hint, not automatic rewrite of `file_path`
 - **Tighter FileDiffHistory:** Reduce SURROUNDING CONTEXT size by default; optional “full context” flag for UI only
 - **Composition conflict UX:** Surface `failed_commits` and per-file apply failures in agent summary
@@ -1144,7 +1144,7 @@ sequenceDiagram
         Jira-->>Job: task_issue_keys
         Job->>GH: get_commits_matching_issues(keys, since)
         GH-->>Job: new SHAs
-        Job->>Job: merge into project_changes.commit_hashes
+        Job->>Job: merge into project_repository_changes.commit_hashes
         Job->>Comp: build(repo, branch, all_shas)
         Comp-->>Job: unified_diff_raw
         Job->>Parse: parse_unified_diff
@@ -1154,7 +1154,7 @@ sequenceDiagram
             Job->>CIS: delete DIFF nodes for file_diff_id if changed
             Job->>CIS: parent TextNode + Chroma children
         end
-        Job->>PG: upsert project_changes
+        Job->>PG: upsert project_repository_changes
     end
 
     Note over Job,Chroma: Agent runtime
@@ -1177,5 +1177,6 @@ sequenceDiagram
 | 2026-05-24 | Split diff storage: `file_diff` per path with per-file `commit_hashes`, unified diff in Postgres; incremental skip via `diff_hash`; DocStore/Chroma retained for agent search; `project_changes` aggregate only (no full-repo diff blob). |
 | 2026-05-24 | Incremental sync: commit-driven tiers (no `base_ref_sha` in v1); rename/move aligned with `FileService` (path-keyed, split delete+add). |
 | 2026-05-24 | `file_diff` decoupled from `File` lifecycle; retain deleted/moved-path DIFF + `retain_after_file_removed`; §5.4.2 staleness follow-ons; prompt grounding for live `view_file`. |
+| 2026-05-24 | Renamed aggregate to `project_repository_changes`; composite PK; removed `file_id` / `retain_after_file_removed`; §5.5 unified_diff vs diff_hash; §5.5.1 whitespace-only skip; model `diff_truncated`. |
 
 **Supersedes for implementation:** `scoping_changes_to_project_plan.md` and `PROJECT_SCOPING_UPDATES.md` where they conflict with commit-based flow and `scope_by_issues` on `DataSource`. Keep those files for historical chunk-format reference only.
