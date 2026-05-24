@@ -1,0 +1,5 @@
+Architecture Concerns
+What are the potential issues with larger repositories getting ingested and stored as Chroma DB vectors, as well as DocStore nodes? When repositories have well over hundred thousand lines, how much storage is going to need to be leveraged to store those in our Vector/Relational DB? What are the drawbacks of when we're ingesting, going through and effectively writing the entire repository to file on disk, and then proceeding to deleting it after the fact?
+Handling failures during Ingestion Jobs gracefully
+What happens when we're ingesting data, and a failure happens to occur? What's the state of Chroma & the DocStore? Should this approach be an "all-or-nothing" where all the updates we made to Files are rolled-back, and if so, how do we account for the inability to "transactionalize" the Chroma Vector Store?
+What happens to the state of the temporary directory
