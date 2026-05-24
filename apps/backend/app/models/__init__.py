@@ -4,6 +4,8 @@ from .data_source import DataSource
 from .ingestion_job import IngestionJob, ProcessingStatus
 from .project import Project
 from .project_data import ProjectData
+from .project_repository_changes import ProjectRepositoryChanges
+from .file_diff import FileDiff
 from .conversation import Conversation
 from .message import Message, Sender
 from .file import File
@@ -21,6 +23,8 @@ __all__ = [
     "IngestionJob",
     "Project",
     "ProjectData",
+    "ProjectRepositoryChanges",
+    "FileDiff",
     "Conversation",
     "Message",
     "ProcessingStatus",
