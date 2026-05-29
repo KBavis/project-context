@@ -1,12 +1,30 @@
 #!/bin/bash
 
 
+##########
+# GLOBALS
+##########
+
+# determine if this script is being ran on WSL or native Linux
+if grep "microsoft" /proc/version > /dev/null 2>&1; then
+	IS_WSL=true
+else
+	IS_WSL=false 
+fi
+
+# find `contextualized` repository home 
+PROJECT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+printf "Contextualized Repository root: $PROJECT_HOME\n\n"
+
+
+
+
 #############
 # FUNCTIONS
 ############
 
 get_available_space() {
-	if grep "microsoft" /proc/version > /dev/null 2>&1; then
+	if [ "$IS_WSL" = true ]; then
 		echo "WSL Detetected: Checking C:/ Drive for Storage Availability"
 		CURRENT_AVAILABLE=$(df -BG /mnt/c | awk 'NR==2 {print $4}' | sed 's/G//')
 	else
@@ -15,22 +33,30 @@ get_available_space() {
 	fi
 }
 
+start_docker() {
+	if [ "$IS_WSL" = true ]; then
+		echo "WSL Detetected: Enabling Docker via Docker Desktop"
+		powershell.exe -Command "Start-Process 'C:\Program Files\Docker\Docker\Docker Desktop.exe'"
+	else
+		echo "Native Linux Detected: Enabling Docker via Systemctl"
+		sudo systemctl start docker 
+	fi
+}
+
 ###############
 # SCRIPT START
 ###############
 
-# 1. Find `contextualized` repository home 
-PROJECT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-printf "Contextualized Repository root: $PROJECT_HOME\n\n"
 
 
-# 2. Ensure that `docker` is available on current machine 
+# 1. Ensure that `docker` is available on current machine 
 if ! docker info > /dev/null 2>&1; then
 
 	printf "Docker is not running. Attempting to start Docker Desktop..."
 
 	# 2a) Attempt to start Docker 
-	sudo systemctl start docker 
+	start_docker
+	
 
 	# 2b) Attempt to validate Docker started
 	RETRY_COUNT=0
@@ -45,7 +71,7 @@ if ! docker info > /dev/null 2>&1; then
 	done
 fi
 
-# 2c) Validate Docker setup completed 
+# 1a) Validate Docker setup completed 
 if ! docker info > /dev/null 2>&1; then
 	printf "\nError: Docker failed to initalize. Please ensure Docker is installed"
 	exit 1
@@ -54,16 +80,16 @@ fi
 printf "Docker Running: $(docker --version)\n\n"
 
 
-# 3) Ensure available space required for building Docker Images
+# 2) Ensure available space required for building Docker Images
 MIN_SPACE_REQUIRED=15
 echo "Validating ${MIN_SPACE_REQUIRED} GB's available for Docker Images"
 
 
-# 3a) Determine which drive to search for space availability based on OS 
+# 2a) Determine which drive to search for space availability based on OS 
 get_available_space 
 
 
-# 3b) Ensure that required space is available 
+# 2b) Ensure that required space is available 
 if [ $CURRENT_AVAILABLE -lt $MIN_SPACE_REQUIRED ]; then
 	printf "Only ${CURRENT_AVAILABLE}GB's Available; Attempting to prune Docker Images\n"
 	
@@ -86,10 +112,10 @@ fi
 printf "Successfully validated ${CURRENT_AVAILABLE}GB's available\n\n"
 
 
-# 4) Build Docker Images 
+# 3) Build Docker Images 
 printf "Building Docker Images for Contextualized\n"
 
-# 4a) Frontend
+# 3a) Frontend
 printf "Building Frontend Docker Image...\n"
 (
 	cd "${PROJECT_HOME}/apps/frontend" || exit 1
@@ -97,7 +123,7 @@ printf "Building Frontend Docker Image...\n"
 )
 
 
-# 4b)Backend
+# 3b)Backend
 printf "\nBuilding Backend Docker Image...\n"
 (
 	cd "${PROJECT_HOME}/apps/backend"
