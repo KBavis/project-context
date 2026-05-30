@@ -197,60 +197,9 @@ class GithubDataProvider(RepositoryDataProvider):
             )
     
 
-   
-
-    async def resolve_prs(self, story_keys: list[str]) -> list[int]:
-        """
-        Find PRs associated with the given story keys using GitHub Search API.
-        Returns a list of PR numbers.
-        """
-        if not story_keys:
-            return []
-            
-        prs = []
-        try:
-            # Construct a search query that ORs the story keys
-            # Format: repo:owner/name is:pr "KEY-1" OR "KEY-2"
-            repo_filter = f"repo:{self.repository_owner}/{self.repository_name}"
-            keys_query = " OR ".join([f'"{key}"' for key in story_keys])
-            query = f"{repo_filter} is:pr {keys_query}"
-            
-            url = f"https://api.github.com/search/issues"
-            params = {"q": query, "per_page": 100}
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, params=params, headers=self.request_headers)
-                response.raise_for_status()
-                data = response.json()
-                
-                for item in data.get("items", []):
-                    # GitHub search returns PRs as issues, but they have a pull_request node
-                    if "pull_request" in item:
-                        prs.append(item["number"])
-                        
-        except Exception as e:
-            logger.error(f"Failure resolving PRs for story keys {story_keys}: {str(e)}")
-            
-        return list(set(prs))
-
-    async def get_pr_diff(self, pr_number: int) -> str:
-        """
-        Get the unified diff for a specific PR.
-        Returns the raw diff string.
-        """
-        try:
-            url = f"https://api.github.com/repos/{self.repository_owner}/{self.repository_name}/pulls/{pr_number}"
-            # Use specific accept header for diff
-            headers = self.request_headers.copy() if self.request_headers else {}
-            headers["Accept"] = "application/vnd.github.v3.diff"
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                return response.text
-        except Exception as e:
-            logger.error(f"Failure getting diff for PR #{pr_number}: {str(e)}")
-            return ""
+    ############################################################
+    ### Internal Tool Definitions For Ingestable Data Providers 
+    ############################################################
 
     async def view_file(self, file_path: str) -> str:
         """
@@ -258,9 +207,10 @@ class GithubDataProvider(RepositoryDataProvider):
 
         Args:
             file_path (str): The absolute path to the file to view 
-                - NOTE: should contain prefixed "/"
+                Usage:
+                    - file_path == "file.py" --> <REPO_HOME>/file.py
+                    - file_path == "dir/file.py" --> <REPO_HOME>/dir/file.py
         """
-
 
         try:
             # build url to retrieve data
@@ -286,7 +236,9 @@ class GithubDataProvider(RepositoryDataProvider):
 
         Args:
             path (str): The absolute path to the directory to list the contents of 
-                - NOTE: should contain prefixed "/" (IF NOT ROOT DIRECTORY)
+                Usage: 
+                    - path == "" --> root directory 
+                    - path == "/app" --> app directory 
         """
         
         content = None 
@@ -322,9 +274,6 @@ class GithubDataProvider(RepositoryDataProvider):
                 f"Failure occurred while attempt to list directory: {path}", e
             )
         
-
-
-
 
     async def generate_citation(self, path: str) -> str:
         """

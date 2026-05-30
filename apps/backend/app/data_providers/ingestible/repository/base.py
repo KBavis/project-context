@@ -70,13 +70,6 @@ class RepositoryDataProvider(IngestibleDataProvider):
         Construct the base URLs for the repository.
         """
         raise NotImplementedError()
-    
-    @abstractmethod
-    async def resolve_prs(self, story_keys: list[str]) -> list[int]:
-        """
-        Find PRs associated with the provided issue tracker story keys.
-        """
-        raise NotImplementedError()
         
     @abstractmethod
     async def get_pr_diff(self, pr_number: int) -> str:
