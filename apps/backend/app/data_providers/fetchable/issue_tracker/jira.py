@@ -11,52 +11,84 @@ logger = logging.getLogger(__name__)
 
 class JiraDataProvider(IssueTrackerDataProvider):
     """
-    Implementation of IssueTrackerDataProvider for Jira.
+    Data provider for interfacing with Jira. As of now, the main functionlity
+    this provider is responsible for is resolving all the child stories/tasks
+    for a given set of 'Epic' keys. This is something that is fairly unique 
+    to Jira, so other IssueTrackerDataProvider implementations may just simply 
+    return the set of configured IssueKeys set up on a given Project. 
     """
-    def __init__(self, data_source, base_url: str = "", email: str = "", api_token: str = ""):
+    def __init__(self, data_source):
         super().__init__(data_source=data_source)
-        # Assuming URL/creds are passed or retrieved from data_source metadata
-        self.base_url = base_url.rstrip("/") if base_url else data_source.url.rstrip("/")
-        # Note: in real implementation, email/api_token might come from Secrets Manager. 
-        self.auth = (email, api_token)
+        self.auth = (settings.JIRA_EMAIL, settings.JIRA_API_TOKEN) # TODO: Configure Authentication for Jira Data Provider
+
 
     def _validate_url(self, url: str):
         # TODO: Implement URL validation
         pass
 
+
     def _get_request_headers(self) -> dict[str, str] | None:
         # TODO: Implement request headers extraction
         return None
 
+
     async def get_issues(self, epics: list[str]) -> list[str]:
         """
-        Find all stories/tasks that are children of the provided Epic keys.
-        Returns a list of Jira issue keys (e.g., ["PROJ-101", "PROJ-102"]).
+        Find all stories/tasks linked to a given set of Epic Keys. 
         """
+
         if not epics:
             return []
 
         story_keys = []
+        url = f"{self.url}/rest/api/3/search"
+
+
+        # leverage JQL with the provided set of Epics to find child stories/tasks 
         try:
-            # JQL to find all issues linked to the given epics
+
+            # configure JQL query
             epics_jql = ", ".join([f'"{key}"' for key in epics])
             jql = f'"Epic Link" in ({epics_jql}) OR parent in ({epics_jql})'
-            
-            url = f"{self.base_url}/rest/api/3/search"
-            params = {
+
+            # configure initial payload for Jira Search API
+            payload = {
                 "jql": jql,
-                "fields": "key",
-                "maxResults": 100
+                "fields": ["key"], 
+                "maxResults": 100,
+                "startAt": 0
             }
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, params=params, auth=self.auth)
-                response.raise_for_status()
-                data = response.json()
-                
-                for issue in data.get("issues", []):
-                    story_keys.append(issue["key"])
+
+            # configure client to be leveraged for pagination through Jira Search API results
+            client = httpx.AsyncClient()
+
+            try:
+
+                # loop through paginated response if necessary  
+                while True:
+
+                    resposne = await client.post(url, json=payload, auth=self.auth, headers=self._get_request_headers())
+                    response.raise_for_status()
+
+                    # extract story keys from resposne 
+                    data = response.json()
+                    issues = data.get("issues", [])
+                    for issue in issues:
+                        story_keys.append(issue["key"])
+
+                    # determine if there are additional results to fetch 
+                    total = data.get("total", 0)
+                    current_recieved = payload["startAt"] + len(issues)
+                    if current_recieved >= total or not issues:
+                        logger.info(f"Finished fetching linked stories for epics {epics}. Total stories found: {len(story_keys)}")
+                        break
                     
+                    # advance pointer for next batch of results
+                    payload["startAt"] += payload["maxResults"]
+
+            finally:
+                await client.aclose() 
+     
         except Exception as e:
             logger.error(f"Failure resolving Jira stories for epics {epics}: {str(e)}")
             
