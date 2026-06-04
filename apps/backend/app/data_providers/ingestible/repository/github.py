@@ -167,11 +167,13 @@ class GithubDataProvider(RepositoryDataProvider):
             buffer = BytesIO()
             hashed_content = await asyncio.to_thread(self.file_svc.hash_file_content, response, buffer)
 
+            
+
             # determine file status 
             file = File(
                 path=file_path, 
                 file_name=file_name, 
-                file_type=file_extension, 
+                file_type=self.file_svc.get_file_extension(file_extension), 
                 size=size, 
                 hash=hashed_content,
                 file_url=url

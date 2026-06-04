@@ -8,6 +8,7 @@ from app.pydantic import FileProcesingStatus, File as FilePydantic
 from app.core import settings
 from app.services.chroma import ChromaService
 from app.models.docstore_chunk import DocstoreChunk
+from app.pydantic import CodeFileExtension, DocsFileExtension
 
 from typing import List
 from uuid import UUID
@@ -170,6 +171,30 @@ class FileService:
 
         # remove stale File's from DB 
         await self.delete_stale_files_from_db(stale_file_ids)
+    
+
+    def get_file_extension(self, file_extension: str) -> CodeFileExtension | DocsFileExtension:
+        """
+        Utility function to convert file extension string into relevant Enum value (if exists)
+
+        Args:
+            file_extension (str): the file extension string we are looking to convert into an Enum value 
+        """
+
+        # attempt to convert to Code file extension
+        try:
+            return CodeFileExtension(file_extension)
+        except ValueError:
+            pass
+        
+        # attempt to convert to Docs file extension
+        try:
+            return DocsFileExtension(file_extension)
+        except ValueError:
+            pass
+        
+        # error out in the case that the file extension provided is invalid 
+        raise Exception(f"File extension {file_extension} not found in either CodeFileExtension or DocsFileExtension enums")
 
 
 
