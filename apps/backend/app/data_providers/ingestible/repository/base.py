@@ -72,13 +72,6 @@ class RepositoryDataProvider(IngestibleDataProvider):
         raise NotImplementedError()
         
     @abstractmethod
-    async def get_pr_diff(self, pr_number: int) -> str:
-        """
-        Get the unified diff for a specific PR.
-        """
-        raise NotImplementedError()
-        
-    @abstractmethod
     async def _get_repository_data(self, curr_url: str, file_svc: FileService, job_pk: UUID):
         """
         Recursively pull down the repository contents.
