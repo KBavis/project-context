@@ -67,7 +67,7 @@ class JiraDataProvider(IssueTrackerDataProvider):
                 # loop through paginated response if necessary  
                 while True:
 
-                    resposne = await client.post(url, json=payload, auth=self.auth, headers=self._get_request_headers())
+                    response = await client.post(url, json=payload, auth=self.auth, headers=self._get_request_headers())
                     response.raise_for_status()
 
                     # extract story keys from resposne 
