@@ -84,4 +84,12 @@ class RepositoryDataProvider(IngestibleDataProvider):
         Download a file to the temporary directory.
         """
         raise NotImplementedError()
+    
+
+
+    async def get_latest_commit_sha(self) -> str:
+        """
+        Get the latest commit SHA for the repository.
+        """
+        raise NotImplementedError()
         

@@ -6,6 +6,7 @@ from uuid import UUID
 from pathlib import Path
 import httpx
 from io import BytesIO
+from datetime import datetime
 
 from .base import RepositoryDataProvider
 from app.core import settings
@@ -293,4 +294,105 @@ class GithubDataProvider(RepositoryDataProvider):
             logger.error(f"Failure generating citation for path={path} with exception={str(e)}")
             raise Exception(
                 f"Failure occurred while attempt to generate citation for path: {path}", e
+            )
+    
+
+    async def get_latest_commit(self, issue_numbers: list[str]) -> (str, datetime):
+        """
+        Get the latest commit SHA and datetime for the repository that has one of the specified 
+        issue numbers in its commit message 
+
+        Args:
+            issue_numbers (list[str]): The list of issue numbers to filter commits by
+        """
+
+        # ensure issue numbers provided
+        if not issue_numbers:
+            raise Exception("Issue numbers must be provided to filter commits by")
+
+        try:
+            
+            # construct URL 
+            issues = "+OR+".join(issue_numbers)
+            query = f"repo:{self.repository_owner}/{self.repository_name}+{issues}"
+            url = f"https://api.github.com/search/commits?q={query}&sort=committer-date&order=desc&per_page=1"
+
+            # make async request to retrieve data
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.request_headers)
+                response.raise_for_status()
+
+                # validate response
+                commits = response.json()
+                if not commits:
+                    logger.warning(f"No commits found for repository {self.full_name} with issue numbers {issue_numbers}")
+                    return None 
+                
+
+                items = commits.get("items", [])
+                if not items:
+                    logger.warning(f"No commits found for repository {self.full_name} with issue numbers {issue_numbers}")
+                    return None
+
+                # extract and return latest commit SHA and associated date/time
+                sha = items[0]['sha']
+                date_string = items[0]['commit']['committer']['date']
+
+                return sha, datetime.fromisoformat(date_string)
+
+        except Exception as e:
+            logger.error(f"Failure getting latest commit SHA with exception={str(e)}")
+            raise Exception(
+                f"Failure occurred while attempt to get latest commit SHA for repository: {self.full_name}", e
+            )
+    
+
+
+    async def get_all_commit_sha(self, issue_numbers: list[str], latest_commit_date: datetime = None) -> list[str]:
+        """
+        Get all commit SHAs for the repository since the last commit that have commit messages 
+        containing one of the specified issue numbers 
+
+        Args:
+            issue_numbers (list[str]): The list of issue numbers to filter commits by
+            latest_commit_date (datetime): The date of the latest commit that was processed.
+        """
+        # Ensure issue numbers provided
+        if not issue_numbers:
+            raise Exception("Issue numbers must be provided to filter commits by")
+
+        try:
+            # 1. Base query setup
+            issues = "+OR+".join(issue_numbers)
+            query = f"repo:{self.repository_owner}/{self.repository_name}+{issues}"
+            
+            # 2. Conditionally append the date cutoff if provided
+            if latest_commit_date:
+                # Convert datetime object to ISO 8601 string expected by GitHub
+                iso_date = latest_commit_date.isoformat()
+                query += f"+committer-date:>{iso_date}"
+                
+            # 3. Assemble URL (Note: dropped per_page=1 to get all results up to 100 max per page)
+            url = f"https://api.github.com/search/commits?q={query}&sort=committer-date&order=desc&per_page=100"
+
+            # 4. Make async request to retrieve data
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.request_headers)
+                response.raise_for_status()
+
+                commits = response.json()
+                items = commits.get("items", [])
+                
+                if not items:
+                    logger.info(f"No new commits found for repository {self.full_name} matching criteria.")
+                    return []
+
+                # 5. Extract all SHAs from the list of items
+                commit_shas = [item['sha'] for item in items]
+                return commit_shas
+
+        except Exception as e:
+            logger.error(f"Failure getting all commit SHAs with exception={str(e)}")
+            raise Exception(
+                f"Failure occurred while attempt to get all commit SHAs for repository: {self.full_name}", e
             )
