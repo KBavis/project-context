@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Contextualized"
 
     PYTHONDONTWRITEBYTECODE: int = 1
+
+    ###########################
+    # Jira Configurations
+    ###########################
+    JIRA_EMAIL: str = ""
+    JIRA_API_TOKEN: str = ""
+
     
     ###########################
     # Database Configurations 
