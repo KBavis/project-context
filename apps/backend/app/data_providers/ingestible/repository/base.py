@@ -1,8 +1,10 @@
 from __future__ import annotations
 from abc import abstractmethod
 from uuid import UUID
+from datetime import datetime
 
 from app.data_providers.ingestible.base import IngestibleDataProvider
+from app.data_providers import Provider
 from app.models.data_source import DataSource
 from app.services.file import FileService
 
@@ -26,6 +28,16 @@ class RepositoryDataProvider(IngestibleDataProvider):
 
         # construct requried URLs
         self._construct_base_urls()
+
+
+    @classmethod
+    def from_provider(cls, data_source: DataSource) -> RepositoryDataProvider:
+        match data_source.provider:
+            case Provider.GITHUB:
+                from app.data_providers.ingestible.repository import GithubDataProvider
+                return GithubDataProvider(data_source=data_source)
+            case _:
+                raise Exception(f"Data Source provider {data_source.provider} is not configured as a Repository Data Provider")
 
 
     @property
@@ -86,8 +98,16 @@ class RepositoryDataProvider(IngestibleDataProvider):
         raise NotImplementedError()
     
 
+    @abstractmethod
+    async def get_all_commit_sha(self, child_issues: list[str], latest_commit_date: datetime | None = None) -> list[str]:
+        """
+        Get all the commit hashes. Optionally provied the `latest_commit_date` to retrieve any 
+        commits found since the last commit that we ingested 
+        """
 
-    async def get_latest_commit_sha(self) -> str:
+
+    @abstractmethod
+    async def get_latest_commit_sha(self, child_issues: list[str]) -> tuple[str, datetime] | None:
         """
         Get the latest commit SHA for the repository.
         """
