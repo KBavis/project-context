@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.pydantic import DataSourceRequest
 from app.models import DataSource, Project, ProjectData
+from app.models.data_source import DataSourceType
 from app.core import settings
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,39 @@ class DataSourceService:
     def __init__(self, db: Session, async_db: AsyncSession):
         self.db: Session = db
         self.async_db: AsyncSession = async_db
+
+    async def aget_data_source_by_id(self, data_source_id: UUID) -> DataSource:
+        """
+        Async functionality to retrieve a DataSource by ID
+        """
+
+        stmt = select(DataSource).where(DataSource.id == data_source_id)
+        result = await self.async_db.execute(stmt)
+        data_source = result.scalar_one_or_none()
+
+        if not data_source:
+            raise Exception(f"Data Source with ID {data_source_id} not found")
+
+        return data_source
+
+    
+    async def get_issue_tracker_data_source(self, project_id: UUID) -> DataSource:
+        """
+        Validate that there is only a single issue tracker for a given Project. This is required for 
+        sycning a Repository DataSource for a given Project. If more than 1 Data Source 
+        configured for the Project that is an IssueTracker, error out 
+
+        Args:
+            project_id (UUID): the project to validate 
+        """
+
+        data_sources = await self.aget_project_data_sources(project_id=project_id)
+        issue_provider_data_sources = [ds for ds in data_sources if ds.type == DataSourceType.ISSUE_TRACKER]
+        if not issue_provider_data_sources or len(issue_provider_data_sources) != 1:
+            raise Exception(f"Only one IssueProvider expected to be configured for Project={project_id}, but found {len(issue_provider_data_sources)}")
+        
+        return issue_provider_data_sources[0]
+
 
     def get_data_source_by_id(self, data_source_id: UUID) -> DataSource:
         """
@@ -71,6 +105,16 @@ class DataSourceService:
             raise Exception(
                 f"Failed to retrieve all Projects corresponding to follwoing Project Ids: {missing_ids}"
             )
+
+        # validate that if scope_by_issues is True, all projects have parent_issues configured
+        if data_source_request.scope_by_issues:
+            projects_without_parent_issues = [p for p in projects if not p.parent_issues]
+            if projects_without_parent_issues:
+                project_ids_str = ", ".join(str(p.id) for p in projects_without_parent_issues)
+                raise Exception(
+                    f"Cannot link Projects to Data Source with scope_by_issues=True unless they have parent_issues configured. "
+                    f"Projects without parent_issues: {project_ids_str}"
+                )
 
         # create associations
         for project in projects:
