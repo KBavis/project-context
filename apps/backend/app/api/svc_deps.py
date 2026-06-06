@@ -64,6 +64,7 @@ def get_chroma_svc(
 
 def get_project_svc(
         db: Session = Depends(get_sync_db_session),
+        async_db: AsyncSession = Depends(get_async_db_session),
         chroma_svc: ChromaService= Depends(get_chroma_svc)
 ):
     """
@@ -73,7 +74,7 @@ def get_project_svc(
         db (Session): current DB session
     """
 
-    return ProjectService(db=db, chroma_svc=chroma_svc)
+    return ProjectService(db=db, async_db=async_db, chroma_svc=chroma_svc)
 
 
 def get_data_source_svc(
@@ -111,12 +112,13 @@ def get_mcp_svc(
 
 def get_async_diff_svc(
     db: AsyncSession = Depends(get_async_db_session),
-    data_source_svc: DataSourceService = Depends(get_data_source_svc),
+    project_svc: ProjectService = Depends(get_project_svc),
+    data_source_svc: DataSourceService = Depends(get_data_source_svc)
 ):
     """
     Setup DiffService dependency.
     """
-    return DiffService(async_db=db, data_source_svc=data_source_svc)
+    return DiffService(async_db=db, project_svc=project_svc, data_source_svc=data_source_svc)
 
 
 def get_async_file_svc(
@@ -196,7 +198,8 @@ def get_async_ingestion_job_svc(
         db: AsyncSession = Depends(get_async_db_session),
         record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc),
         file_svc: FileService = Depends(get_async_file_svc),
-        chunk_insertion_service: ChunkInsertionService = Depends(get_async_chunk_insertion_svc)
+        chunk_insertion_service: ChunkInsertionService = Depends(get_async_chunk_insertion_svc),
+        diff_svc: DiffService = Depends(get_async_diff_svc)
 ):
     """
     Setup async IngestionJobService dependency 
@@ -205,12 +208,14 @@ def get_async_ingestion_job_svc(
         db (AsyncSession): async db session
         file_svc (FileService): async file service dependency
         chunk_insertion_service (ChunkInsertionService): async chunk insertion service dependency
+        diff_svc (DiffService): async diff service dependency
     """
     return IngestionJobService(
         db=db, 
         record_lock_svc=record_lock_svc,
         file_svc=file_svc,
-        chunk_insertion_service=chunk_insertion_service
+        chunk_insertion_service=chunk_insertion_service,
+        diff_svc=diff_svc
     )
 
 
