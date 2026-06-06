@@ -23,6 +23,6 @@ class ProjectRequest(BaseModel):
     teams: Optional[List[UUID]] = (
         []
     )  # Note: once Team model is setup, this should likely be enforced
-    epics: Optional[List[str]] = (
+    parent_issues: Optional[List[str]] = (
         []
-    )  # List of Jira Epic's, that we can later used to determine if relevant "commits" should be include in collection
+    )  # List of Parent Issue's, that we can later used to determine if relevant "commits" should be include in collection

@@ -8,8 +8,10 @@ class IssueTrackerDataProvider(FetchableDataProvider):
     """
     
     @abstractmethod
-    async def get_issues(self, epics: list[str]) -> list[str]:
+    async def get_issues(self, parent_issues: list[str]) -> list[str]:
         """
-        Resolves a list of Epic keys into their constituent child issues (e.g., Stories).
+        Resolves a list of Parent Issue keys into their constituent child issues (e.g., Stories). Some 
+        IssueTrackers may not have the aspect of parent_issues, in which case, the parent 
+        issues themselves ARE the child issues 
         """
         raise NotImplementedError()

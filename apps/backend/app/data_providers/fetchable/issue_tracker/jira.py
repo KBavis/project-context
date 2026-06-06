@@ -32,24 +32,24 @@ class JiraDataProvider(IssueTrackerDataProvider):
         return None
 
 
-    async def get_issues(self, epics: list[str]) -> list[str]:
+    async def get_issues(self, parent_issues: list[str]) -> list[str]:
         """
-        Find all stories/tasks linked to a given set of Epic Keys. 
+        Find all stories/tasks linked to a given set of Parent Issue Keys. 
         """
 
-        if not epics:
+        if not parent_issues:
             return []
 
         story_keys = []
         url = f"{self.url}/rest/api/3/search"
 
 
-        # leverage JQL with the provided set of Epics to find child stories/tasks 
+        # leverage JQL with the provided set of Parent Issues to find child stories/tasks 
         try:
 
             # configure JQL query
-            epics_jql = ", ".join([f'"{key}"' for key in epics])
-            jql = f'"Epic Link" in ({epics_jql}) OR parent in ({epics_jql})'
+            parent_issues_jql = ", ".join([f'"{key}"' for key in parent_issues])
+            jql = f'"Epic Link" in ({parent_issues_jql}) OR parent in ({parent_issues_jql})'
 
             # configure initial payload for Jira Search API
             payload = {
@@ -80,7 +80,7 @@ class JiraDataProvider(IssueTrackerDataProvider):
                     total = data.get("total", 0)
                     current_recieved = payload["startAt"] + len(issues)
                     if current_recieved >= total or not issues:
-                        logger.info(f"Finished fetching linked stories for epics {epics}. Total stories found: {len(story_keys)}")
+                        logger.info(f"Finished fetching linked stories for parent issues {parent_issues}. Total stories found: {len(story_keys)}")
                         break
                     
                     # advance pointer for next batch of results
@@ -90,6 +90,6 @@ class JiraDataProvider(IssueTrackerDataProvider):
                 await client.aclose() 
      
         except Exception as e:
-            logger.error(f"Failure resolving Jira stories for epics {epics}: {str(e)}")
+            logger.error(f"Failure resolving Jira stories for parent issues {parent_issues}: {str(e)}")
             
         return story_keys

@@ -28,7 +28,7 @@ class Project(Base):
         primary_key=True, server_default=text("gen_random_uuid()")
     )
     project_name: Mapped[str] = mapped_column(nullable=False)
-    epics: Mapped[List[str]] = mapped_column(ARRAY(String))
+    parent_issues: Mapped[List[str]] = mapped_column(ARRAY(String))
 
     dependent_projects: Mapped[List["Project"]] = relationship(
         "Project",
