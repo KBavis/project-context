@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List
 from uuid import UUID
+from datetime import datetime
 
-from sqlalchemy import ARRAY, ForeignKey, ForeignKeyConstraint, String
+from sqlalchemy import ARRAY, ForeignKey, ForeignKeyConstraint, String, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -31,15 +32,16 @@ class ProjectRepositoryChanges(Base):
         ),
     )
 
-    project_id: Mapped[UUID] = mapped_column(
-        primary_key=True,
-        comment="Part of 1:1 PK with ProjectData",
-    )
-    data_source_id: Mapped[UUID] = mapped_column(
-        primary_key=True,
-        comment="Part of 1:1 PK with ProjectData",
+
+    # sync information regarding this state of project repository changes 
+    last_synced_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True, comment="End time of IngestionJob processing")
+    last_seen_commit: Mapped[str] = mapped_column(
+        nullable=True,
+        comment="The last commit hash that was synced for this Project/DataSource combination. Used to determine new commits to sync in future runs",
     )
 
+
+    # meta data about repository updates introduced as a result of this project 
     commit_hashes: Mapped[list[str]] = mapped_column(
         ARRAY(String),
         nullable=False,
@@ -58,11 +60,20 @@ class ProjectRepositoryChanges(Base):
         comment="Number of paths in files_touched",
     )
 
+    # foreign keys
+    project_id: Mapped[UUID] = mapped_column(
+        primary_key=True,
+        comment="Part of 1:1 PK with ProjectData",
+    )
+    data_source_id: Mapped[UUID] = mapped_column(
+        primary_key=True,
+        comment="Part of 1:1 PK with ProjectData",
+    )
     ingestion_job_id: Mapped[UUID] = mapped_column(
         ForeignKey("ingestion_job.id"),
         index=True,
         nullable=False,
-        comment="Last ingestion job that updated this row (last_synced_at = job.end_time)",
+        comment="Last ingestion job that updated this record",
     )
 
     # one to one relationship with ProjectData
