@@ -42,7 +42,10 @@ class DataSourceService:
         """
         Validate that there is only a single issue tracker for a given Project. This is required for 
         sycning a Repository DataSource for a given Project. If more than 1 Data Source 
-        configured for the Project that is an IssueTracker, error out 
+        configured for the Project that is an IssueTracker, error out
+
+        TODO: Likely some value in making this more generic (i.e specifying 
+        a particular ProviderType and then making validations based on provided type) 
 
         Args:
             project_id (UUID): the project to validate 
