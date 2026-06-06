@@ -11,6 +11,7 @@ from .chunk_retrieval import ChunkRetrievalService
 from .chunk_insertion import ChunkInsertionService
 from .mcp import MCPService
 from .agent import AgentService
+from .diff import DiffService
 from .execution_token_usage import ExecutionTokenUsageService
 
 __all__ = [
@@ -26,5 +27,6 @@ __all__ = [
     "ChunkInsertionService",
     "MCPService",
     "AgentService",
+    "DiffService",
     "ExecutionTokenUsageService"
 ]

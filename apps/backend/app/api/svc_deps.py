@@ -12,7 +12,8 @@ from app.services import (
     ChunkRetrievalService,
     ChunkInsertionService,
     MCPService,
-    AgentService
+    AgentService,
+    DiffService
 )
 
 from app.core import (
@@ -107,6 +108,15 @@ def get_mcp_svc(
 ##########################
 # Async Service Dependencies 
 ###########################
+
+def get_async_diff_svc(
+    db: AsyncSession = Depends(get_async_db_session),
+    data_source_svc: DataSourceService = Depends(get_data_source_svc),
+):
+    """
+    Setup DiffService dependency.
+    """
+    return DiffService(async_db=db, data_source_svc=data_source_svc)
 
 
 def get_async_file_svc(
