@@ -297,7 +297,7 @@ class GithubDataProvider(RepositoryDataProvider):
             )
     
 
-    async def get_latest_commit(self, issue_numbers: list[str]) -> (str, datetime):
+    async def get_latest_commit_sha(self, child_issues: list[str]) -> str | None:
         """
         Get the latest commit SHA and datetime for the repository that has one of the specified 
         issue numbers in its commit message 
@@ -307,13 +307,13 @@ class GithubDataProvider(RepositoryDataProvider):
         """
 
         # ensure issue numbers provided
-        if not issue_numbers:
+        if not child_issues:
             raise Exception("Issue numbers must be provided to filter commits by")
 
         try:
             
             # construct URL 
-            issues = "+OR+".join(issue_numbers)
+            issues = "+OR+".join(child_issues)
             query = f"repo:{self.repository_owner}/{self.repository_name}+{issues}"
             url = f"https://api.github.com/search/commits?q={query}&sort=committer-date&order=desc&per_page=1"
 
@@ -325,20 +325,18 @@ class GithubDataProvider(RepositoryDataProvider):
                 # validate response
                 commits = response.json()
                 if not commits:
-                    logger.warning(f"No commits found for repository {self.full_name} with issue numbers {issue_numbers}")
+                    logger.warning(f"No commits found for repository {self.full_name} with issue numbers {child_issues}")
                     return None 
                 
 
                 items = commits.get("items", [])
                 if not items:
-                    logger.warning(f"No commits found for repository {self.full_name} with issue numbers {issue_numbers}")
+                    logger.warning(f"No commits found for repository {self.full_name} with issue numbers {child_issues}")
                     return None
 
                 # extract and return latest commit SHA and associated date/time
                 sha = items[0]['sha']
-                date_string = items[0]['commit']['committer']['date']
-
-                return sha, datetime.fromisoformat(date_string)
+                return sha
 
         except Exception as e:
             logger.error(f"Failure getting latest commit SHA with exception={str(e)}")
@@ -348,7 +346,7 @@ class GithubDataProvider(RepositoryDataProvider):
     
 
 
-    async def get_all_commit_sha(self, issue_numbers: list[str], latest_commit_date: datetime = None) -> list[str]:
+    async def get_all_commit_sha(self, child_issues: list[str], latest_commit_date: datetime | None = None) -> list[str]:
         """
         Get all commit SHAs for the repository since the last commit that have commit messages 
         containing one of the specified issue numbers 
@@ -358,12 +356,12 @@ class GithubDataProvider(RepositoryDataProvider):
             latest_commit_date (datetime): The date of the latest commit that was processed.
         """
         # Ensure issue numbers provided
-        if not issue_numbers:
+        if not child_issues:
             raise Exception("Issue numbers must be provided to filter commits by")
 
         try:
             # 1. Base query setup
-            issues = "+OR+".join(issue_numbers)
+            issues = "+OR+".join(child_issues)
             query = f"repo:{self.repository_owner}/{self.repository_name}+{issues}"
             
             # 2. Conditionally append the date cutoff if provided
