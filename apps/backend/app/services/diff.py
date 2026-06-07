@@ -91,17 +91,193 @@ class DiffService:
             new_commits = await self.get_new_repository_commits(
                 issue_tracker_ds,
                 repository_ds,
-                project,
-                project_repository_changes
+                project
             )
-            if not commit_hashes:
-                logger.info(f"No new commit hashes found when syncing Project={project_id} for DataSource={repository_ds.id} -- skipping Git operations")
-                return 
+            if not new_commits:
+                logger.info(f"No new commits found when syncing Project={project_id} for DataSource={repository_ds.id} -- skipping Git operations")
+                continue 
 
-            # perform neceesary git operations to sync newly processed commits 
+            # TODO: Invoke git operations
+            # 1. Checkout or create a temporary ProjectBranch on the Repository.
+            # 2. Cherry-pick the new_commits onto this branch in chronological order.
+            # 3. Push the branch up to origin.
+            logger.info("TODO: Invoke git operations (checkout/create branch, cherry-pick new commits, push up)")
+
+            # persist changes
+            await self.persist_repository_diff_changes(
+                project_id=project_id,
+                repository_data_source_id=repository_data_source_id,
+                ingestion_job_id=ingestion_job_id,
+                new_commits=new_commits
+            )
 
 
-            # update / create `file_diff` and `project_repository_changes`
+    async def persist_repository_diff_changes(
+        self,
+        project_id: UUID,
+        repository_data_source_id: UUID,
+        ingestion_job_id: UUID,
+        new_commits: list[GitCommitDetail]
+    ):
+        """
+        Orchestrate the persistence of all repository diff changes across GitCommit, FileDiff, 
+        and ProjectRepositoryChanges models.
+        """
+        logger.info(f"Persisting changes for Project={project_id} and DataSource={repository_data_source_id}")
+
+        # 1. persist the new GitCommit records
+        persisted_commits = await self._persist_git_commits(
+            project_id=project_id,
+            repository_data_source_id=repository_data_source_id,
+            commits=new_commits
+        )
+
+        # 2. persist the FileDiff records associated with those commits
+        await self._persist_file_diffs(
+            project_id=project_id,
+            repository_data_source_id=repository_data_source_id,
+            ingestion_job_id=ingestion_job_id,
+            commits=persisted_commits
+        )
+
+        # 3. update the ProjectRepositoryChanges metadata
+        await self._persist_project_repository_changes(
+            project_id=project_id,
+            repository_data_source_id=repository_data_source_id,
+            ingestion_job_id=ingestion_job_id
+        )
+
+
+    async def _persist_git_commits(
+        self,
+        project_id: UUID,
+        repository_data_source_id: UUID,
+        commits: list[GitCommitDetail]
+    ) -> list[GitCommit]:
+        """
+        Save the new GitCommit records. Raise exception if we see a commit we thought was new
+        but it already exists in the database (corrupt state).
+        """
+        persisted_commits = []
+        for commit in commits:
+            # check if commit already exists
+            stmt = select(GitCommit).where(GitCommit.commit_hash == commit.sha)
+            res = await self.async_db.execute(stmt)
+            existing_commit = res.scalar_one_or_none()
+
+            if existing_commit:
+                raise Exception(
+                    f"Corrupt state detected: Commit {commit.sha} is reported as a new commit "
+                    f"to sync, but it already exists in the database."
+                )
+
+            commit_record = GitCommit(
+                commit_hash=commit.sha,
+                project_id=project_id,
+                data_source_id=repository_data_source_id,
+                author_name=commit.author_name,
+                author_email=commit.author_email,
+                commit_datetime=commit.commit_datetime,
+                message=commit.message,
+                files_modified=commit.files_modified
+            )
+            self.async_db.add(commit_record)
+            persisted_commits.append(commit_record)
+
+        await self.async_db.flush()
+        return persisted_commits
+
+
+    async def _persist_file_diffs(
+        self,
+        project_id: UUID,
+        repository_data_source_id: UUID,
+        ingestion_job_id: UUID,
+        commits: list[GitCommit]
+    ):
+        """
+        Update/create FileDiff records and link them to the GitCommit records.
+        """
+        for commit in commits:
+            for file_path in commit.files_modified:
+                # check if file_diff already exists
+                stmt = select(FileDiff).where(
+                    FileDiff.project_id == project_id,
+                    FileDiff.data_source_id == repository_data_source_id,
+                    FileDiff.file_path == file_path
+                )
+                res = await self.async_db.execute(stmt)
+                file_diff_record = res.scalar_one_or_none()
+
+                if not file_diff_record:
+                    # TODO: extract composite file diffs (i.e get the hunks/unified diff for this file)
+                    # from the ProjectBranch and set unified_diff, diff_hash, etc.
+                    # TODO: dynamically determine the net ChangeType of the file (e.g. ADDED if the file is
+                    # new, DELETED if removed, MODIFIED if updated) during composite diff extraction.
+                    file_diff_record = FileDiff(
+                        project_id=project_id,
+                        data_source_id=repository_data_source_id,
+                        file_path=file_path,
+                        change_type=ChangeType.MODIFIED, 
+                        unified_diff=None,  # placeholder until git extraction is implemented
+                        diff_hash="",       # placeholder until git extraction is implemented
+                        diff_truncated=False,
+                        ingestion_job_id=ingestion_job_id
+                    )
+                    self.async_db.add(file_diff_record)
+                    await self.async_db.flush()
+                else:
+                    # TODO: Update composite file diffs (unified diff and diff hash)
+                    # after cherry-picking the new commits.
+                    file_diff_record.ingestion_job_id = ingestion_job_id
+
+                if commit not in file_diff_record.commits:
+                    file_diff_record.commits.append(commit)
+
+        await self.async_db.flush()
+
+
+    async def _persist_project_repository_changes(
+        self,
+        project_id: UUID,
+        repository_data_source_id: UUID,
+        ingestion_job_id: UUID
+    ):
+        """
+        Update or create the ProjectRepositoryChanges record and update its files_touched list.
+        """
+        project_repository_changes = await self.get_project_repository_changes(
+            project_id=project_id, 
+            data_source_id=repository_data_source_id
+        )
+
+        if not project_repository_changes:
+            project_repository_changes = ProjectRepositoryChanges(
+                project_id=project_id,
+                data_source_id=repository_data_source_id,
+                ingestion_job_id=ingestion_job_id,
+                files_touched=[],
+                file_count=0
+            )
+            self.async_db.add(project_repository_changes)
+            await self.async_db.flush()
+        else:
+            project_repository_changes.ingestion_job_id = ingestion_job_id
+
+        # Update files_touched
+        stmt = select(FileDiff.file_path).where(
+            FileDiff.project_id == project_id,
+            FileDiff.data_source_id == repository_data_source_id
+        )
+        res = await self.async_db.execute(stmt)
+        touched_paths = res.scalars().all()
+
+        project_repository_changes.files_touched = list(set(touched_paths))
+        project_repository_changes.file_count = len(project_repository_changes.files_touched)
+        project_repository_changes.last_synced_time = datetime.now(timezone.utc)
+
+        self.async_db.add(project_repository_changes)
+        await self.async_db.flush()
 
 
     async def get_new_repository_commits(
@@ -113,7 +289,6 @@ class DiffService:
         """
         Process new repository commits that have been added as a result of specified Project.
         """
-
         # determine the latest commit datetime dynamically
         stmt = (
             select(GitCommit)
@@ -168,7 +343,7 @@ class DiffService:
         """
 
 
-    async def get_project_repository_changes(self, project_id: UUID, data_source_id: UUID) -> ProjectRepositoryChanges:
+    async def get_project_repository_changes(self, project_id: UUID, data_source_id: UUID) -> ProjectRepositoryChanges | None:
         """
         Get the accumulation of `Repository Code Changes` that we're introduced as a part of this Project
             - shows all changes across each Repository that are a part of this Project if no DataSourceID supplied 
@@ -179,7 +354,7 @@ class DiffService:
         """
         stmt = select(ProjectRepositoryChanges).where(ProjectRepositoryChanges.project_id == project_id, ProjectRepositoryChanges.data_source_id == data_source_id)
         result = await self.async_db.execute(stmt)
-        return result.scalar_one()
+        return result.scalar_one_or_none()
 
 
     async def get_file_diffs(self, project_id: UUID, data_source_id: UUID) -> list[FileDiff]:
@@ -196,4 +371,3 @@ class DiffService:
         Perform necessary Git operations to a) create / checkout relevant Project's repository branch, b) cherry
         pick relevant commits onto this branch, c) push up to origin
         """
-    
