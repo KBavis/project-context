@@ -10,7 +10,7 @@ from datetime import datetime
 
 from .base import RepositoryDataProvider
 from app.core import settings
-from app.pydantic import File, FileProcesingStatus
+from app.pydantic import File, FileProcesingStatus, GitCommitDetail
 from app.models.data_source import DataSource
 from app.services.file import FileService
 
@@ -346,19 +346,13 @@ class GithubDataProvider(RepositoryDataProvider):
     
 
 
-    async def get_all_commit_sha(self, child_issues: list[str], latest_commit_date: datetime | None = None) -> list[str]:
+
+    async def get_all_commits_info(
+        self, child_issues: list[str], latest_commit_date: datetime | None = None
+    ) -> list[GitCommitDetail]:
         """
-        Get all commit SHAs for the repository since the last commit that have commit messages 
-        containing one of the specified issue numbers 
-
-        TODO: There is value in going through and getting more information than just the commit hashes in this step.
-        Information such as the a) commit date/time to preserve order, b) the file paths modified as a result, etc
-        would be useful information. Consider how we can account for this in the `project_repository_changes`
-        and `file_diff` records, as well as what we return from this particular function
-
-        Args:
-            issue_numbers (list[str]): The list of issue numbers to filter commits by
-            latest_commit_date (datetime): The date of the latest commit that was processed.
+        Get all commit details for the repository since the last commit that have commit messages 
+        containing one of the specified issue numbers.
         """
         # Ensure issue numbers provided
         if not child_issues:
@@ -375,8 +369,8 @@ class GithubDataProvider(RepositoryDataProvider):
                 iso_date = latest_commit_date.isoformat()
                 query += f"+committer-date:>{iso_date}"
                 
-            # 3. Assemble URL (Note: dropped per_page=1 to get all results up to 100 max per page)
-            url = f"https://api.github.com/search/commits?q={query}&sort=committer-date&order=desc&per_page=100"
+            # 3. Assemble URL, sorting by committer-date ascending to maintain chronological order
+            url = f"https://api.github.com/search/commits?q={query}&sort=committer-date&order=asc&per_page=100"
 
             # 4. Make async request to retrieve data
             async with httpx.AsyncClient() as client:
@@ -390,12 +384,51 @@ class GithubDataProvider(RepositoryDataProvider):
                     logger.info(f"No new commits found for repository {self.full_name} matching criteria.")
                     return []
 
-                # 5. Extract all SHAs from the list of items
-                commit_shas = [item['sha'] for item in items]
-                return commit_shas
+                # 5. Retrieve details for each commit (to get files modified, etc.)
+                commit_details = []
+                for item in items:
+                    sha = item['sha']
+                    detail = await self.get_commit_detail(sha)
+                    commit_details.append(detail)
+                return commit_details
 
         except Exception as e:
-            logger.error(f"Failure getting all commit SHAs with exception={str(e)}")
+            logger.error(f"Failure getting all commits info with exception={str(e)}")
             raise Exception(
-                f"Failure occurred while attempt to get all commit SHAs for repository: {self.full_name}", e
+                f"Failure occurred while attempting to get all commits info for repository: {self.full_name}", e
+            )
+
+    async def get_commit_detail(self, sha: str) -> GitCommitDetail:
+        """
+        Get details for a specific commit, including modified files.
+        """
+        url = f"https://api.github.com/repos/{self.repository_owner}/{self.repository_name}/commits/{sha}"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.request_headers)
+                response.raise_for_status()
+                data = response.json()
+                
+                # Extract files modified
+                files_modified = [f["filename"] for f in data.get("files", [])]
+                
+                commit_data = data["commit"]
+                author_data = commit_data["author"]
+                
+                # Parse date
+                date_str = author_data["date"].replace("Z", "+00:00")
+                commit_date = datetime.fromisoformat(date_str)
+                
+                return GitCommitDetail(
+                    sha=sha,
+                    author_name=author_data["name"],
+                    author_email=author_data["email"],
+                    commit_datetime=commit_date,
+                    message=commit_data["message"],
+                    files_modified=files_modified
+                )
+        except Exception as e:
+            logger.error(f"Failure getting commit details for SHA={sha} with exception={str(e)}")
+            raise Exception(
+                f"Failure occurred while attempting to get commit details for SHA {sha} in repository: {self.full_name}", e
             )

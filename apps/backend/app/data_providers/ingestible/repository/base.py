@@ -7,6 +7,7 @@ from app.data_providers.ingestible.base import IngestibleDataProvider
 from app.data_providers import Provider
 from app.models.data_source import DataSource
 from app.services.file import FileService
+from app.pydantic.git_commit import GitCommitDetail
 
 class RepositoryDataProvider(IngestibleDataProvider):
     """
@@ -99,15 +100,24 @@ class RepositoryDataProvider(IngestibleDataProvider):
     
 
     @abstractmethod
-    async def get_all_commit_sha(self, child_issues: list[str], latest_commit_date: datetime | None = None) -> list[str]:
+    async def get_all_commits_info(self, child_issues: list[str], latest_commit_date: datetime | None = None) -> list[GitCommitDetail]:
         """
-        Get all the commit hashes. Optionally provied the `latest_commit_date` to retrieve any 
-        commits found since the last commit that we ingested 
+        Get all commit details. Optionally provide the `latest_commit_date` to retrieve any 
+        commits found since the last commit that we ingested.
         """
+        raise NotImplementedError()
 
 
     @abstractmethod
-    async def get_latest_commit_sha(self, child_issues: list[str]) -> tuple[str, datetime] | None:
+    async def get_commit_detail(self, sha: str) -> GitCommitDetail:
+        """
+        Get details for a specific commit.
+        """
+        raise NotImplementedError()
+
+
+    @abstractmethod
+    async def get_latest_commit_sha(self, child_issues: list[str]) -> str | None:
         """
         Get the latest commit SHA for the repository.
         """
