@@ -10,7 +10,6 @@ from app.models.data_source import DataSourceType, DataSource
 from app.models.project import Project
 from app.models.project_repository_changes import ProjectRepositoryChanges
 from app.models.file_diff import FileDiff
-from app.models.ingestion_job import IngestionJob
 from app.data_providers.fetchable.issue_tracker import IssueTrackerDataProvider
 from app.data_providers.ingestible.repository import RepositoryDataProvider
 
@@ -32,6 +31,8 @@ class DiffService:
         self.async_db: AsyncSession = async_db
         self.project_svc = project_svc
         self.data_source_svc = data_source_svc
+
+
 
     async def repository_sync(
             self, 
@@ -56,6 +57,7 @@ class DiffService:
         if repository_ds.type != DataSourceType.REPOSITORY or not repository_ds.scope_by_issues:
             logger.warning(f"DataSource with ID {repository_data_source_id} is not configured for repository syncing. Skipping sync.")
             return
+
 
         # if no projects are provided, sync the repository for ALL projects 
         if not project_ids:
@@ -85,17 +87,15 @@ class DiffService:
 
             # determine if there are any existing ProjectRepositoryChanges for this Project/DataSource 
             project_repository_changes = await self.get_project_repository_changes(project_id=project_id, data_source_id=repository_data_source_id)
-            commit_hashes = await self.process_diffs(
+            commit_hashes = await self.get_new_repository_commits(
                 issue_tracker_ds,
                 repository_ds,
                 project,
                 project_repository_changes
             )
-
             if not commit_hashes:
                 logger.info(f"No new commit hashes found when syncing Project={project_id} for DataSource={repository_ds.id} -- skipping Git operations")
                 return 
-
 
             # perform neceesary git operations to sync newly processed commits 
 
@@ -103,8 +103,7 @@ class DiffService:
             # update / create `file_diff` and `project_repository_changes`
 
 
-
-    async def process_diffs(
+    async def get_new_repository_commits(
             self, 
             issue_tracker_ds: DataSource, 
             repository_ds: DataSource,
@@ -112,16 +111,10 @@ class DiffService:
             project_repository_changes: ProjectRepositoryChanges | None = None
     ):
         """
-        TODO: Determine output of this step. I think it would make sense to just simply have this be the step 
-        that "updates/creates" the PROJECT_DATASOURCE branch and pushes this up to origin. Then, we can have a
-        follow on step that will actually a) download the diffs from GitHub / Bitbucket, b) chunk, 
-        c) store these in Chroma. 
-
-        Steps:
-            1. Get child issues from the Project parent issues 
-            2. Determine latest commit from the Bitbucket / GitHub (if available)
-            3. Check if the latest commit from Bitbucket matches the commit from last time we synced 
-            4. If not, resync 
+        Process new repository commits that have been added as a result of specified Project 
+            - get the lastest `child_issues` configured for Project
+            - determine if there are any new commits that need to be processed
+            - if so, return back newly found commit hashes 
         """
 
         # extract prior commit hash from last time syncing Repository & Project changes 
@@ -134,7 +127,6 @@ class DiffService:
             logger.warning("No child issues found -- skipping processing repository changes")
             return None
 
-        
         repository_data_provider = RepositoryDataProvider.from_provider(repository_ds)
         
         # determine if latest state of ProjectRepositoryChanges is up-to-date with state in Repository (skip if first time sync)
