@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 from uuid import UUID
 
 from sqlalchemy import (
@@ -13,6 +13,9 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
     Enum as SQLAlchemyEnum,
+    Table,
+    Column,
+    UUID as SQLAlchemyUUID,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,12 +24,21 @@ from .base import Base
 if TYPE_CHECKING:
     from .ingestion_job import IngestionJob
     from .project_repository_changes import ProjectRepositoryChanges
+    from .git_commit import GitCommit
 
 
 class ChangeType(Enum):
     ADDED = "added"
     MODIFIED = "modified"
     DELETED = "deleted"
+
+
+file_diff_commit = Table(
+    "file_diff_commit",
+    Base.metadata,
+    Column("file_diff_id", SQLAlchemyUUID(as_uuid=True), ForeignKey("file_diff.id", ondelete="CASCADE"), primary_key=True),
+    Column("commit_hash", String, ForeignKey("git_commit.commit_hash", ondelete="CASCADE"), primary_key=True),
+)
 
 
 class FileDiff(Base):
@@ -76,12 +88,6 @@ class FileDiff(Base):
         comment="Repo-relative path; primary identity (no FK to file table)",
     )
 
-    commit_hashes: Mapped[list[str]] = mapped_column(
-        ARRAY(String),
-        nullable=False,
-        insert_default=list,
-        comment="Subset of project_repository_changes.commit_hashes that touch this path",
-    )
     change_type: Mapped[ChangeType] = mapped_column(
         SQLAlchemyEnum(ChangeType, name="change_type_enum"),
         nullable=False,
@@ -115,3 +121,8 @@ class FileDiff(Base):
         back_populates="file_diffs",
     )
     ingestion_job: Mapped["IngestionJob"] = relationship()
+
+    commits: Mapped[List["GitCommit"]] = relationship(
+        secondary="file_diff_commit",
+        back_populates="file_diffs",
+    )

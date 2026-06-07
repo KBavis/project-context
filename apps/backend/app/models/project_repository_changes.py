@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from .file_diff import FileDiff
     from .ingestion_job import IngestionJob
     from .project_data import ProjectData
+    from .git_commit import GitCommit
 
 
 class ProjectRepositoryChanges(Base):
@@ -35,19 +36,7 @@ class ProjectRepositoryChanges(Base):
 
     # sync information regarding this state of project repository changes 
     last_synced_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True, comment="End time of IngestionJob processing")
-    last_seen_commit: Mapped[str] = mapped_column(
-        nullable=True,
-        comment="The last commit hash that was synced for this Project/DataSource combination. Used to determine new commits to sync in future runs",
-    )
 
-
-    # meta data about repository updates introduced as a result of this project 
-    commit_hashes: Mapped[list[str]] = mapped_column(
-        ARRAY(String),
-        nullable=False,
-        insert_default=list,
-        comment="Ordered SHAs attributed to this project on this repository",
-    )
     files_touched: Mapped[list[str]] = mapped_column(
         ARRAY(String),
         nullable=False,
@@ -86,6 +75,12 @@ class ProjectRepositoryChanges(Base):
 
     # one to many relationship with FileDiff
     file_diffs: Mapped[List["FileDiff"]] = relationship(
+        back_populates="project_repository_changes",
+        cascade="all, delete-orphan",
+    )
+
+    # one to many relationship with GitCommit
+    commits: Mapped[List["GitCommit"]] = relationship(
         back_populates="project_repository_changes",
         cascade="all, delete-orphan",
     )

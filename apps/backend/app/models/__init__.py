@@ -6,6 +6,7 @@ from .project import Project
 from .project_data import ProjectData
 from .project_repository_changes import ProjectRepositoryChanges
 from .file_diff import FileDiff
+from .git_commit import GitCommit
 from .conversation import Conversation
 from .message import Message, Sender
 from .file import File
@@ -25,6 +26,7 @@ __all__ = [
     "ProjectData",
     "ProjectRepositoryChanges",
     "FileDiff",
+    "GitCommit",
     "Conversation",
     "Message",
     "ProcessingStatus",

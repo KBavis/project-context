@@ -9,6 +9,7 @@ from .conversation import CreateConversationRequest, UpdateConversationRequest
 from .message import MessageRequest, MessageResponse as PromptResponse, MessageDto
 from .query import QueryRequest, QueryResponse
 from .mcp import MCPConfig, HttpConfig, StdioConfig
+from .git_commit import GitCommitDetail
 
 __all__ = [
     "ChatRequest", 
@@ -32,5 +33,6 @@ __all__ = [
     "DeleteCollectionRequest",
     "MCPConfig",
     "HttpConfig",
-    "StdioConfig"
+    "StdioConfig",
+    "GitCommitDetail"
 ]
