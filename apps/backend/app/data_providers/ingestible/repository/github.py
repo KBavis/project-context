@@ -351,6 +351,11 @@ class GithubDataProvider(RepositoryDataProvider):
         Get all commit SHAs for the repository since the last commit that have commit messages 
         containing one of the specified issue numbers 
 
+        TODO: There is value in going through and getting more information than just the commit hashes in this step.
+        Information such as the a) commit date/time to preserve order, b) the file paths modified as a result, etc
+        would be useful information. Consider how we can account for this in the `project_repository_changes`
+        and `file_diff` records, as well as what we return from this particular function
+
         Args:
             issue_numbers (list[str]): The list of issue numbers to filter commits by
             latest_commit_date (datetime): The date of the latest commit that was processed.
