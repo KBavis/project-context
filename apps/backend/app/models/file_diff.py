@@ -6,6 +6,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     ARRAY,
+    Boolean,
     ForeignKey,
     ForeignKeyConstraint,
     String,
@@ -108,6 +109,19 @@ class FileDiff(Base):
         default=False,
         nullable=False,
         comment="True if unified_diff was capped)",
+    )
+
+    conflict_detected: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="True if at least one cherry-pick SHA could not be applied cleanly; unified_diff may be partial or None",
+    )
+    failed_commit_shas: Mapped[list[str]] = mapped_column(
+        ARRAY(String),
+        nullable=False,
+        insert_default=list,
+        comment="SHAs that could not be cherry-picked for this file; populated when conflict_detected=True",
     )
 
     ingestion_job_id: Mapped[UUID] = mapped_column(
