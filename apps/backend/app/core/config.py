@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     PROCESSED_DIR: str | None = "/processed"
     TMP_DOCS: str | None = "/tmp/contextualized/docs"
     TMP_CODE: str | None = "/tmp/contextualized/code"
+    GIT_CLONE_DIR: str = "/tmp/contextualized/git_clones" 
 
     ###########################
     # Environment 
