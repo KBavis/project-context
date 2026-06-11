@@ -131,7 +131,9 @@ class DiffService:
                 project_id=project_id,
                 repository_data_source_id=repository_data_source_id,
                 ingestion_job_id=ingestion_job_id,
-                new_commits=new_commits
+                persisted_commits=persisted_commits,
+                file_diff_results=file_diff_results,
+                resolved_base_sha=resolved_base_sha
             )
 
 
@@ -140,22 +142,17 @@ class DiffService:
         project_id: UUID,
         repository_data_source_id: UUID,
         ingestion_job_id: UUID,
-        new_commits: list[GitCommitDetail]
+        persisted_commits: list[GitCommit],
+        file_diff_results: list[FileDiffResult],
+        resolved_base_sha: str,
     ):
         """
-        Orchestrate the persistence of all repository diff changes across GitCommit, FileDiff, 
+        Orchestrate the persistence of all repository diff changes across FileDiff, 
         and ProjectRepositoryChanges models.
         """
         logger.info(f"Persisting changes for Project={project_id} and DataSource={repository_data_source_id}")
 
-        # 1. persist the new GitCommit records
-        persisted_commits = await self._persist_git_commits(
-            project_id=project_id,
-            repository_data_source_id=repository_data_source_id,
-            commits=new_commits
-        )
-
-        # 2. persist the FileDiff records associated with those commits
+        # 1. persist the FileDiff records associated with those commits
         await self._persist_file_diffs(
             project_id=project_id,
             repository_data_source_id=repository_data_source_id,
@@ -163,11 +160,12 @@ class DiffService:
             commits=persisted_commits
         )
 
-        # 3. update the ProjectRepositoryChanges metadata
+        # 2. update the ProjectRepositoryChanges metadata
         await self._persist_project_repository_changes(
             project_id=project_id,
             repository_data_source_id=repository_data_source_id,
-            ingestion_job_id=ingestion_job_id
+            ingestion_job_id=ingestion_job_id,
+            resolved_base_sha=resolved_base_sha
         )
 
 
@@ -264,7 +262,8 @@ class DiffService:
         self,
         project_id: UUID,
         repository_data_source_id: UUID,
-        ingestion_job_id: UUID
+        ingestion_job_id: UUID,
+        resolved_base_sha: str
     ):
         """
         Update or create the ProjectRepositoryChanges record and update its files_touched list.
@@ -279,6 +278,7 @@ class DiffService:
                 project_id=project_id,
                 data_source_id=repository_data_source_id,
                 ingestion_job_id=ingestion_job_id,
+                base_commit_sha=resolved_base_sha,
                 files_touched=[],
                 file_count=0
             )
