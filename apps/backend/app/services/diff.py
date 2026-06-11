@@ -5,7 +5,7 @@ from uuid import UUID
 from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 from app.services.data_source import DataSourceService
 from app.services.git_ops import GitOperationsService
@@ -157,7 +157,8 @@ class DiffService:
             project_id=project_id,
             repository_data_source_id=repository_data_source_id,
             ingestion_job_id=ingestion_job_id,
-            commits=persisted_commits
+            commits=persisted_commits,
+            file_diff_results=file_diff_results,
         )
 
         # 2. update the ProjectRepositoryChanges metadata
@@ -214,48 +215,122 @@ class DiffService:
         project_id: UUID,
         repository_data_source_id: UUID,
         ingestion_job_id: UUID,
-        commits: list[GitCommit]
+        commits: list[GitCommit],
+        file_diff_results: list[FileDiffResult],
     ):
         """
-        Update/create FileDiff records and link them to the GitCommit records.
+        Update/create FileDiff records from the composite diff results produced
+        by GitOperationsService, then link them to the relevant GitCommit records.
+
+        The FileDiffResult objects are keyed by file_path. For each file:
+          - If no existing FileDiff row exists, a new one is created with the
+            full composite diff data (unified_diff, diff_hash, change_type, etc.).
+          - If a row already exists (i.e. this is a subsequent sync for the same
+            file), the diff content and conflict metadata are updated in place.
+
+        Change type is inferred from the unified diff header:
+          - Lines starting with "new file mode" → ADDED
+          - Lines starting with "deleted file mode" → DELETED
+          - All other diffs → MODIFIED
         """
+        # build a lookup from file_path → FileDiffResult for O(1) access
+        diff_by_path: dict[str, FileDiffResult] = {
+            r.file_path: r for r in file_diff_results
+        }
+
+        # build a lookup from file_path → list[GitCommit] so we can link commits
+        # that touched a given path regardless of whether we have a diff for it
+        commits_by_path: dict[str, list[GitCommit]] = {}
         for commit in commits:
             for file_path in commit.files_modified:
-                # check if file_diff already exists
-                stmt = select(FileDiff).where(
-                    FileDiff.project_id == project_id,
-                    FileDiff.data_source_id == repository_data_source_id,
-                    FileDiff.file_path == file_path
+                commits_by_path.setdefault(file_path, []).append(commit)
+
+        # union of all paths: those with diff results + any touched by commits
+        all_paths = set(diff_by_path) | set(commits_by_path)
+
+        for file_path in all_paths:
+            diff_result = diff_by_path.get(file_path)
+
+            # determine change type from the diff header when available
+            change_type = self._infer_change_type(diff_result)
+
+            stmt = select(FileDiff).where(
+                FileDiff.project_id == project_id,
+                FileDiff.data_source_id == repository_data_source_id,
+                FileDiff.file_path == file_path,
+            )
+            res = await self.async_db.execute(stmt)
+            file_diff_record = res.scalar_one_or_none()
+
+            if not file_diff_record:
+                file_diff_record = FileDiff(
+                    project_id=project_id,
+                    data_source_id=repository_data_source_id,
+                    file_path=file_path,
+                    change_type=change_type,
+                    unified_diff=diff_result.unified_diff if diff_result else None,
+                    diff_hash=diff_result.diff_hash if diff_result else "",
+                    diff_truncated=diff_result.diff_truncated if diff_result else False,
+                    conflict_detected=diff_result.conflict_detected if diff_result else False,
+                    failed_commit_shas=diff_result.failed_commit_shas if diff_result else [],
+                    ingestion_job_id=ingestion_job_id,
                 )
-                res = await self.async_db.execute(stmt)
-                file_diff_record = res.scalar_one_or_none()
+                self.async_db.add(file_diff_record)
+                await self.async_db.flush()
+            else:
+                # update composite diff to reflect newly cherry-picked commits
+                if diff_result:
+                    file_diff_record.unified_diff = diff_result.unified_diff
+                    file_diff_record.diff_hash = diff_result.diff_hash
+                    file_diff_record.diff_truncated = diff_result.diff_truncated
+                    file_diff_record.conflict_detected = diff_result.conflict_detected
+                    file_diff_record.failed_commit_shas = diff_result.failed_commit_shas
+                    file_diff_record.change_type = change_type
+                file_diff_record.ingestion_job_id = ingestion_job_id
 
-                if not file_diff_record:
-                    # TODO: extract composite file diffs (i.e get the hunks/unified diff for this file)
-                    # from the ProjectBranch and set unified_diff, diff_hash, etc.
-                    # TODO: dynamically determine the net ChangeType of the file (e.g. ADDED if the file is
-                    # new, DELETED if removed, MODIFIED if updated) during composite diff extraction.
-                    file_diff_record = FileDiff(
-                        project_id=project_id,
-                        data_source_id=repository_data_source_id,
-                        file_path=file_path,
-                        change_type=ChangeType.MODIFIED, 
-                        unified_diff=None,  # placeholder until git extraction is implemented
-                        diff_hash="",       # placeholder until git extraction is implemented
-                        diff_truncated=False,
-                        ingestion_job_id=ingestion_job_id
-                    )
-                    self.async_db.add(file_diff_record)
-                    await self.async_db.flush()
-                else:
-                    # TODO: Update composite file diffs (unified diff and diff hash)
-                    # after cherry-picking the new commits.
-                    file_diff_record.ingestion_job_id = ingestion_job_id
-
+            # link commits that touched this file
+            for commit in commits_by_path.get(file_path, []):
                 if commit not in file_diff_record.commits:
                     file_diff_record.commits.append(commit)
 
+        # Delete any stale FileDiff records that are no longer part of the project's net changes
+        # (e.g. if a file's changes were completely reverted by a new commit)
+        if all_paths:
+            stmt = delete(FileDiff).where(
+                FileDiff.project_id == project_id,
+                FileDiff.data_source_id == repository_data_source_id,
+                FileDiff.file_path.notin_(all_paths)
+            )
+        else:
+            stmt = delete(FileDiff).where(
+                FileDiff.project_id == project_id,
+                FileDiff.data_source_id == repository_data_source_id
+            )
+        await self.async_db.execute(stmt)
+
         await self.async_db.flush()
+
+
+    def _infer_change_type(self, diff_result: FileDiffResult | None) -> ChangeType:
+        """
+        Determine the net ChangeType from the unified diff header lines.
+
+        Git diff headers contain:
+          "new file mode ..."      → file was created by the project
+          "deleted file mode ..."  → file was removed by the project
+          anything else            → file was modified
+
+        Falls back to UNKNOWN when no diff result is available (e.g. a file
+        appeared in files_modified but the cherry-pick failed entirely).
+        """
+        if not diff_result or not diff_result.unified_diff:
+            return ChangeType.UNKNOWN
+        header = diff_result.unified_diff[:500]  # only need the first few lines
+        if "new file mode" in header:
+            return ChangeType.ADDED
+        if "deleted file mode" in header:
+            return ChangeType.DELETED
+        return ChangeType.MODIFIED
 
 
     async def _persist_project_repository_changes(
