@@ -33,6 +33,12 @@ class ProjectRepositoryChanges(Base):
         ),
     )
 
+    base_commit_sha: Mapped[str | None] = mapped_column(
+        String(40),
+        nullable=True,
+        comment="SHA of the commit immediately before the project's first commit; "
+                "computed once on first sync and reused on subsequent syncs",
+    )
 
     # sync information regarding this state of project repository changes 
     last_synced_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True, comment="End time of IngestionJob processing")
