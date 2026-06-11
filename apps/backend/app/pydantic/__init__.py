@@ -10,6 +10,7 @@ from .message import MessageRequest, MessageResponse as PromptResponse, MessageD
 from .query import QueryRequest, QueryResponse
 from .mcp import MCPConfig, HttpConfig, StdioConfig
 from .git_commit import GitCommitDetail
+from .file_diff_result import FileDiffResult
 
 __all__ = [
     "ChatRequest", 
@@ -34,5 +35,6 @@ __all__ = [
     "MCPConfig",
     "HttpConfig",
     "StdioConfig",
-    "GitCommitDetail"
+    "GitCommitDetail",
+    "FileDiffResult"
 ]
