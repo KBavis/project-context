@@ -13,7 +13,8 @@ from app.services import (
     ChunkInsertionService,
     MCPService,
     AgentService,
-    DiffService
+    DiffService,
+    GitOperationsService
 )
 
 from app.core import (
@@ -104,7 +105,11 @@ def get_mcp_svc(
     
     return MCPService(db=db, async_db=async_db)
 
-
+def get_git_ops_svc() -> GitOperationsService:
+    """
+    Setup GitOperationsService dependency
+    """
+    return GitOperationsService()
 
 ##########################
 # Async Service Dependencies 
@@ -113,12 +118,13 @@ def get_mcp_svc(
 def get_async_diff_svc(
     db: AsyncSession = Depends(get_async_db_session),
     project_svc: ProjectService = Depends(get_project_svc),
-    data_source_svc: DataSourceService = Depends(get_data_source_svc)
+    data_source_svc: DataSourceService = Depends(get_data_source_svc),
+    git_ops_svc: GitOperationsService = Depends(get_git_ops_svc)
 ):
     """
     Setup DiffService dependency.
     """
-    return DiffService(async_db=db, project_svc=project_svc, data_source_svc=data_source_svc)
+    return DiffService(async_db=db, project_svc=project_svc, data_source_svc=data_source_svc, git_ops_svc=git_ops_svc)
 
 
 def get_async_file_svc(
