@@ -32,6 +32,7 @@ class ChangeType(Enum):
     ADDED = "added"
     MODIFIED = "modified"
     DELETED = "deleted"
+    UNKNOWN = "unknown"
 
 
 file_diff_commit = Table(
