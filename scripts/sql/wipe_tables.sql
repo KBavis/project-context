@@ -1,6 +1,8 @@
 DELETE FROM file;
-DELETE FROM file_collection;
 DELETE FROM execution_token_usage;
+DELETE FROM file_diff;
+DELETE FROM git_commit;
+DELETE FROM project_repository_changes;
 DELETE FROM record_lock;
 DELETE FROM data_source_mcp_config;
 DELETE FROM data_chunks_docstore;
