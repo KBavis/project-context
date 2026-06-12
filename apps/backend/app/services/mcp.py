@@ -21,8 +21,6 @@ from contextlib import AsyncExitStack
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from app.services.data_source import DataSourceService
-
 from llama_index.tools.mcp import BasicMCPClient, McpToolSpec
 from llama_index.core.tools import FunctionTool
 

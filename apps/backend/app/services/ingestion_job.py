@@ -132,7 +132,6 @@ class IngestionJobService:
         try:
 
             # use data source information to fetch relevant data & store in temp directory
-            # TODO: Add configuration possibility to only retrieve data specific to the Jira Tickets provided in Project
             code_path, docs_path = await self._retrieve_data(provider, project_id, job_pk)
 
             # determine which data source types were downloaded
@@ -270,7 +269,7 @@ class IngestionJobService:
     
 
     async def _retrieve_data(
-        self, provider, project_id: UUID | None, job_pk: UUID,
+        self, provider: IngestibleDataProvider, project_id: UUID | None, job_pk: UUID,
     ) -> tuple[Path, Path]:
         """
         Retrieve relevant data from specified Data Source and store within temporary /data directory
@@ -282,9 +281,6 @@ class IngestionJobService:
 
         NOTE: In future, we should make some sort of "diff" calculation each time we retreive data from data source
         in order to quickly determine what's already been retireving before
-
-        TODO: Allow for providers such as GitHub & BitBucket to be parsed by commit messages containing the
-        Jira Ticket number
         """
 
         code_path, docs_path = self._create_tmp_dirs(job_pk) 

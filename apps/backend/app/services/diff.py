@@ -56,6 +56,8 @@ class DiffService:
         TODO: Handle failures gracefully (this should likely be a Transactional process, sort of hard to do with Chroma & git though)
               Ensuring that this doesn't get into a corurpt state is vital since the Agent will hallucinate other wise and 
               have bad data to operate from
+
+        TODO: We may need to handle PDF's explicitly when processing diffs 
         
         Args:
             repository_data_source_id (UUID): The ID of the Data Source to sync.
