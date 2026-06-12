@@ -10,7 +10,6 @@ from sqlalchemy import text, ForeignKey, Table, Column
 if TYPE_CHECKING:
     from .project_data import ProjectData
     from .conversation import Conversation
-    from .collection import ChromaCollection
 
 
 project_dependencies = Table(
@@ -43,11 +42,6 @@ class Project(Base):
     description: Mapped[str] = mapped_column(nullable=True)
 
     # TODO: Create association table for Team and Project
-
-    chroma_collection: Mapped["ChromaCollection"] = relationship(
-        "ChromaCollection",
-        back_populates="project"
-    )
 
     # many to many relationship with DataSource
     project_data: Mapped[List["ProjectData"]] = relationship(

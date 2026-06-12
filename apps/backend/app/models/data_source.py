@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from .file import File
     from .mcp_config import MCPConfig
     from .data_source_mcp import DataSourceMCPConfig
+    from .collection import ChromaCollection
 
 
 class DataSourceType(str, Enum):
@@ -76,4 +77,9 @@ class DataSource(Base):
     # one to many relationship with File 
     files: Mapped[List["File"]] = relationship(
         back_populates="data_source", cascade="all, delete-orphan"
+    )
+
+    # one to one relationship with ChromaCollection
+    chroma_collection: Mapped["ChromaCollection"] = relationship(
+        back_populates="data_source", cascade="all, delete-orphan", uselist=False
     )

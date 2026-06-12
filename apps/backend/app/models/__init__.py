@@ -10,7 +10,6 @@ from .git_commit import GitCommit
 from .conversation import Conversation
 from .message import Message, Sender
 from .file import File
-from .file_collection import FileCollection
 from .record_lock import RecordLock, RecordType
 from .collection import ChromaCollection
 from .docstore_chunk import DocstoreChunk
@@ -31,7 +30,6 @@ __all__ = [
     "Message",
     "ProcessingStatus",
     "File",
-    "FileCollection",
     "RecordLock",
     "RecordType",
     "ChromaCollection",
