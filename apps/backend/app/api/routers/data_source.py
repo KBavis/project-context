@@ -6,6 +6,7 @@ from app.pydantic import DataSourceRequest
 from ..svc_deps import get_data_source_svc
 
 from uuid import UUID
+from app.pydantic import DataSourceRequest, DataSourceUpdateRequest
 
 
 router = APIRouter(prefix="/data/sources")
@@ -43,6 +44,26 @@ def create_datasource(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
         )
+
+
+
+@router.patch("/{data_source_id}", summary="Update data source")
+def update_datasource(
+    data_source_id: UUID,
+    updates: DataSourceUpdateRequest,
+    svc: DataSourceService = Depends(get_data_source_svc)
+):
+    """
+    Patch/update a Data Source. Only permitted updates are `name`, `branch`, `scope_by_issues`, `url`, `provider`.
+    Returns 400 on validation errors (e.g. enabling `scope_by_issues` when linked projects lack parent_issues).
+    """
+    try:
+        # Only send fields that were provided
+        return svc.update_data_source(data_source_id, updates.dict(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 

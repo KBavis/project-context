@@ -21,3 +21,12 @@ class DataSourceRequest(BaseModel):
             if self.scope_by_issues:
                 raise ValueError("scope_by_issues can only be enabled for REPOSITORY data sources.")
         return self
+
+
+class DataSourceUpdateRequest(BaseModel):
+    name: str | None = None
+    branch: str | None = None
+    scope_by_issues: bool | None = None
+    type: DataSourceType | None = None
+    url: str | None = None
+    provider: str | None = None

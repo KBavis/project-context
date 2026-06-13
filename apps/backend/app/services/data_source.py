@@ -273,6 +273,58 @@ class DataSourceService:
             for data_source in data_sources
         ]
 
+    def update_data_source(self, data_source_id: UUID, updates: dict) -> dict[str, Any]:
+        """
+        Update mutable fields of a DataSource
+
+        Args:
+            data_source_id: UUID of the DataSource to update
+            updates: dict containing fields to update (e.g. `name`, `branch`, `scope_by_issues`)
+        """
+        # retrieve existing data source
+        stmt = select(DataSource).where(DataSource.id == data_source_id)
+        ds = self.db.execute(stmt).scalar_one_or_none()
+        if not ds:
+            raise Exception(f"Data Source with ID {data_source_id} not found")
+
+        # Determine target type (what the DataSource will be after the update)
+        target_type = updates.get("type", ds.type)
+
+        # Disallow setting branch when resulting type is not REPOSITORY
+        if "branch" in updates and target_type != DataSourceType.REPOSITORY:
+            raise ValueError("Cannot set 'branch' unless the resulting Data Source type is REPOSITORY")
+
+        # Validate `scope_by_issues` updates using helper to keep logic centralized.
+        if "scope_by_issues" in updates:
+            val = updates.get("scope_by_issues")
+            self._validate_scope_by_issues_update(ds, target_type, val)
+
+        # Apply allowed updates (including type, name, url, provider)
+        allowed = {"name", "branch", "scope_by_issues", "url", "provider", "type"}
+        for k, v in updates.items():
+            if k in allowed:
+                setattr(ds, k, v)
+
+        # If resulting type is not REPOSITORY, normalize repo-only fields
+        if ds.type != DataSourceType.REPOSITORY:
+            ds.branch = None
+            ds.scope_by_issues = False
+
+        # persist
+        self.db.add(ds)
+        self.db.flush()
+
+        return {
+            "id": ds.id,
+            "provider": ds.provider,
+            "name": ds.name,
+            "type": ds.type,
+            "branch": ds.branch,
+            "scope_by_issues": ds.scope_by_issues,
+            "config": {"url": ds.url},
+            "linked_projects": [str(pd.project_id) for pd in ds.project_data]
+        }
+
     def _validate_data_source_request(self, request: DataSourceRequest):
         """
         Ensure the specified request is valid
@@ -282,6 +334,44 @@ class DataSourceService:
             raise Exception(
                 f"Invalid provider specified when attempting to create Data Source. Valid Providers: {settings.VALID_DATA_PROVIDERS}"
             )
+
+    def _validate_scope_by_issues_update(self, ds: DataSource, target_type: DataSourceType, val: bool | None):
+        """
+        Centralized validation for updating `scope_by_issues`.
+
+        - Enabling (`True`) requires the resulting `target_type` to be `REPOSITORY`
+          and all linked projects must have `parent_issues` configured.
+        - Disabling (`False`) is allowed only when the Data Source is linked to
+          zero or one project; otherwise require unlinking first.
+        - `None` (not provided) is ignored by caller.
+        """
+        if val is None:
+            return
+
+        # Enabling
+        if val is True:
+            if target_type != DataSourceType.REPOSITORY:
+                raise ValueError("`scope_by_issues` can only be enabled for REPOSITORY Data Sources")
+
+            linked_projects = [pd.project for pd in ds.project_data] if ds.project_data else []
+            projects_missing = [p for p in linked_projects if not p.parent_issues]
+            if projects_missing:
+                names = ", ".join([f"{p.project_name} ({p.id})" for p in projects_missing])
+                raise ValueError(
+                    "Cannot enable `scope_by_issues` on this Data Source because the following linked projects "
+                    f"do not have parent_issues configured: {names}. Please update those projects to include parent_issues "
+                    "(issue numbers) before enabling scoping, or unlink them from this Data Source."
+                )
+
+        # Disabling
+        if val is False:
+            linked_projects = [pd.project for pd in ds.project_data] if ds.project_data else []
+            if len(linked_projects) > 1:
+                names = ", ".join([f"{p.project_name} ({p.id})" for p in linked_projects])
+                raise ValueError(
+                    "Cannot disable `scope_by_issues` while this Data Source is linked to multiple projects: "
+                    f"{names}. Unlink other projects from this Data Source before disabling scoping."
+                )
 
     def link_mcp_config_to_data_source(self, data_source_id: UUID, mcp_config_id: UUID) -> dict[str, Any]:
         """

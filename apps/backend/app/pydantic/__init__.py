@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .chat import ChatRequest
-from .data_source import DataSourceRequest
+from .data_source import DataSourceRequest, DataSourceUpdateRequest
 from .project import ProjectRequest
 from .file import File, CodeFileExtension, DocsFileExtension, FileProcesingStatus
 from .chroma import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse, DeleteCollectionRequest
@@ -15,6 +15,7 @@ from .file_diff_result import FileDiffResult
 __all__ = [
     "ChatRequest", 
     "DataSourceRequest", 
+    "DataSourceUpdateRequest",
     "ProjectRequest", 
     "File", 
     "CodeFileExtension", 
