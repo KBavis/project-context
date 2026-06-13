@@ -465,6 +465,42 @@ class DiffService:
         result = await self.async_db.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_file_diff_string(self, project_id: UUID, data_source_id: UUID, file_path: str) -> str:
+        """
+        Retrieve the resulting unfiied Diff for a specific File in a Repository Data Source as a
+        result of the changes introduced by the specified Project. Format the diff with relevant 
+        context including a) if there were conflicts in processing diff due to commit failures, b)
+        the diff was truncated, and c) what change type correspnd to the file 
+
+        Args:
+            project_id (UUID): The ID of the Project for which to retrieve the changes.
+            data_source_id (UUID): The ID of the Data Source to filter the changes by.
+            file_path (str): The path to the file for which to retrieve the changes.
+        """
+        try:
+            stmt = select(FileDiff).where(
+                FileDiff.project_id == project_id,
+                FileDiff.data_source_id == data_source_id,
+                FileDiff.file_path == file_path,
+            )
+            result = await self.async_db.execute(stmt)
+            file_diff = result.scalar_one_or_none()
+
+            if not file_diff or not file_diff.unified_diff:
+                return f"No project-scoped changes recorded for the file={file_path} in dataSource={data_source_id} for project_id={project_id}."
+
+            header = f"## Diff for `{file_path}` (change_type: {file_diff.change_type.value})\n"
+            if file_diff.conflict_detected:
+                header += f"WARNING: Conflict detected — some commits could not be cleanly applied: {file_diff.failed_commit_shas}\n"
+            if file_diff.diff_truncated:
+                header += "WARNING: Diff was truncated due to size limits.\n"
+
+            return header + "\n```diff\n" + file_diff.unified_diff + "\n```"
+
+        except Exception as e:
+            logger.error(f"Error retrieving file diff for file_path={file_path}, data_source_id={data_source_id}", exc_info=True)
+            return f"Error retrieving file diff: {str(e)}"
+
 
     async def get_project_git_commits(self, project_id: UUID, data_source_id: UUID) -> list[GitCommit]:
         """

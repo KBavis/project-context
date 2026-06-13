@@ -173,6 +173,24 @@ class DataSourceService:
         data_sources = await self.async_db.execute(stmt)
         return list(data_sources.scalars().unique().all())
 
+    async def aget_data_source_ids_by_type(
+        self, project_id: UUID, source_type: DataSourceType | None = None
+    ) -> list[str]:
+        """
+        Get all data source IDs for a given project, optionally filtered by DataSourceType.
+
+        This is the primary resolver used by the Tools wrappers to determine which 
+        collections to search.
+
+        Args:
+            project_id (UUID): The project ID.
+            source_type (DataSourceType | None): Optional type filter (REPOSITORY, DOCUMENTATION, etc).
+        """
+        data_sources = await self.aget_project_data_sources(project_id)
+        if source_type:
+            data_sources = [ds for ds in data_sources if ds.type == source_type]
+        return [str(ds.id) for ds in data_sources]
+
     def get_project_data_sources(self, project_id: UUID) -> list[dict[str, Any]]:
         """
         Functionality to retreive persisted data_sourcs that correspond to particular Project ID

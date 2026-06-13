@@ -7,9 +7,10 @@ import re
 from workflows.context.context import Context
 
 from app.llm import LLMBase
-from app.models.data_source import DataSource
-from app.data_providers import DataProvider
+from app.models.data_source import DataSource, DataSourceType
 from app.services.chunk_retrieval import ChunkRetrievalService
+from app.services.data_source import DataSourceService
+from app.services.diff import DiffService
 from app.data_providers.ingestible.base import IngestibleDataProvider
 
 import logging
@@ -34,12 +35,16 @@ class Tools:
         data_sources: list[DataSource],
         project_id: UUID,
         llm: LLMBase,
-        chunk_retrieval_svc: ChunkRetrievalService
+        chunk_retrieval_svc: ChunkRetrievalService,
+        data_source_svc: DataSourceService,
+        diff_svc: DiffService | None = None,
     ):
         self.data_sources = data_sources
         self.project_id = project_id
         self.llm = llm
         self.chunk_retrieval_svc = chunk_retrieval_svc
+        self.data_source_svc = data_source_svc
+        self.diff_svc = diff_svc
 
         # Per-DataSource tool buckets (keyed by DS id)
         self._ds_view_file_tools: dict[UUID, FunctionTool] = {}
@@ -51,6 +56,15 @@ class Tools:
         self._grep_search_tool: FunctionTool
         self._update_research_state_tool: FunctionTool
         self._write_plan_tool: FunctionTool
+
+        # DataSource's of type REPOSITORY configured for this Project that are `scoped_by_issues`
+        self._scoped_repo_data_sources: list[DataSource] = [
+            ds for ds in data_sources
+            if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues
+        ]
+
+        # Conditionally built tool for extracting file diffs across scoped repositories
+        self._get_file_diff_tool: FunctionTool | None = None
 
         self._init_tooling()
 
@@ -82,6 +96,7 @@ class Tools:
           - grep_search (exact keyword / regex matching)
           - update_research_state (log findings to shared scratchpad)
           - write_plan (revise plan when new discoveries change direction)
+          - get_file_diff (when scoped repositories exist)
           - All MCP tools for the relevant DataSources
         """
         tools: list[FunctionTool] = [
@@ -92,6 +107,8 @@ class Tools:
             *self._ds_view_file_tools.values(),
             *self._ds_list_dir_tools.values(),
         ]
+        if self._get_file_diff_tool:
+            tools.append(self._get_file_diff_tool)
         for ds_tools in mcp_tools.values():
             tools.extend(ds_tools)
         return tools
@@ -108,7 +125,7 @@ class Tools:
         Returns all unique internal tools across all agent phases.
         Used by the Diagnosis phase to summarize available tooling for the LLM.
         """
-        return [
+        tools = [
             self._semantic_search_tool,
             self._grep_search_tool,
             self._update_research_state_tool,
@@ -117,6 +134,9 @@ class Tools:
             *self._ds_list_dir_tools.values(),
             *self._ds_citation_tools.values(),
         ]
+        if self._get_file_diff_tool:
+            tools.append(self._get_file_diff_tool)
+        return tools
 
 
     # ─────────────────────────────────────────────
@@ -187,7 +207,9 @@ class Tools:
                 "Search the project's data sources by conceptual/semantic meaning. "
                 "Best for questions like 'How does X work?' or 'Where is Y implemented?'. "
                 "Returns relevant file chunks with their paths and data_source_ids. "
-                "Optionally pass data_source_ids to restrict the search scope."
+                "You can optionally specify specific data_source_ids if you know exactly which data sources contain the information you need. "
+                "Alternatively, you can provide source_type='REPOSITORY' or source_type='DOCUMENTATION' to scope the search to only code or only documentation. "
+                "If both are omitted, the search will span across all available data sources."
             ),
         )
 
@@ -199,7 +221,9 @@ class Tools:
                 "Accepts Postgres POSIX Regular Expressions. "
                 "Use regex to catch variations: e.g. 'ingestion\\s*jobs?' matches 'ingestion job' and 'ingestion jobs'. "
                 "Returns matching chunks with file paths and data_source_ids. "
-                "Optionally pass data_source_ids to restrict the search scope."
+                "You can optionally specify specific data_source_ids if you know exactly which data sources contain the information you need. "
+                "Alternatively, you can provide source_type='REPOSITORY' or source_type='DOCUMENTATION' to scope the search to only code or only documentation. "
+                "If both are omitted, the search will span across all available data sources."
             ),
         )
 
@@ -226,12 +250,49 @@ class Tools:
             ),
         )
 
+        # Step 3: Conditional diff tool (only for scoped repositories)
+        if self._scoped_repo_data_sources:
+            logger.info(f"Found {len(self._scoped_repo_data_sources)} scoped repository data sources for Project={self.project_id}. Setting up internal diff_tool for Agent usage ...")
+            self._setup_diff_tool()
+
         logger.debug(
-            "Tools initialized: %d view_file, %d list_directory, %d generate_citation tools across %d DataSources",
+            "Tools initialized: %d view_file, %d list_directory, %d generate_citation tools across %d DataSources, get_file_diff=%s",
             len(self._ds_view_file_tools),
             len(self._ds_list_dir_tools),
             len(self._ds_citation_tools),
             len(self.data_sources),
+            "enabled" if self._get_file_diff_tool else "disabled",
+        )
+
+    def _setup_diff_tool(self):
+        """
+        Set up the diff tool if there are Repository DataSources configured 
+        for the currrent Project with `scoped_by_issues` set to True 
+        """
+
+        # validate the DiffService is available in the case that relevant Repositories are configured 
+        if not self.diff_svc:
+            raise ValueError(
+                "DiffService is required when scoped repository data sources exist, "
+                f"but diff_svc was None. Scoped repos: {[ds.name for ds in self._scoped_repo_data_sources]}"
+            )
+
+        # Build the dynamic description enumerating valid data sources
+        ds_lines = "\n".join(
+            f'  - "{ds.name}" (ID: {ds.id})'
+            for ds in self._scoped_repo_data_sources
+        )
+        self._get_file_diff_tool = self._build_function_tool(
+            async_fn=self._get_file_diff_wrapper,
+            function_name="get_file_diff",
+            description=(
+                "Retrieve the unified diff for a specific file as introduced by this project.\n"
+                "IMPORTANT: This tool is ONLY valid for the following data sources:\n"
+                f"{ds_lines}\n"
+                "Do NOT call this with any other data_source_id — it will return no results.\n"
+                "Use this tool when you need to understand WHAT specifically was changed about a file "
+                "in a data source due to this Project. Use view_file instead to see the file's current full state."
+            ),
         )
 
 
@@ -294,51 +355,86 @@ class Tools:
         return "Finding recorded in shared state."
 
     async def _grep_search_wrapper(
-        self, key_word: str, data_source_ids: list[str] | None = None
+        self, key_word: str, source_type: str | None = None, data_source_ids: list[str] | None = None
     ):
         """
-        Wrapper for grep/BM25 search that injects project_id and defaults
-        data_source_ids to all available DataSources if not specified.
+        Wrapper for grep/BM25 search that resolves data_source_ids from source_type
+        when specific IDs are not provided, or defaults to all DataSources for the current project.
 
         Args:
             key_word: Keyword or POSIX regex pattern to search for
+            source_type: Optional filter — 'REPOSITORY' or 'DOCUMENTATION' (ignored if data_source_ids provided)
             data_source_ids: Optional list of DataSource UUIDs to restrict search scope
         """
-        if not data_source_ids:
-            data_source_ids = [str(ds.id) for ds in self.data_sources]
+        resolved_ids = await self._resolve_data_source_ids(source_type, data_source_ids)
 
         return await self.chunk_retrieval_svc.grep_search(
             key_word,
-            self.project_id,
-            data_source_ids=data_source_ids,
+            data_source_ids=resolved_ids,
         )
 
     async def _semantic_search_wrapper(
-        self, query: str, data_source_ids: list[str] | None = None
+        self, query: str, source_type: str | None = None, data_source_ids: list[str] | None = None
     ):
         """
-        Wrapper for semantic/vector search that injects project_id and defaults
-        data_source_ids to all available DataSources if not specified.
+        Wrapper for semantic/vector search that resolves data_source_ids from source_type
+        when specific IDs are not provided, or defaults to all DataSources for the current project.
 
         Args:
             query: Natural language query to search semantically
+            source_type: Optional filter — 'REPOSITORY' or 'DOCUMENTATION' (ignored if data_source_ids provided)
             data_source_ids: Optional list of DataSource UUIDs to restrict search scope
         """
-        if not data_source_ids:
-            data_source_ids = [str(ds.id) for ds in self.data_sources]
+        resolved_ids = await self._resolve_data_source_ids(source_type, data_source_ids)
 
         return await self.chunk_retrieval_svc.semantic_search(
             query,
-            self.project_id,
             llm=self.llm,
-            data_source_ids=data_source_ids,
+            data_source_ids=resolved_ids,
         )
 
+    async def _get_file_diff_wrapper(
+        self, file_path: str, data_source_id: str
+    ) -> str:
+        """
+        Retrieve the unified diff for a specific file as introduced by this project.
+
+        Args:
+            file_path: Repo-relative path to the file (e.g. 'src/auth/service.py')
+            data_source_id: UUID string of the scoped repository DataSource
+        """
+        # Note: This validation should have already been made above 
+        if not self.diff_svc:
+            raise Exception(f"DiffService not injected into Tools")
+
+        return await self.diff_svc.get_file_diff_string(self.project_id, UUID(data_source_id), file_path)
 
 
     # ─────────────────────────────────────────────
     # Private: Utility
     # ─────────────────────────────────────────────
+
+    async def _resolve_data_source_ids(
+        self, source_type: str | None, data_source_ids: list[str] | None
+    ) -> list[str]:
+        """
+        Resolve data source IDs for search operations.
+        
+        - If data_source_ids is provided, use directly (most specific — ignores source_type).
+        - Else if source_type is provided, resolve via DataSourceService.
+        - Else default to all project data sources.
+        """
+        if data_source_ids:
+            return data_source_ids
+
+        ds_type = None
+        if source_type:
+            try:
+                ds_type = DataSourceType(source_type)
+            except ValueError:
+                logger.warning(f"Invalid source_type '{source_type}', falling back to all data sources")
+
+        return await self.data_source_svc.aget_data_source_ids_by_type(self.project_id, ds_type)
 
     def _build_function_tool(
         self, async_fn: Callable[..., Any], function_name: str, description: str
