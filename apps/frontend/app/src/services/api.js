@@ -153,6 +153,14 @@ export const api = {
             });
             return handleResponse(response);
         },
+        update: async (dataSourceId, updates) => {
+            const response = await fetch(`${API_BASE_URL}/data/sources/${dataSourceId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updates),
+            });
+            return handleResponse(response);
+        },
     },
 
     // MCP Configuration endpoints

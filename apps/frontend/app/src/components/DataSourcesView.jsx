@@ -7,7 +7,7 @@ import '../styles/IngestionJobsView.css';
 
 export default function DataSourcesView({ projectId }) {
     const { projects } = useProjects();
-    const { dataSources, loading: dsLoading, error, deleteDataSource, createDataSource, mcpConfigs, linkProjectToDataSource, linkMcpToDataSource } = useDataSources();
+    const { dataSources, loading: dsLoading, error, deleteDataSource, createDataSource, updateDataSource, mcpConfigs, linkProjectToDataSource, linkMcpToDataSource } = useDataSources();
     const { ingestionJobs, createIngestionJob } = useIngestionJobs();
     const { showAlert } = useAlert();
 
@@ -39,6 +39,9 @@ export default function DataSourcesView({ projectId }) {
         onConfirm: null,
         confirmLabel: 'Confirm'
     });
+
+    const [editModalOpen, setEditModalOpen] = useState(false);
+    const [editingDS, setEditingDS] = useState(null);
 
     const closeConfirmModal = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
 
@@ -406,6 +409,23 @@ export default function DataSourcesView({ projectId }) {
                                             {activeJobView === ds.id ? 'Hide History' : 'View Latest Jobs'}
                                         </button>
                                         <button
+                                            className="flat-action"
+                                            onClick={() => {
+                                                setEditingDS({
+                                                    id: ds.id,
+                                                    provider: ds.provider,
+                                                    type: ds.type,
+                                                    url: ds.config?.url || ds.url,
+                                                    name: ds.name,
+                                                    branch: ds.branch || '',
+                                                    scope_by_issues: !!ds.scope_by_issues,
+                                                });
+                                                setEditModalOpen(true);
+                                            }}
+                                        >
+                                            Edit
+                                        </button>
+                                        <button
                                             className="flat-action primary"
                                             onClick={() => handleRunIngestion(ds.id)}
                                             disabled={creatingJob}
@@ -472,16 +492,92 @@ export default function DataSourcesView({ projectId }) {
                 <p>{confirmModal.message}</p>
             </Modal>
 
+            {/* Edit Data Source Modal */}
+            <Modal
+                isOpen={editModalOpen}
+                onClose={() => setEditModalOpen(false)}
+                title="Edit Data Source"
+                size="md"
+                actions={
+                    <>
+                        <Button size="sm" variant="ghost" onClick={() => setEditModalOpen(false)}>Cancel</Button>
+                        <Button form="edit-datasource-form" type="submit" loading={creatingJob}>Save Changes</Button>
+                    </>
+                }
+            >
+                {editingDS && (
+                    <form id="edit-datasource-form" onSubmit={async (e) => {
+                        e.preventDefault();
+
+                        // compute changes
+                        const updates = {
+                            name: editingDS.name,
+                            url: editingDS.url,
+                            branch: editingDS.branch || undefined,
+                            scope_by_issues: editingDS.scope_by_issues
+                        };
+
+                        // confirmation message
+                        const changesList = Object.entries(updates).map(([k, v]) => `${k}: ${String(v)}`).join('\n');
+
+                        setConfirmModal({
+                            isOpen: true,
+                            title: 'Confirm Edit',
+                            message: `Apply the following changes to data source ${editingDS.name}:\n\n${changesList}`,
+                            confirmLabel: 'Apply',
+                            onConfirm: async () => {
+                                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                                try {
+                                    await updateDataSource(editingDS.id, updates);
+                                    showAlert('Data source updated', 'success');
+                                    setEditModalOpen(false);
+                                } catch (err) {
+                                    showAlert('Failed to update data source: ' + err.message, 'error');
+                                }
+                            }
+                        });
+                    }}>
+                        <div className="form-grid">
+                            <div className="form-field">
+                                <label className="input-label">Name</label>
+                                <input className="input" value={editingDS.name} onChange={(e) => setEditingDS({...editingDS, name: e.target.value})} />
+                            </div>
+                            <div className="form-field">
+                                <label className="input-label">URL</label>
+                                <input className="input" value={editingDS.url} onChange={(e) => setEditingDS({...editingDS, url: e.target.value})} />
+                            </div>
+                            {editingDS.type === 'REPOSITORY' && (
+                                <div className="form-field">
+                                    <label className="input-label">Branch</label>
+                                    <input className="input" value={editingDS.branch} onChange={(e) => setEditingDS({...editingDS, branch: e.target.value})} />
+                                </div>
+                            )}
+                            {editingDS.type === 'REPOSITORY' && (
+                                <div className="form-field">
+                                    <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <input type="checkbox" checked={editingDS.scope_by_issues} onChange={(e) => setEditingDS({...editingDS, scope_by_issues: e.target.checked})} />
+                                        Scope by Issues
+                                    </label>
+                                </div>
+                            )}
+                        </div>
+                    </form>
+                )}
+            </Modal>
+
         </div>
     );
 }
 
 function getDataSourceIcon(type) {
+    const key = (type || '').toString().toLowerCase();
+    // Prefer a GitHub-specific icon when provider/type contains 'github'
+    if (key.includes('github')) return '🐙';
+
     const icons = {
-        github: '🔗',
         file: '📄',
         web: '🌐',
         database: '🗄️',
     };
-    return icons[type?.toLowerCase()] || '📦';
+    return icons[key] || '📦';
 }

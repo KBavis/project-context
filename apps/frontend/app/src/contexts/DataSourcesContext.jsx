@@ -102,6 +102,17 @@ export const DataSourcesProvider = ({ children }) => {
         }
     };
 
+    const updateDataSource = async (id, updates) => {
+        try {
+            const updated = await api.dataSources.update(id, updates);
+            setDataSources(prev => prev.map(ds => ds.id === updated.id ? updated : ds));
+            return updated;
+        } catch (err) {
+            setError('Failed to update data source');
+            throw err;
+        }
+    };
+
     return (
         <DataSourcesContext.Provider value={{ 
             dataSources, 
@@ -111,6 +122,7 @@ export const DataSourcesProvider = ({ children }) => {
             fetchData, 
             deleteDataSource, 
             createDataSource,
+            updateDataSource,
             createMcpConfig,
             deleteMcpConfig,
             linkProjectToDataSource,
