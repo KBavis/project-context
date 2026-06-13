@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.pydantic import ProjectRequest
 from app.models import Project, ProjectData, DataSource
+from app.models.data_source import DataSourceType
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -136,9 +137,24 @@ class ProjectService:
             if not data_source:
                 raise Exception(f"Data Source with ID {data_source_id} not found")
 
+            # If the DataSource is already linked to other projects, enforce repository scoping rules
+            stmt_existing_links = select(ProjectData).where(ProjectData.data_source_id == data_source_id)
+            existing_links = self.db.execute(stmt_existing_links).scalars().all()
+            other_linked_projects = [l for l in existing_links if l.project_id != project_id]
+            if other_linked_projects:
+                # Data source already associated with at least one other project
+                if data_source.type == DataSourceType.REPOSITORY and not data_source.scope_by_issues:
+                    # Disallow linking a repository that is not scoped by issues to multiple projects
+                    raise ValueError(
+                        "Cannot link this Repository Data Source to multiple projects unless it is configured with "
+                        "scope_by_issues=True. To fix: set `scope_by_issues` to true on the Data Source and ensure "
+                        "the target Project has parent_issues configured (issue numbers), or unlink the Data Source from "
+                        "other projects before linking."
+                    )
+
             # validate that if data source has scope_by_issues=True, project must have parent_issues
             if data_source.scope_by_issues and not project.parent_issues:
-                raise Exception(
+                raise ValueError(
                     f"Cannot link Project (ID: {project_id}) to Data Source (ID: {data_source_id}) with scope_by_issues=True "
                     f"unless the Project has parent_issues configured"
                 )
