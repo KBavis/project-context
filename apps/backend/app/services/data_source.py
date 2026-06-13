@@ -287,8 +287,15 @@ class DataSourceService:
         if not ds:
             raise Exception(f"Data Source with ID {data_source_id} not found")
 
+        # Reject attempts to change `type` or `provider` via update - require recreate.
+        if "type" in updates or "provider" in updates:
+            raise ValueError(
+                "Changing `type` or `provider` of a Data Source is not allowed. "
+                "Please delete and recreate the Data Source with the desired type/provider."
+            )
+
         # Determine target type (what the DataSource will be after the update)
-        target_type = updates.get("type", ds.type)
+        target_type = ds.type
 
         # Disallow setting branch when resulting type is not REPOSITORY
         if "branch" in updates and target_type != DataSourceType.REPOSITORY:
@@ -299,8 +306,8 @@ class DataSourceService:
             val = updates.get("scope_by_issues")
             self._validate_scope_by_issues_update(ds, target_type, val)
 
-        # Apply allowed updates (including type, name, url, provider)
-        allowed = {"name", "branch", "scope_by_issues", "url", "provider", "type"}
+        # Apply allowed updates (exclude `type` and `provider` — those require recreate)
+        allowed = {"name", "branch", "scope_by_issues", "url"}
         for k, v in updates.items():
             if k in allowed:
                 setattr(ds, k, v)
