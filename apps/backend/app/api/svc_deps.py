@@ -65,8 +65,7 @@ def get_chroma_svc(
 
 def get_project_svc(
         db: Session = Depends(get_sync_db_session),
-        async_db: AsyncSession = Depends(get_async_db_session),
-        chroma_svc: ChromaService= Depends(get_chroma_svc)
+        async_db: AsyncSession = Depends(get_async_db_session)
 ):
     """
     Setup ProjectService dependency
@@ -75,12 +74,13 @@ def get_project_svc(
         db (Session): current DB session
     """
 
-    return ProjectService(db=db, async_db=async_db, chroma_svc=chroma_svc)
+    return ProjectService(db=db, async_db=async_db)
 
 
 def get_data_source_svc(
         db: Session = Depends(get_sync_db_session),
-        async_db: AsyncSession = Depends(get_async_db_session)
+        async_db: AsyncSession = Depends(get_async_db_session),
+        chroma_svc: ChromaService = Depends(get_chroma_svc)
 ):
     """
     Setup DataSourceService dependency
@@ -89,7 +89,7 @@ def get_data_source_svc(
         db (Session): current DB session
     """
     
-    return DataSourceService(db=db, async_db=async_db)
+    return DataSourceService(db=db, async_db=async_db, chroma_svc=chroma_svc)
 
 
 def get_mcp_svc(
@@ -171,7 +171,8 @@ def get_async_agent_svc(
     db: AsyncSession = Depends(get_async_db_session),
     mcp_svc: MCPService = Depends(get_mcp_svc),
     data_source_svc: DataSourceService = Depends(get_data_source_svc),
-    chunk_retrieval_svc: ChunkRetrievalService = Depends(get_async_chunk_retrieval_svc)
+    chunk_retrieval_svc: ChunkRetrievalService = Depends(get_async_chunk_retrieval_svc),
+    diff_svc: DiffService = Depends(get_async_diff_svc)
 ):
     """
     Setup async AgentService dependency
@@ -186,7 +187,8 @@ def get_async_agent_svc(
         db=db, 
         mcp_svc=mcp_svc, 
         data_source_svc=data_source_svc,
-        chunk_retrieval_svc=chunk_retrieval_svc
+        chunk_retrieval_svc=chunk_retrieval_svc,
+        diff_svc=diff_svc
     )
 
 def get_async_record_lock_svc():
