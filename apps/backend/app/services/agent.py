@@ -17,7 +17,8 @@ from app.llm import LLMBase
 from app.services.mcp import MCPService
 from app.services.data_source import DataSourceService
 from app.services.chunk_retrieval import ChunkRetrievalService
-from app.models.data_source import DataSource
+from app.services.diff import DiffService
+from app.models.data_source import DataSource, DataSourceType
 
 from llama_index.core.tools import FunctionTool
 from llama_index.core.agent.workflow import (AgentOutput, AgentStream, ToolCallResult, AgentWorkflow, AgentInput)
@@ -46,12 +47,14 @@ class AgentService:
         mcp_svc: MCPService,
         data_source_svc: DataSourceService,
         chunk_retrieval_svc: ChunkRetrievalService,
+        diff_svc: DiffService | None = None,
     ) -> None:
 
         self.db = db
         self.mcp_svc = mcp_svc
         self.data_source_svc = data_source_svc
         self.chunk_retrieval_svc = chunk_retrieval_svc
+        self.diff_svc = diff_svc
 
 
     async def run_agent(
@@ -90,12 +93,14 @@ class AgentService:
                 project_id,
                 llm,
                 self.chunk_retrieval_svc,
+                self.data_source_svc,
+                self.diff_svc,
             )
             all_internal_tools = tool_manager.get_all_internal_tools()
             logger.info("Initialized %d internal tools across %d DataSources", len(all_internal_tools), len(data_sources))
 
-            # 4. Phase 1: Diagnosis — refine question, filter DataSources and MCP tools
-            refined_question, question_type, mcp_tools, data_sources = await self.diagnose_users_question(
+            # 4. Phase 1: Diagnosis — refine question and filter MCP tools
+            refined_question, question_type, mcp_tools = await self.diagnose_users_question(
                 llm, user_prompt, data_sources, all_internal_tools, mcp_tools, conversation_history
             )
             logger.info("Phase 1 Complete: QuestionType=%s, RefinedQuestion='%s'", question_type, refined_question)
@@ -281,19 +286,7 @@ class AgentService:
                 filtered[ds_id] = [t for t in tools if t.metadata.name in req_tools_for_ds]
         return filtered
 
-    def _filter_data_sources(
-        self,
-        data_sources: list[DataSource],
-        req_ds_ids: list,
-    ) -> list[DataSource]:
-        """
-        Filter the full DataSource list to only those selected by the Diagnosis phase.
-        Falls back to all DataSources if the filtered list would be empty.
-        """
-        if not req_ds_ids:
-            return data_sources
-        filtered = [ds for ds in data_sources if str(ds.id) in req_ds_ids]
-        return filtered if filtered else data_sources
+
 
     async def diagnose_users_question(
         self,
@@ -303,15 +296,14 @@ class AgentService:
         internal_tools: list[FunctionTool],
         mcp_tools: dict[str, list[FunctionTool]],
         conversation_history: list[ChatMessage],
-    ) -> tuple[str, str, dict[str, list[FunctionTool]], list[DataSource]]:
+    ) -> tuple[str, str, dict[str, list[FunctionTool]]]:
         """
         Phase 1: Diagnosis — lightweight LLM call (before the full workflow) that determines:
-          a) Which DataSources are relevant to the question
-          b) A clarified/refined version of the question
-          c) Which MCP tools (if any) are actually needed
-          d) The question type/classification
+          a) A clarified/refined version of the question
+          b) Which MCP tools (if any) are actually needed
+          c) The question type/classification
 
-        Returns a tuple of (refined_question, question_type, filtered_mcp_tools, filtered_data_sources).
+        Returns a tuple of (refined_question, question_type, filtered_mcp_tools).
         """
         logger.info(
             "Executing Phase 1 Diagnosis via %s/%s for prompt: %s",
@@ -332,9 +324,8 @@ class AgentService:
         question_type = diagnosis.get("question_type", "General Inquiry")
 
         mcp_tools = self._filter_mcp_tools(mcp_tools, diagnosis.get("required_mcp_tools", {}))
-        data_sources = self._filter_data_sources(data_sources, diagnosis.get("required_data_sources", []))
 
-        return refined_question, question_type, mcp_tools, data_sources
+        return refined_question, question_type, mcp_tools
 
 
     # ─────────────────────────────────────────────
