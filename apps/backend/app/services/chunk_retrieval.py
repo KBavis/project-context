@@ -44,9 +44,8 @@ class ChunkRetrievalService:
     async def grep_search(
         self, 
         key_word: str,
-        project_id: UUID,
-        k: int = 10,
-        data_source_ids: Optional[list[str]] = None
+        data_source_ids: list[str],
+        k: int = 10
     ):
         """
         Functionality to retrieve ingested Documentation / Code chunks based on _exeact_ variable names, function
@@ -55,15 +54,14 @@ class ChunkRetrievalService:
 
         Args:
             key_word (str): the exact text string to search for
-            project_id (UUID): the project the search corresponds to
+            data_source_ids (list[str]): list of data source IDs to limit the search to
             k (int): the number of chunks to retrieve --> default is 10 chunks
-            data_source_ids (Optional[list[str]]): optional list of data source IDs to limit the search to
         """
 
         try:
-            # 1. Resolve Data Source IDs (if none provided, search the whole project)
             if not data_source_ids:
-                data_source_ids = await self._get_data_source_ids_by_project(project_id)
+                logger.warning("No Data Sources provided for grep search")
+                return []
                 
             logger.info(f"Performing grep search for '{key_word}' in Data Sources: {data_source_ids}")
 
@@ -82,7 +80,7 @@ class ChunkRetrievalService:
             result = await self.db.execute(stmt)
             docstore_chunks = result.scalars().all()
             if not docstore_chunks:
-                logger.warning(f"No chunks retrieved for Keyword={key_word}, Project={project_id}, Data Sources={data_source_ids}")
+                logger.warning(f"No chunks retrieved for Keyword={key_word}, Data Sources={data_source_ids}")
 
             # 3. Format the chunks for the LLM
             formatted_chunks = []
@@ -95,7 +93,7 @@ class ChunkRetrievalService:
                 
             return formatted_chunks
         except Exception as e:
-            logger.error(f"Error performing grep search for keyword={key_word}, project_id={project_id}, data_source_ids={data_source_ids}", e)
+            logger.error(f"Error performing grep search for keyword={key_word}, data_source_ids={data_source_ids}", e)
             return []
 
     async def retrieve_sequential_chunks(self, file_path: str, data_source_id: UUID) -> str:
@@ -151,10 +149,9 @@ class ChunkRetrievalService:
     async def semantic_search(
         self, 
         query: str,
-        project_id: UUID,
         llm: LLMBase,
-        k: int = 10,
-        data_source_ids: Optional[list[str]] = None
+        data_source_ids: list[str],
+        k: int = 10
     ):
         """
         Functionality to retrieve ingested Documentation / Code based on a) semantic reasoning (from vector's stored
@@ -162,25 +159,37 @@ class ChunkRetrievalService:
 
         Args:
             query (str): query to retrieve chunks for 
-            project_id (UUID): the project to retrieve chunks for 
             llm (LLMBase): the LLM associated with the Conversation 
+            data_source_ids (list[str]): list of data source IDs to search in
             k (int): the number of chunks to retrieve --> default is 10 chunks
-            data_source_ids (Optional[list[str]]): optional list of data source IDs to limit the search to
         """
-        logger.info(f"Performing semantic search for Query={query}, Project={project_id}, Data Sources={data_source_ids}")
+        logger.info(f"Performing semantic search for Query={query}, Data Sources={data_source_ids}")
 
-        # retreive relevant Chroma Collections corresponding to Project 
-        collection = self.chroma_svc.get_collection_by_project(project_id)
-        if not collection:
-            raise Exception(f"No ingested data found for Project ID: {project_id}")
+        if not data_source_ids:
+            logger.warning("No Data Sources provided for semantic search")
+            return []
+
+        # retreive relevant Chroma Collections corresponding to Data Sources 
+        collections = []
+        for ds_id in data_source_ids:
+            try:
+                col = await self.chroma_svc.aget_collection_by_data_source(UUID(ds_id))
+                if col:
+                    collections.append(col)
+            except Exception as e:
+                logger.warning(f"Could not fetch collection for Data Source ID {ds_id}: {e}")
+
+        if not collections:
+            logger.warning(f"No ingested data found for Data Source IDs: {data_source_ids}")
+            return []
         
         # retreive cached embedding model
         embedding = await EmbeddingManager.aget_embedding_model_cached()
         
         # retrieve chunks based on query        
-        chunks = await self._get_chunks(query, collection, embedding, llm, k, data_source_ids)
+        chunks = await self._get_chunks(query, collections, embedding, llm, k, data_source_ids)
         if not chunks:
-            logger.warning(f"No chunks retrieved for Query={query}, Project={project_id}, Data Sources={data_source_ids}")
+            logger.warning(f"No chunks retrieved for Query={query}, Data Sources={data_source_ids}")
 
         # format chunks (data source ID: chunk content) 
         formatted_chunks = []
@@ -196,33 +205,39 @@ class ChunkRetrievalService:
     async def _get_chunks(
         self, 
         query: str, 
-        collection: ChromaCollection, 
+        collections: list[ChromaCollection], 
         embedding: BaseEmbedding,
         llm: LLMBase,
         k: int,
-        data_source_ids: Optional[list[str]] = None
+        data_source_ids: list[str]
     ) -> list["NodeWithScore"]:
         """
-        Retrieve chunks directly from ChromaDB based on the query and specified collection
+        Retrieve chunks directly from ChromaDB based on the query and specified collections
 
         Args:
             query (str): user passed in query
-            collection (ChromaCollection): the Chroma collection to query against
+            collections (list[ChromaCollection]): the Chroma collections to query against
             embedding: the LlamaIndex embedding model to use for querying
             llm (LLMBase): the LLM associated with the Conversation
             k (int): the number of chunks to retrieve --> default is 10 chunks
-            data_source_ids (Optional[list[str]]): optional list of data source IDs to limit the search to
+            data_source_ids (list[str]): list of data source IDs
         """
 
         try:
         
             # configure the retrievers
-            chroma_retriever = await self._get_chroma_retreiver(collection, embedding, k, data_source_ids)
-            bm25_retriever = await self._get_bm25_retriever(collection, k, data_source_ids)
+            retrievers = []
+            for collection in collections:
+                chroma_retriever = await self._get_chroma_retreiver(collection, embedding, k)
+                retrievers.append(chroma_retriever)
+            
+            # configure BM25 retriever
+            bm25_retriever = await self._get_bm25_retriever(k, data_source_ids)
+            retrievers.append(bm25_retriever)
 
             # configure the fusion retriever (hybrid cordinator for both seamtnic and direct comparisons)
             fusion_retriever = QueryFusionRetriever(
-                [chroma_retriever, bm25_retriever], 
+                retrievers, 
                 similarity_top_k=k,
                 num_queries=1,
                 mode=FUSION_MODES.RECIPROCAL_RANK,
@@ -242,18 +257,16 @@ class ChunkRetrievalService:
 
     async def _get_bm25_retriever(
         self, 
-        collection: ChromaCollection, 
         k: int,
-        data_source_id_filter: Optional[list[str]] = None
+        data_source_ids: list[str]
     ) -> BaseRetriever:
         """
         Configure BM25 Retriever for Hybrid Search functionality based on all 
-        nodes assocaited with Project in Postgres KV Store 
+        nodes assocaited with Data Sources in Postgres KV Store 
 
         Args:
-            collection (ChromaCollection): the Chroma collection to retrieve retriever from
             k (int): the number of chunks to retrieve
-            data_source_ids (list): optional list of data source's to filter search by (if not provided, all will be used)
+            data_source_ids (list): list of data source's to filter search by 
         """
 
         # configure Postgres KV Store
@@ -266,9 +279,8 @@ class ChunkRetrievalService:
             perform_setup=True
         )
 
-        # retrieve all nodes associated with Project or filtered Data Source IDs
+        # retrieve all nodes associated with filtered Data Source IDs
         all_nodes = []
-        data_source_ids = await self._get_data_source_ids_by_project(collection.project_id) if not data_source_id_filter else data_source_id_filter
         logger.info(f"Filtering BM25 Retreiver based on Data Source IDs: {data_source_ids}")
 
         for id in data_source_ids:
@@ -286,7 +298,7 @@ class ChunkRetrievalService:
         )
         
 
-    async def _get_chroma_retreiver(self, collection: ChromaCollection, embedding: BaseEmbedding, k: int, data_source_ids: Optional[list[str]] = None) -> BaseRetriever:
+    async def _get_chroma_retreiver(self, collection: ChromaCollection, embedding: BaseEmbedding, k: int) -> BaseRetriever:
         """
         Get retriever associated with relevant Chroma Collection 
 
@@ -294,42 +306,16 @@ class ChunkRetrievalService:
             collection (ChromaCollection): the Chroma collection to retrieve retriever from
             embedding (BaseEmbedding): the LlamaIndex embedding model to use for querying
             k (int): the number of chunks to retrieve
-            data_source_ids (Optional[list[str]]): optional list of data source's to filter search by (if not provided, all will be used)
         """
 
         # get actual Chroma Collection 
         chroma_collection = self.chroma_svc.get_real_chroma_collection(collection_name=collection.name)
 
-        # configure filter (if needed)
-        filters = None 
-        if data_source_ids:
-            logger.info(f"Filtering ChromaRetriever based on selected Data Source IDs: {data_source_ids}")
-
-            filters = MetadataFilters(
-                filters=[
-                    MetadataFilter(
-                        key="data_source_id",
-                        value=data_source_ids,
-                        operator=FilterOperator.IN
-                    )
-                ]
-            )
-
         # configure LlamaIndex retriever from Chroma collection 
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
         index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embedding) # pass embed_model explicitly to avoid race conditions with global Settings
         
-        return index.as_retriever(similarity_top_k=k, filters=filters) if filters else index.as_retriever(similarity_top_k=k)
+        return index.as_retriever(similarity_top_k=k)
         
 
-    async def _get_data_source_ids_by_project(self, project_id: UUID) -> list[str]:
-        """
-        Get all data source IDs for a given project.
 
-        Args:
-            project_id (UUID): The project ID.
-        """
-
-        data_sources = await self.data_source_svc.aget_project_data_sources(project_id)
-        data_source_ids = [str(data_source.id) for data_source in data_sources]
-        return data_source_ids
