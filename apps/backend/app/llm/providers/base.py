@@ -65,7 +65,7 @@ class LLMBase(ABC):
         """
         diagnosis_prompt = f"""
         TASK: You are the Diagnosis Agent for a coding assistant workflow. 
-        Your job is to analyze the USER_QUESTION and CONVERSATION_HISTORY to determine exactly what the user is asking, and which Data Sources and MCP Tools are necessary to answer it.
+        Your job is to analyze the USER_QUESTION and CONVERSATION_HISTORY to determine exactly what the user is asking, classify the question type, and determine which MCP Tools are necessary to answer it.
 
         CONVERSATION_HISTORY:
         {conversation_history_str}
@@ -82,9 +82,8 @@ class LLMBase(ABC):
         CRITICAL RULES:
         1. Read the CONVERSATION_HISTORY to resolve any ambiguities in the USER_QUESTION (e.g., identifying what "it" or "this file" refers to).
         2. "refined_question": A standalone version of the user's prompt with all ambiguities resolved. You must retain the original core intent and technical constraints of the user's question, only injecting the missing context.
-        3. "required_data_sources": List of Data Source IDs that are relevant. If you are unsure whether a Data Source is relevant, DO NOT filter it out. Include its ID. Better to provide too much context than too little.
-        4. "required_mcp_tools": A dictionary mapping a Data Source ID to a list of MCP Tool Names. ONLY select MCP tools that belong to the Data Sources you selected in step 3. ONLY include an MCP tool if the Internal Tools cannot accomplish the task. If no MCP tools are needed, return an empty dictionary.
-        5. Your ONLY output MUST be a valid JSON object. Do NOT wrap it in markdown block quotes.
+        3. "required_mcp_tools": A dictionary mapping a Data Source ID to a list of MCP Tool Names. ONLY select MCP tools that belong to the Data Sources listed above. ONLY include an MCP tool if the Internal Tools cannot accomplish the task. If no MCP tools are needed, return an empty dictionary.
+        4. Your ONLY output MUST be a valid JSON object. Do NOT wrap it in markdown block quotes.
 
         OUTPUT_FORMAT:
         {{
@@ -92,9 +91,7 @@ class LLMBase(ABC):
             "contextual_clarification": "How the conversation history resolves ambiguity.",
             "refined_question": "Standalone version of the prompt.",
             "question_type": "Classification of the question (e.g. 'Deep Research', 'General Inquiry', 'Action Execution')",
-            "data_source_reasoning": "Brief explanation of which data sources are needed and why. Rule: If unsure, keep the data source.",
-            "required_data_sources": ["id1", "id2"],
-            "mcp_tool_reasoning": "Brief explanation of which MCP tools are needed, ensuring they ONLY belong to the selected data sources above.",
+            "mcp_tool_reasoning": "Brief explanation of which MCP tools are needed, ensuring they ONLY belong to the available data sources.",
             "required_mcp_tools": {{
                 "id1": ["mcp_tool_name_1"]
             }}
