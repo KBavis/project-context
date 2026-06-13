@@ -57,13 +57,12 @@ class IngestionJobService:
             data_source_id (UUID): the data source this ingestion job corresponds to 
         """
         
-        # retrieve data source (EAGERLY load project_data, project, and chroma collections for future processing)
+        # retrieve data source (EAGERLY load project_data and project for future processing)
         stmt = (
             select(DataSource)
                 .options( 
                     selectinload(DataSource.project_data) 
                     .selectinload(ProjectData.project) 
-                    .selectinload(Project.chroma_collection)
                 ) 
                 .where(DataSource.id == data_source_id)
         )
@@ -149,13 +148,13 @@ class IngestionJobService:
 
                 # TODO: Consider thread pool based on available resources to user (CPU cores, GPU, etc)
                 # run Docling conversion, chunking, and ChromaDB persistence 
-                await self.chunk_insertion_service.docs_convert_chunk_and_store(data_source, project_id, job_pk)
+                await self.chunk_insertion_service.docs_convert_chunk_and_store(data_source, job_pk)
 
 
             # code files were ingested 
             if has_code:
                 logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
-                await self.chunk_insertion_service.code_chunk_and_store(data_source, project_id, job_pk)
+                await self.chunk_insertion_service.code_chunk_and_store(data_source, job_pk)
             
 
             # sync repository (IF APPLICABLE) with the on-going project changes 

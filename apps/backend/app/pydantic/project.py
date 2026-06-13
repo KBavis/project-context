@@ -11,10 +11,6 @@ from app.core import settings
 class ProjectRequest(BaseModel):
     name: str
 
-    # allow for model configuration during project creation
-    embedding_provider: str = settings.EMBEDDING_PROVIDER
-    embedding_model: str = settings.EMBEDDING_MODEL
-    
     lob: Optional[str] = "N/A"
     description: Optional[str] = ""
     meta_data: Optional[List[str]] = []

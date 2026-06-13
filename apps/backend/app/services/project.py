@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.pydantic import ProjectRequest
-from app.services.chroma import ChromaService
 from app.models import Project, ProjectData, DataSource
 from uuid import UUID
 
@@ -16,12 +15,10 @@ class ProjectService:
     def __init__(
         self,
         db: Session,
-        async_db: AsyncSession,
-        chroma_svc: ChromaService
+        async_db: AsyncSession
     ):
         self.db = db
         self.async_db = async_db
-        self.chroma_svc = chroma_svc
 
     def create_project(self, request: ProjectRequest) -> dict:
         """
@@ -44,24 +41,10 @@ class ProjectService:
             self.db.add(project)
             self.db.flush()
 
-            # create records for ChromaCollections
-            chroma_collection = self.chroma_svc.create_collection(
-                project_id=project.id,
-                project_name=project.project_name,
-                embedding_provider=request.embedding_provider,
-                embedding_model=request.embedding_model
-            )
-
             return {
                 "id": project.id,
                 "name": project.project_name,
-                "description": project.description,
-                "collection": {
-                    "id": chroma_collection.id,
-                    "name": chroma_collection.name,
-                    "provider": chroma_collection.embedding_provider,
-                    "model": chroma_collection.embedding_model
-                }
+                "description": project.description
             }
         except Exception as e:
             logger.exception(f"Failure occurred while attempting to create project: {str(e)}")

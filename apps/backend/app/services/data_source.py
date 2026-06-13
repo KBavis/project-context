@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.pydantic import DataSourceRequest
 from app.models import DataSource, Project, ProjectData
 from app.models.data_source import DataSourceType
+from app.services.chroma import ChromaService
 from app.core import settings
 
 logger = logging.getLogger(__name__)
@@ -19,9 +20,10 @@ logger = logging.getLogger(__name__)
 
 class DataSourceService:
     
-    def __init__(self, db: Session, async_db: AsyncSession):
+    def __init__(self, db: Session, async_db: AsyncSession, chroma_svc: ChromaService):
         self.db: Session = db
         self.async_db: AsyncSession = async_db
+        self.chroma_svc = chroma_svc
 
     async def aget_data_source_by_id(self, data_source_id: UUID) -> DataSource:
         """
@@ -95,6 +97,15 @@ class DataSourceService:
         # persist & flush new record
         self.db.add(data_source)
         self.db.flush()
+
+        try:
+            self.chroma_svc.create_collection(
+                data_source_id=data_source.id,
+                data_source_name=data_source.name
+            )
+        except Exception as e:
+            self.db.rollback()
+            raise Exception(f"Failed to create Chroma Collection for Data Source: {str(e)}")
 
         # retrieve Projects corresponding to IDs specified in request
         project_ids = data_source_request.project_ids

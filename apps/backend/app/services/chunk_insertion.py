@@ -15,7 +15,7 @@ from app.embeddings import EmbeddingManager
 from app.models.data_source import DataSource
 from app.models.project import Project
 from app.services.file import FileService
-from app.services.util import get_normalized_project_name
+from app.services.util import get_normalized_collection_name
 from app.models.docstore_chunk import DocstoreChunk
 
 from docling_core.transforms.chunker.doc_chunk import DocChunk, DocMeta
@@ -52,7 +52,6 @@ class ChunkInsertionService:
     async def code_chunk_and_store(
             self, 
             data_source: DataSource, 
-            project_id: UUID | None, 
             job_pk: UUID
     ):
         """
@@ -60,17 +59,15 @@ class ChunkInsertionService:
 
         Args:
             data_source (DataSource): the data source corresponding to current ingestion job 
-            project_id (Optional[UUID]): optional specified proejct to run ingestion job for 
             job_pk (UUID): pk of current ingesetion job
         """
         logger.info(f"Chunking and storing downloaded Code files")
 
         # chunk & convert relevant code files (using CodeSplitter from LlamaIndex)
-        nodes = await self.chunk_code(data_source, project_id, job_pk)
+        nodes = await self.chunk_code(data_source, job_pk)
 
         # persist to DocStore (async, on the event loop) before handing off to thread
-        first_project_nodes = list(nodes.values())[0]
-        await self._add_nodes_to_docstore(first_project_nodes, data_source)
+        await self._add_nodes_to_docstore(nodes, data_source)
 
         # save LlamaIndex nodes to ChromaDB collection (blocking, runs in thread pool)
         await asyncio.to_thread(
@@ -86,7 +83,6 @@ class ChunkInsertionService:
     async def docs_convert_chunk_and_store(
             self,
             data_source: DataSource, 
-            project_id: UUID | None,
             job_pk: UUID
         ):
         """
@@ -99,7 +95,6 @@ class ChunkInsertionService:
 
         Args:
             data_source (DataSource): the data source corresponding to current ingestion job
-            project_id (Optional[UUID]): optional specified project to run ingestion job for 
             job_pk (UUID): pk of current ingesetion job
         """
 
@@ -115,21 +110,18 @@ class ChunkInsertionService:
             return
 
         # chunk ingested documentation based on configured project embedding model
-        project_chunks = await asyncio.to_thread(
+        chunks = await asyncio.to_thread(
             self._chunk_docs, 
-            data_source, 
-            project_id,
             converted_files
         )
-        logger.debug('Successfully chunked ingested documentation for each project')
+        logger.debug('Successfully chunked ingested documentation')
 
         # convert Docling chunks to LlamaIndex TextNodes (NOTE: Async call to file_svc, so must be on main loop)
-        nodes = await self._convert_to_text_nodes(project_chunks, data_source.id)
+        nodes = await self._convert_to_text_nodes(chunks, data_source.id)
         logger.debug(f"Successfully convert DocChunks to LlamaIndex TextNode's")
 
         # persist to DocStore (async, on the event loop) before handing off to thread
-        first_project_nodes = list(nodes.values())[0]
-        await self._add_nodes_to_docstore(first_project_nodes, data_source)
+        await self._add_nodes_to_docstore(nodes, data_source)
 
         # store results within Chroma DB, using embedding specified DataSource (blocking, runs in thread pool)
         await asyncio.to_thread(
@@ -142,52 +134,49 @@ class ChunkInsertionService:
 
     async def _convert_to_text_nodes(
         self, 
-        chunks: dict[str, list[dict[str, Any]]], 
+        chunks: list[dict[str, Any]], 
         data_source_id: UUID
-    ) -> dict[str | UUID, list["TextNode"]]:
+    ) -> list["TextNode"]:
         """
         Convert Docling chunks to TextNodes in order to store within ChromaDB 
 
         Args:
-            chunks (dict): mapping of a Project to a list of Docling chunks for relevant ingested Documents 
+            chunks (list[dict]): list of Docling chunks for relevant ingested Documents 
         """
-        project_nodes: dict[str | UUID, list["TextNode"]] = {}
+        nodes: list["TextNode"] = []
 
         logger.debug(f"Converting Chunks to LlamaIndex TextNodes in order to store in ChromaDB")
-        for project, chunked_data in chunks.items():
-            project_nodes[project] = []
-            
-            file_chunk_counters = defaultdict(int)
-            for data in chunked_data:
-                # extract DocChunk & ContextChunk from mapping
-                doc_chunk = data['doc_chunk']
-                context_chunk = data['contextualized_chunk']
-                file_path = data['file_path']
-
-                metadata = await self._get_doc_chunk_meta_data(doc_chunk, project, data_source_id, file_path)
-                file_id = metadata['file_id']
-                curr_idx = file_chunk_counters[file_id]
-
-                chunk_hash = hashlib.sha256(context_chunk.encode("utf-8")).hexdigest()
-                new_node = TextNode(
-                    id_=f"{file_id}_{chunk_hash}_{curr_idx}",
-                    text=context_chunk,
-                    metadata=metadata
-                )
-
-                file_chunk_counters[file_id] += 1
-
-                # ensure that we have a 'glue' between all chunks for same file 
-                new_node.relationships[NodeRelationship.SOURCE] = RelatedNodeInfo(node_id=str(file_id))
-
-                project_nodes[project].append(new_node)
         
-        return project_nodes
+        file_chunk_counters = defaultdict(int)
+        for data in chunks:
+            # extract DocChunk & ContextChunk from mapping
+            doc_chunk = data['doc_chunk']
+            context_chunk = data['contextualized_chunk']
+            file_path = data['file_path']
+
+            metadata = await self._get_doc_chunk_meta_data(doc_chunk, data_source_id, file_path)
+            file_id = metadata['file_id']
+            curr_idx = file_chunk_counters[file_id]
+
+            chunk_hash = hashlib.sha256(context_chunk.encode("utf-8")).hexdigest()
+            new_node = TextNode(
+                id_=f"{file_id}_{chunk_hash}_{curr_idx}",
+                text=context_chunk,
+                metadata=metadata
+            )
+
+            file_chunk_counters[file_id] += 1
+
+            # ensure that we have a 'glue' between all chunks for same file 
+            new_node.relationships[NodeRelationship.SOURCE] = RelatedNodeInfo(node_id=str(file_id))
+
+            nodes.append(new_node)
+        
+        return nodes
 
     async def _get_doc_chunk_meta_data(
         self, 
         chunk: DocChunk, 
-        project: str,
         data_source_id: UUID,
         file_path: str
     ) -> dict[str, str]:
@@ -196,8 +185,6 @@ class ChunkInsertionService:
 
             Args:
                 chunk (DocChunk): document chunk to extract meta data for 
-                i (int): current position 
-                project (str): relevant project this chunk belongs to
                 data_source_id (UUID): data source this chunk belongs to
                 file_path (str): absolute file path of the file this chunk belongs to
             """
@@ -220,7 +207,7 @@ class ChunkInsertionService:
             ])))
 
             return {
-                "chunk_idx": f"{get_normalized_project_name(project)}_{uuid4()}",
+                "chunk_idx": f"{str(uuid4())}",
                 "source": origin_file,
                 "file_path": cleaned_file_path,  # use cleaned repo-relative path, not raw temp path
                 "mimetype": mimetype,
@@ -238,9 +225,8 @@ class ChunkInsertionService:
     async def chunk_code(
         self, 
         data_source: DataSource, 
-        project_id: UUID | None, 
         job_pk: UUID
-    ) -> dict[str | UUID, list["TextNode"]]:
+    ) -> list["TextNode"]:
         """
         Functionality to chunk code files via LlamaIndex (using CodeSplitter)
 
@@ -248,7 +234,6 @@ class ChunkInsertionService:
 
         Args:
             data_source (DataSource): data source we are ingesting docs for 
-            project_id (UUID): Optional project to ingest docs for 
             job_pk (UUID): unique ID of current ingestion job
         """    
 
@@ -317,9 +302,7 @@ class ChunkInsertionService:
 
 
 
-        # setup mapping for project to corresponding nodes 
-        project_nodes: dict[str | UUID, list["TextNode"]] = {record.project.project_name: nodes for record in data_source.project_data} if not project_id else {project_id: nodes}
-        return project_nodes
+        return nodes
 
         
 
@@ -389,96 +372,77 @@ class ChunkInsertionService:
         return conv_results
 
 
-    def _chunk_docs(self, data_source: DataSource, project_id: UUID | None, conversion_results: Iterator[ConversionResult]) -> dict[str, list[dict[str, Any]]]: 
+    def _chunk_docs(self, conversion_results: Iterator[ConversionResult]) -> list[dict[str, Any]]: 
         """
         Functionality to chunk docs via Dockling 
 
         Args:
-            data_source (DataSource): data source we are ingesting docs for 
-            project_id (UUID): Optional project to ingest docs for 
             conversion_results (Iterator[ConversionResult]): converted docling files results
         """
 
-        # retrieve projects corresponding to data soruce 
-        projects: list[Project] = [record.project for record in data_source.project_data] # TODO: Account for single Projecto nly
+        chunked_docs = []
+        
+        # get chunker based on configured embedding model 
+        chunker = HybridChunker(
+            tokenizer=EmbeddingManager.get_tokenizer(), 
+            #TODO: Consider setting maximum length of tokens = 512 
+        )
 
-        # generate mapping of project to relevant ingested documentation chunks 
-        chunked_docs = {project.project_name: [] for project in projects}
-        for project in projects:
-            
-            # get chunker based on configured embedding model for the current project
-            embedding_manager = EmbeddingManager(project.chroma_collection)
-            chunker = HybridChunker(
-                tokenizer=embedding_manager.get_tokenizer(), 
-                #TODO: Consider setting maximum length of tokens = 512 
-            )
+        # iterate through converted Docling documents 
+        for res in conversion_results:
+            logger.debug(f'Conversion result confidence for Document={res.document.name} = {res.confidence}')
 
-            # iterate through converted Docling documents 
-            for res in conversion_results:
-                logger.debug(f'Conversion result confidence for Document={res.document.name} = {res.confidence}')
+            # extract absolute file 
+            file_path = str(res.input.file)
 
-                # extract absolute file 
-                file_path = str(res.input.file)
+            # chunk current Docling document into DocChunk's
+            curr_doc_chunks = list(chunker.chunk(dl_doc=res.document))
 
-                # chunk current Docling document into DocChunk's
-                curr_doc_chunks = list(chunker.chunk(dl_doc=res.document))
-
-                # iterate through chunks in current document 
-                for chunk in curr_doc_chunks:
-                    chunked_docs[project.project_name].append(
-                        {
-                            "doc_chunk": chunk,
-                            "contextualized_chunk": chunker.contextualize(chunk=chunk),
-                            "file_path": file_path
-                        }
-                    )
+            # iterate through chunks in current document 
+            for chunk in curr_doc_chunks:
+                chunked_docs.append(
+                    {
+                        "doc_chunk": chunk,
+                        "contextualized_chunk": chunker.contextualize(chunk=chunk),
+                        "file_path": file_path
+                    }
+                )
 
 
         return chunked_docs
     
 
-    def _save_to_chroma_db(self, project_chunks: dict[str | UUID, list["TextNode"]],  data_source: DataSource) -> None: 
+    def _save_to_chroma_db(self, nodes: list["TextNode"], data_source: DataSource) -> None: 
         """
         Save context-rich ingested documentation and code to our relevant VectorDB & Docstore
 
         Args:
-            project_chunks (dict): relevant chunked docs/code 
+            nodes (list): relevant chunked docs/code 
             data_source (DataSource): data source we are ingesting docs for 
         """
-        
-        # create mapping of project name to Project model 
-        project_mapping = {record.project.project_name: record.project for record in data_source.project_data} 
 
-        for project, nodes in project_chunks.items():
+        # retrieve Chroma DB collection 
+        collection = self.chroma_svc.get_real_chroma_collection(
+            f"{get_normalized_collection_name(data_source.name)}"
+        )
 
-            # get Project model 
-            curr_project = project_mapping[str(project)]
+        # get chroma vector store 
+        vector_store = ChromaVectorStore(chroma_collection=collection)
 
-            # get embedding manager for project
-            embedding_manager = EmbeddingManager(curr_project.chroma_collection)
+        # configure storage context to account for DocStore & VectorStore
+        storage_context = StorageContext.from_defaults(
+            vector_store=vector_store
+        )
 
-            # retrieve Chroma DB collection 
-            collection = self.chroma_svc.get_real_chroma_collection(
-                f"{get_normalized_project_name(str(project))}"
-            )
+        # store nodes within Chroma & DocStore
+        _ = VectorStoreIndex(
+            nodes=nodes, # NOTE: Instead of using LlamaIndex's Document object, we will use our manually generated nodes
+            storage_context=storage_context,
+            embed_model=EmbeddingManager.get_embedding_model() # use configured embedding model
+        )
 
-            # get chroma vector store based on current project
-            vector_store = ChromaVectorStore(chroma_collection=collection)
-
-            # configure storage context to account for DocStore & VectorStore
-            storage_context = StorageContext.from_defaults(
-                vector_store=vector_store
-            )
-
-            # store nodes within Chroma & DocStore
-            _ = VectorStoreIndex(
-                nodes=nodes, # NOTE: Instead of using LlamaIndex's Document object, we will use our manually generated nodes
-                storage_context=storage_context,
-                embed_model=embedding_manager.get_embedding_model() # use configured embedding model for current Project
-            )
-
-            # update ChromaCollection record 
-            self.chroma_svc.update_collection_counts(collection)
+        # update ChromaCollection record 
+        self.chroma_svc.update_collection_counts(collection)
     
 
     async def _add_nodes_to_docstore(self, nodes: list["TextNode"], data_source: DataSource) -> None:

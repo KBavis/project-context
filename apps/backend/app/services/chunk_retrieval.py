@@ -175,8 +175,7 @@ class ChunkRetrievalService:
             raise Exception(f"No ingested data found for Project ID: {project_id}")
         
         # retreive cached embedding model
-        embedding_manager = EmbeddingManager(collection, project_id=project_id)
-        embedding = await embedding_manager.aget_embedding_model_cached()
+        embedding = await EmbeddingManager.aget_embedding_model_cached()
         
         # retrieve chunks based on query        
         chunks = await self._get_chunks(query, collection, embedding, llm, k, data_source_ids)
