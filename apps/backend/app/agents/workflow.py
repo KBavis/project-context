@@ -93,6 +93,7 @@ def _build_planning_agent(
     data_sources: list[DataSource],
     refined_question: str,
     question_type: str,
+    scope_summary: str,
     callback_manager: CallbackManager | None,
 ) -> FunctionAgent:
     """
@@ -105,6 +106,7 @@ def _build_planning_agent(
             "refined_question": refined_question,
             "question_type": question_type,
             "data_sources_context": _build_data_source_context(data_sources),
+            "scope_summary": scope_summary,
         },
     )
     return FunctionAgent(
@@ -126,7 +128,9 @@ def _build_research_agent(
     data_sources: list[DataSource],
     mcp_tools: dict[str, list[FunctionTool]],
     refined_question: str,
+    scope_summary: str,
     callback_manager: CallbackManager | None,
+    diff_tool_registered: bool = False,
 ) -> FunctionAgent:
     """
     ResearchAgent — executes the plan by reading files, navigating directories,
@@ -172,6 +176,7 @@ def _build_synth_agent(
     synthesis_tools: list[FunctionTool],
     data_sources: list[DataSource],
     refined_question: str,
+    scope_summary: str,
     callback_manager: CallbackManager | None,
 ) -> FunctionAgent:
     """
@@ -184,6 +189,7 @@ def _build_synth_agent(
         context={
             "refined_question": refined_question,
             "data_sources_context": _build_data_source_context(data_sources),
+            "scope_summary": scope_summary,
         },
     )
     return FunctionAgent(
@@ -210,6 +216,7 @@ def get_agentic_workflow(
     tool_manager: Tools,
     refined_question: str,
     question_type: str,
+    scope_summary: str = "",
     callback_manager: CallbackManager | None = None,
 ) -> AgentWorkflow:
     """
@@ -223,6 +230,7 @@ def get_agentic_workflow(
         tool_manager: Initialized Tools instance for this workflow run.
         refined_question: Clarified user question from Diagnosis.
         question_type: Question classification from Diagnosis.
+        scope_summary: Summary of project-scoped diffs to inject into prompts.
         callback_manager: Optional LlamaIndex CallbackManager for tracing.
     """
     planning_tools  = tool_manager.get_planning_tools()
@@ -244,6 +252,7 @@ def get_agentic_workflow(
         data_sources=data_sources,
         refined_question=refined_question,
         question_type=question_type,
+        scope_summary=scope_summary,
         callback_manager=callback_manager,
     )
 
@@ -253,6 +262,7 @@ def get_agentic_workflow(
         data_sources=data_sources,
         mcp_tools=mcp_tools,
         refined_question=refined_question,
+        scope_summary=scope_summary,
         callback_manager=callback_manager,
         diff_tool_registered=tool_manager._get_file_diff_tool is not None,
     )
@@ -262,6 +272,7 @@ def get_agentic_workflow(
         synthesis_tools=synthesis_tools,
         data_sources=data_sources,
         refined_question=refined_question,
+        scope_summary=scope_summary,
         callback_manager=callback_manager,
     )
 

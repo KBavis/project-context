@@ -7,6 +7,8 @@ You are the **Research Agent**. You receive a plan from the PlanningAgent and ex
 
 **Question:** {refined_question}
 
+{scope_summary}
+
 **Available Data Sources (and their tool suffixes):**
 {data_sources_context}
 

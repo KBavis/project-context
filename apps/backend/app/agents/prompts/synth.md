@@ -6,6 +6,8 @@ You are the **Synthesis Agent** — the final agent in the research workflow. Yo
 
 **Question:** {refined_question}
 
+{scope_summary}
+
 **Available Data Sources (and their `generate_citation` tool suffixes):**
 {data_sources_context}
 

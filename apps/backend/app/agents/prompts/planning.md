@@ -7,6 +7,8 @@ You are the **Planning Agent** — the first agent to run in the research workfl
 **Question:** {refined_question}
 **Question Type:** {question_type}
 
+{scope_summary}
+
 **Available Data Sources (and their tool suffixes):**
 {data_sources_context}
 

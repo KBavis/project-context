@@ -105,13 +105,8 @@ class AgentService:
             )
             logger.info("Phase 1 Complete: QuestionType=%s, RefinedQuestion='%s'", question_type, refined_question)
 
-            # 5. Re-initialize tool_manager with the filtered DataSources from Diagnosis
-            tool_manager = Tools(
-                data_sources,
-                project_id,
-                llm,
-                self.chunk_retrieval_svc,
-            )
+            # 5. Inject scope context
+            scope_summary = await self._build_project_scope_summary(project_id, data_sources)
 
             # 6. Build the Agent Workflow with per-agent tool sets
             token_counter = TokenCountingHandler()
@@ -123,6 +118,7 @@ class AgentService:
                 tool_manager=tool_manager,
                 refined_question=refined_question,
                 question_type=question_type,
+                scope_summary=scope_summary,
                 callback_manager=callback_manager,
             )
 
@@ -232,6 +228,39 @@ class AgentService:
     # ─────────────────────────────────────────────
     # Diagnosis Phase
     # ─────────────────────────────────────────────
+
+    async def _build_project_scope_summary(self, project_id: UUID, data_sources: list[DataSource]) -> str:
+        """
+        Builds a summary of the project scope for Data Sources that are scoped by issues.
+        """
+        if not self.diff_svc:
+            return ""
+            
+        scope_summary = ""
+        for ds in data_sources:
+            if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues:
+                changes = await self.diff_svc.get_project_repository_changes(project_id, ds.id)
+                if changes:
+                    file_diffs = await self.diff_svc.get_file_diffs(project_id, ds.id)
+                    if file_diffs:
+                        if not scope_summary:
+                            scope_summary = (
+                                "## Project Scope Summary\n"
+                                "The following sections provide a high-level overview of the specific code changes "
+                                "introduced to each repository data source as a result of this Project. This provides "
+                                "the \"grounding\" of what this Project is about.\n\n"
+                            )
+
+                        files_touched = len(file_diffs)
+                        last_synced = changes.last_synced_time.strftime("%Y-%m-%d") if changes.last_synced_time else "Never"
+                        
+                        scope_summary += f"### Project Scope in {ds.name}\n"
+                        scope_summary += f"Files touched: {files_touched} | Last synced: {last_synced}\n"
+                        scope_summary += "Changes:\n"
+                        for fd in file_diffs:
+                            scope_summary += f"- {fd.file_path} ({fd.change_type.value})\n"
+                        scope_summary += "\n"
+        return scope_summary
 
     def _extract_summaries(
         self,
