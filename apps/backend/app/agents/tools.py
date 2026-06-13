@@ -422,7 +422,9 @@ class Tools:
         
         - If data_source_ids is provided, use directly (most specific — ignores source_type).
         - Else if source_type is provided, resolve via DataSourceService.
-        - Else default to all project data sources.
+        - Else default to all project data sources that are configured as IngestibleDataProviders.
+          We only extract data sources that are valid for ingestible data providers because
+          these are the only ones we'll have ingested data for (for grep or semantic search).
         """
         if data_source_ids:
             return data_source_ids

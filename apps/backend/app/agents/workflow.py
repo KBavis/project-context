@@ -133,12 +133,25 @@ def _build_research_agent(
     and running searches. Logs all findings via update_research_state.
     May revise the plan if new discoveries change direction.
     """
+    diff_tool_context = ""
+    if diff_tool_registered:
+        diff_tool_context = (
+            "**Diff Tool**\n"
+            "- **`get_file_diff(file_path, data_source_id)`** — Retrieve the unified diff for a specific file as introduced by this project. "
+            "ONLY call this tool for the valid list of data sources explicitly provided in the tool description. "
+            "Use this tool to understand the specific code changes that were introduced to a file in a repository as a result of this Project. "
+            "This grounds your understanding of what changes were introduced as a result of the Project. "
+            "Use `view_file_<slug>` instead if you need to see the file's current full state and surrounding context."
+        )
+
     system_prompt = _load_prompt(
         AgentType.RESEARCH,
         context={
             "refined_question": refined_question,
             "data_sources_context": _build_data_source_context(data_sources),
             "mcp_context": _build_mcp_context(data_sources, mcp_tools),
+            "diff_tool_context": diff_tool_context,
+            "scope_summary": scope_summary,
         },
     )
     return FunctionAgent(
@@ -241,6 +254,7 @@ def get_agentic_workflow(
         mcp_tools=mcp_tools,
         refined_question=refined_question,
         callback_manager=callback_manager,
+        diff_tool_registered=tool_manager._get_file_diff_tool is not None,
     )
 
     synth_agent = _build_synth_agent(

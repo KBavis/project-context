@@ -14,6 +14,7 @@ from app.models import DataSource, Project, ProjectData
 from app.models.data_source import DataSourceType
 from app.services.chroma import ChromaService
 from app.core import settings
+from app.data_providers.ingestible.base import IngestibleDataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +178,10 @@ class DataSourceService:
         self, project_id: UUID, source_type: DataSourceType | None = None
     ) -> list[str]:
         """
-        Get all data source IDs for a given project, optionally filtered by DataSourceType.
+        Get all data source IDs for a given project, optionally filtered by DataSourceType. In the case 
+        that no source_type was specified, we will ONLY get the Data Sources that we have ingested
+        data for (assocaited IngestibleDataProvider) as these are the only Data Sources 
+        that we'll be able to leverage via grep_search and semantic_search 
 
         This is the primary resolver used by the Tools wrappers to determine which 
         collections to search.
@@ -189,6 +193,17 @@ class DataSourceService:
         data_sources = await self.aget_project_data_sources(project_id)
         if source_type:
             data_sources = [ds for ds in data_sources if ds.type == source_type]
+        else:
+            
+            valid_ds = []
+            for ds in data_sources:
+                try:
+                    IngestibleDataProvider.from_provider(ds)
+                    valid_ds.append(ds)
+                except Exception:
+                    pass
+            data_sources = valid_ds
+
         return [str(ds.id) for ds in data_sources]
 
     def get_project_data_sources(self, project_id: UUID) -> list[dict[str, Any]]:
