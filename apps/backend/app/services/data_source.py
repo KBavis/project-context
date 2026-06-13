@@ -126,7 +126,7 @@ class DataSourceService:
             projects_without_parent_issues = [p for p in projects if not p.parent_issues]
             if projects_without_parent_issues:
                 project_ids_str = ", ".join(str(p.id) for p in projects_without_parent_issues)
-                raise Exception(
+                raise ValueError(
                     f"Cannot link Projects to Data Source with scope_by_issues=True unless they have parent_issues configured. "
                     f"Projects without parent_issues: {project_ids_str}"
                 )
