@@ -40,12 +40,7 @@ class ProjectRepositoryChanges(Base):
                 "computed once on first sync and reused on subsequent syncs",
     )
 
-    is_initial_sync_complete: Mapped[bool] = mapped_column(
-        nullable=False,
-        default=False,
-        server_default="false",
-        comment="True if initial baseline synchronization has succeeded"
-    )
+
 
     # sync information regarding this state of project repository changes 
     last_synced_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True, comment="End time of DiffSyncJob processing")

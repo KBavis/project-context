@@ -72,7 +72,7 @@ class DiffService:
             res = await self.async_db.execute(stmt)
             record = res.scalars().first()
             
-            if not record or not record.is_initial_sync_complete:
+            if not record:
                 raise HTTPException(
                     status_code=412,
                     detail="The repository code changes for this project are performing their first time synchronization. Please wait for this to complete."
@@ -202,8 +202,7 @@ class DiffService:
                         data_source_id=job.data_source_id,
                         diff_sync_job_id=job_id,
                         files_touched=[],
-                        file_count=0,
-                        is_initial_sync_complete=True
+                        file_count=0
                     )
                     self.async_db.add(project_repo_changes)
                 else:
@@ -464,14 +463,13 @@ class DiffService:
                 diff_sync_job_id=diff_sync_job_id,
                 base_commit_sha=resolved_base_sha,
                 files_touched=[],
-                file_count=0,
-                is_initial_sync_complete=True
+                file_count=0
             )
             self.async_db.add(project_repository_changes)
             await self.async_db.flush()
         else:
             project_repository_changes.diff_sync_job_id = diff_sync_job_id
-            project_repository_changes.is_initial_sync_complete = True
+
 
         # Update files_touched
         stmt = select(FileDiff.file_path).where(
