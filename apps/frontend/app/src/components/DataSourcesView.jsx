@@ -42,6 +42,7 @@ export default function DataSourcesView({ projectId }) {
 
     const [editModalOpen, setEditModalOpen] = useState(false);
     const [editingDS, setEditingDS] = useState(null);
+    const [isConfirmingEdit, setIsConfirmingEdit] = useState(false);
 
     const closeConfirmModal = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
 
@@ -420,6 +421,7 @@ export default function DataSourcesView({ projectId }) {
                                                     branch: ds.branch || '',
                                                     scope_by_issues: !!ds.scope_by_issues,
                                                 });
+                                                setIsConfirmingEdit(false);
                                                 setEditModalOpen(true);
                                             }}
                                         >
@@ -495,72 +497,84 @@ export default function DataSourcesView({ projectId }) {
             {/* Edit Data Source Modal */}
             <Modal
                 isOpen={editModalOpen}
-                onClose={() => setEditModalOpen(false)}
-                title="Edit Data Source"
+                onClose={() => { setEditModalOpen(false); setIsConfirmingEdit(false); }}
+                title={isConfirmingEdit ? "Confirm Changes" : "Edit Data Source"}
                 size="md"
                 actions={
                     <>
-                        <Button size="sm" variant="ghost" onClick={() => setEditModalOpen(false)}>Cancel</Button>
-                        <Button form="edit-datasource-form" type="submit" loading={creatingJob}>Save Changes</Button>
+                        <Button size="sm" variant="ghost" onClick={() => {
+                            if (isConfirmingEdit) setIsConfirmingEdit(false);
+                            else setEditModalOpen(false);
+                        }}>
+                            {isConfirmingEdit ? "Back" : "Cancel"}
+                        </Button>
+                        {!isConfirmingEdit ? (
+                            <Button form="edit-datasource-form" type="submit">Save Changes</Button>
+                        ) : (
+                            <Button variant="primary" onClick={async () => {
+                                try {
+                                    await updateDataSource(editingDS.id, {
+                                        name: editingDS.name,
+                                        url: editingDS.url,
+                                        branch: editingDS.branch || undefined,
+                                        scope_by_issues: editingDS.scope_by_issues
+                                    });
+                                    showAlert('Data source updated', 'success');
+                                    setEditModalOpen(false);
+                                    setIsConfirmingEdit(false);
+                                } catch (err) {
+                                    showAlert('Failed to update data source: ' + err.message, 'error');
+                                }
+                            }}>Confirm Edit</Button>
+                        )}
                     </>
                 }
             >
                 {editingDS && (
-                    <form id="edit-datasource-form" onSubmit={async (e) => {
+                    <form id="edit-datasource-form" onSubmit={(e) => {
                         e.preventDefault();
-
-                        // compute changes
-                        const updates = {
-                            name: editingDS.name,
-                            url: editingDS.url,
-                            branch: editingDS.branch || undefined,
-                            scope_by_issues: editingDS.scope_by_issues
-                        };
-
-                        // confirmation message
-                        const changesList = Object.entries(updates).map(([k, v]) => `${k}: ${String(v)}`).join('\n');
-
-                        setConfirmModal({
-                            isOpen: true,
-                            title: 'Confirm Edit',
-                            message: `Apply the following changes to data source ${editingDS.name}:\n\n${changesList}`,
-                            confirmLabel: 'Apply',
-                            onConfirm: async () => {
-                                setConfirmModal(prev => ({ ...prev, isOpen: false }));
-                                try {
-                                    await updateDataSource(editingDS.id, updates);
-                                    showAlert('Data source updated', 'success');
-                                    setEditModalOpen(false);
-                                } catch (err) {
-                                    showAlert('Failed to update data source: ' + err.message, 'error');
-                                }
-                            }
-                        });
+                        setIsConfirmingEdit(true);
                     }}>
-                        <div className="form-grid">
-                            <div className="form-field">
-                                <label className="input-label">Name</label>
-                                <input className="input" value={editingDS.name} onChange={(e) => setEditingDS({...editingDS, name: e.target.value})} />
-                            </div>
-                            <div className="form-field">
-                                <label className="input-label">URL</label>
-                                <input className="input" value={editingDS.url} onChange={(e) => setEditingDS({...editingDS, url: e.target.value})} />
-                            </div>
-                            {editingDS.type === 'REPOSITORY' && (
+                        {!isConfirmingEdit ? (
+                            <div className="form-grid">
                                 <div className="form-field">
-                                    <label className="input-label">Branch</label>
-                                    <input className="input" value={editingDS.branch} onChange={(e) => setEditingDS({...editingDS, branch: e.target.value})} />
+                                    <label className="input-label">Name</label>
+                                    <input className="input" value={editingDS.name} onChange={(e) => setEditingDS({...editingDS, name: e.target.value})} />
                                 </div>
-                            )}
-                            {editingDS.type === 'REPOSITORY' && (
                                 <div className="form-field">
-                                    <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <input type="checkbox" checked={editingDS.scope_by_issues} onChange={(e) => setEditingDS({...editingDS, scope_by_issues: e.target.checked})} />
-                                        Scope by Issues
-                                    </label>
+                                    <label className="input-label">URL</label>
+                                    <input className="input" value={editingDS.url} onChange={(e) => setEditingDS({...editingDS, url: e.target.value})} />
                                 </div>
-                            )}
-                        </div>
+                                {editingDS.type === 'REPOSITORY' && (
+                                    <div className="form-field">
+                                        <label className="input-label">Branch</label>
+                                        <input className="input" value={editingDS.branch} onChange={(e) => setEditingDS({...editingDS, branch: e.target.value})} />
+                                    </div>
+                                )}
+                                {editingDS.type === 'REPOSITORY' && (
+                                    <div className="form-field">
+                                        <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <input type="checkbox" checked={editingDS.scope_by_issues} onChange={(e) => setEditingDS({...editingDS, scope_by_issues: e.target.checked})} />
+                                            Scope by Issues
+                                        </label>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="confirmation-view" style={{ padding: '10px 0' }}>
+                                <p style={{ marginBottom: '16px' }}>Please confirm the following updates to <strong>{editingDS.name}</strong>:</p>
+                                <ul style={{ background: 'var(--surface-color)', padding: '16px 24px', borderRadius: '8px', border: '1px solid var(--border-color)', listStyle: 'none' }}>
+                                    <li style={{ marginBottom: '8px' }}><strong>Name:</strong> {editingDS.name}</li>
+                                    <li style={{ marginBottom: '8px' }}><strong>URL:</strong> {editingDS.url}</li>
+                                    {editingDS.type === 'REPOSITORY' && (
+                                        <>
+                                            <li style={{ marginBottom: '8px' }}><strong>Branch:</strong> {editingDS.branch || '(default)'}</li>
+                                            <li style={{ marginBottom: '8px' }}><strong>Scope by Issues:</strong> {editingDS.scope_by_issues ? 'Yes' : 'No'}</li>
+                                        </>
+                                    )}
+                                </ul>
+                            </div>
+                        )}
                     </form>
                 )}
             </Modal>
