@@ -25,16 +25,17 @@ export function ProjectProvider({ children }) {
         try {
             const data = await api.projects.list();
             setProjects(data);
-            if (data.length > 0 && !selectedProject) {
-                setSelectedProject(data[0]);
-            }
+            setSelectedProject(prev => {
+                if (prev) return prev;
+                return data.length > 0 ? data[0] : null;
+            });
         } catch (err) {
             setError(err.message);
             console.error('Failed to load projects:', err);
         } finally {
             setLoading(false);
         }
-    }, [selectedProject]);
+    }, []);
 
     useEffect(() => {
         fetchProjects();
@@ -52,9 +53,9 @@ export function ProjectProvider({ children }) {
         }
     };
 
-    const selectProject = (project) => {
+    const selectProject = useCallback((project) => {
         setSelectedProject(project);
-    };
+    }, []);
 
     useEffect(() => {
         if (!selectedProject) return;
@@ -74,7 +75,7 @@ export function ProjectProvider({ children }) {
         };
         
         checkInitialSync();
-    }, [selectedProject]);
+    }, [selectedProject?.id]);
 
     const startPolling = useCallback((projectId) => {
         setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: true } }));
@@ -98,6 +99,9 @@ export function ProjectProvider({ children }) {
                 if (statusRes.is_initial_sync_complete) {
                     setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: false, status: statusRes.status } }));
                     return;
+                } else if (statusRes.status === 'failed') {
+                    setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: true, status: statusRes.status } }));
+                    return; // Stop polling on failure
                 } else {
                     setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: true, status: statusRes.status } }));
                 }

@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useDataSources, useIngestionJobs, useAlert, useProjects } from '../contexts/index';
 import Button from './Button';
 import Modal from './Modal';
+import api from '../services/api';
 import '../styles/DataSourcesView.css';
 import '../styles/IngestionJobsView.css';
 
@@ -405,7 +406,10 @@ export default function DataSourcesView({ projectId }) {
                                     <div className="data-source-actions-flat">
                                         <button
                                             className={`flat-action ${activeJobView === ds.id ? 'active' : ''}`}
-                                            onClick={() => setActiveJobView(activeJobView === ds.id ? null : ds.id)}
+                                            onClick={() => {
+                                                const isActive = activeJobView === ds.id;
+                                                setActiveJobView(isActive ? null : ds.id);
+                                            }}
                                         >
                                             {activeJobView === ds.id ? 'Hide History' : 'View Latest Jobs'}
                                         </button>

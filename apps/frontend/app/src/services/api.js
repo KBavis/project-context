@@ -218,6 +218,16 @@ export const api = {
         getSyncStatus: async (projectId) => {
             const response = await fetch(`${API_BASE_URL}/diff/sync/status/${projectId}`);
             return handleResponse(response);
+        },
+        getSyncJobs: async (projectId, dataSourceId) => {
+            const response = await fetch(`${API_BASE_URL}/diff/sync/jobs/${projectId}/${dataSourceId}`);
+            return handleResponse(response);
+        },
+        triggerSync: async (projectId, dataSourceId) => {
+            const response = await fetch(`${API_BASE_URL}/diff/sync/${projectId}/${dataSourceId}`, {
+                method: 'POST',
+            });
+            return handleResponse(response);
         }
     },
 };

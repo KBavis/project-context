@@ -67,3 +67,20 @@ async def validate_project_initial_syncing(
     except Exception as e:
         logger.error(f"Error checking project sync status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/sync/jobs/{project_id}/{data_source_id}")
+async def get_diff_sync_jobs(
+    project_id: UUID,
+    data_source_id: UUID,
+    svc: DiffService = Depends(get_async_diff_svc)
+):
+    try:
+        stmt = select(DiffSyncJob).where(
+            DiffSyncJob.project_id == project_id,
+            DiffSyncJob.data_source_id == data_source_id
+        ).order_by(DiffSyncJob.start_time.desc()).limit(10)
+        res = await svc.async_db.execute(stmt)
+        return res.scalars().all()
+    except Exception as e:
+        logger.error(f"Error fetching diff sync jobs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
