@@ -115,16 +115,35 @@ def get_git_ops_svc() -> GitOperationsService:
 # Async Service Dependencies 
 ###########################
 
+
+def get_async_record_lock_svc():
+    """
+    Setup async RecordLockService dependency 
+
+    Args:   
+        db (AsyncSession): async DB session
+    """
+
+    return RecordLockService()
+    
+
 def get_async_diff_svc(
     db: AsyncSession = Depends(get_async_db_session),
     project_svc: ProjectService = Depends(get_project_svc),
     data_source_svc: DataSourceService = Depends(get_data_source_svc),
-    git_ops_svc: GitOperationsService = Depends(get_git_ops_svc)
+    git_ops_svc: GitOperationsService = Depends(get_git_ops_svc),
+    record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc)
 ):
     """
     Setup DiffService dependency.
     """
-    return DiffService(async_db=db, project_svc=project_svc, data_source_svc=data_source_svc, git_ops_svc=git_ops_svc)
+    return DiffService(
+        async_db=db, 
+        project_svc=project_svc, 
+        data_source_svc=data_source_svc, 
+        git_ops_svc=git_ops_svc,
+        record_lock_svc=record_lock_svc
+    )
 
 
 def get_async_file_svc(
@@ -191,23 +210,13 @@ def get_async_agent_svc(
         diff_svc=diff_svc
     )
 
-def get_async_record_lock_svc():
-    """
-    Setup async RecordLockService dependency 
-
-    Args:   
-        db (AsyncSession): async DB session
-    """
-
-    return RecordLockService()
 
 
 def get_async_ingestion_job_svc(
         db: AsyncSession = Depends(get_async_db_session),
         record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc),
         file_svc: FileService = Depends(get_async_file_svc),
-        chunk_insertion_service: ChunkInsertionService = Depends(get_async_chunk_insertion_svc),
-        diff_svc: DiffService = Depends(get_async_diff_svc)
+        chunk_insertion_service: ChunkInsertionService = Depends(get_async_chunk_insertion_svc)
 ):
     """
     Setup async IngestionJobService dependency 
@@ -222,8 +231,7 @@ def get_async_ingestion_job_svc(
         db=db, 
         record_lock_svc=record_lock_svc,
         file_svc=file_svc,
-        chunk_insertion_service=chunk_insertion_service,
-        diff_svc=diff_svc
+        chunk_insertion_service=chunk_insertion_service
     )
 
 
