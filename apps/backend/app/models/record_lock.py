@@ -10,6 +10,7 @@ from enum import Enum
 class RecordType(Enum):
     CONVERSATION = "Conversation"
     DATA_SOURCE = "DataSource"
+    PROJECT_DATA = "ProjectData"
 
 class RecordLock(Base):
 
