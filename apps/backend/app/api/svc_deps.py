@@ -266,7 +266,8 @@ def get_async_message_svc(
         db: AsyncSession = Depends(get_async_db_session),
         conversation_svc: ConversationService = Depends(get_async_conversation_svc),
         agent_svc: AgentService = Depends(get_async_agent_svc),
-        execution_token_usage_svc: ExecutionTokenUsageService = Depends(get_async_execution_token_usage_svc)
+        execution_token_usage_svc: ExecutionTokenUsageService = Depends(get_async_execution_token_usage_svc),
+        diff_svc: DiffService = Depends(get_async_diff_svc)
 ):
     """
     Setup async MessageService dependency 
@@ -278,4 +279,10 @@ def get_async_message_svc(
         execution_token_usage_svc (ExecutionTokenUsageService): async execution token usage service dependency
     """
 
-    return MessageService(db=db, conversation_svc=conversation_svc, agent_svc=agent_svc, execution_token_usage_svc=execution_token_usage_svc)
+    return MessageService(
+        db=db, 
+        conversation_svc=conversation_svc, 
+        agent_svc=agent_svc, 
+        execution_token_usage_svc=execution_token_usage_svc, 
+        diff_svc=diff_svc
+    )

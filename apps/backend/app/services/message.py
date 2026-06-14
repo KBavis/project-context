@@ -12,6 +12,7 @@ from sqlalchemy import select
 from app.models import Conversation, Sender
 from app.services.conversation import ConversationService
 from app.services.agent import AgentService
+from app.services.diff import DiffService
 from app.services.execution_token_usage import ExecutionTokenUsageService
 from app.models import Message
 from app.llm import LLMManager, LLMBase
@@ -29,12 +30,14 @@ class MessageService:
         db: AsyncSession,
         conversation_svc: ConversationService,
         agent_svc: AgentService,
-        execution_token_usage_svc: ExecutionTokenUsageService
+        execution_token_usage_svc: ExecutionTokenUsageService,
+        diff_svc: DiffService
     ):
         self.db = db
         self.conversation_svc = conversation_svc
         self.agent_svc = agent_svc
         self.execution_token_usage_svc = execution_token_usage_svc
+        self.diff_svc = diff_svc
 
     
     async def get_messages(self, conversation_id: UUID):
@@ -73,6 +76,9 @@ class MessageService:
             if not conversation:
                 yield format_sse_event(StreamEventType.ERROR, f"Conversation {conversation_id} not found", "Error")
                 return
+
+            # 1a. Validate the Project's linked Data Sources initial sync is compelted
+            await self.diff_svc.validate_project_sync_complete(conversation.project_id)
 
             llm_manager = LLMManager(model_name=conversation.ll_model_name, provider=conversation.ll_model_provider)
             llm = llm_manager.get_llm()
