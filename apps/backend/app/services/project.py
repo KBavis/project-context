@@ -165,7 +165,7 @@ class ProjectService:
                 data_source_id=data_source_id
             )
             self.db.add(association)
-            self.db.flush()
+            self.db.commit() # NOTE: We commit here so that the downstream DiffSyncJob can successfully leverage the PROJECT_DATA record
             
             return {
                 "message": f"Successfully linked data source {data_source_id} to project {project_id}",
