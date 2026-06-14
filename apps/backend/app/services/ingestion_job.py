@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType, ProjectData, Project
 from app.data_providers import DataProvider
 from app.core import settings, get_async_session_maker
-from app.services.diff import DiffService
 from app.services.record_lock import RecordLockService
 from app.services.file import FileService
 from app.services.chunk_insertion import ChunkInsertionService
@@ -29,8 +28,7 @@ class IngestionJobService:
             db: AsyncSession, 
             record_lock_svc: RecordLockService,
             file_svc: FileService,
-            chunk_insertion_service: ChunkInsertionService,
-            diff_svc: DiffService
+            chunk_insertion_service: ChunkInsertionService
     ):
         """
         Initialize IngestionJobService with necessary dependencies
@@ -46,7 +44,6 @@ class IngestionJobService:
         self.record_lock_svc: RecordLockService = record_lock_svc
         self.file_svc: FileService = file_svc
         self.chunk_insertion_service: ChunkInsertionService = chunk_insertion_service
-        self.diff_svc: DiffService = diff_svc
 
     
     async def init_ingestion_job(self, data_source_id: UUID, job_start_time: datetime): 
@@ -156,14 +153,6 @@ class IngestionJobService:
                 logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
                 await self.chunk_insertion_service.code_chunk_and_store(data_source, job_pk)
             
-
-            # sync repository (IF APPLICABLE) with the on-going project changes 
-            await self.diff_svc.repository_sync(
-                data_source_id, 
-                job_pk,
-                [project_id] if project_id else None
-            )
-
             self._cleanup_tmp_dirs(job_pk)
 
             job_end_time = datetime.now(ZoneInfo("America/New_York"))
