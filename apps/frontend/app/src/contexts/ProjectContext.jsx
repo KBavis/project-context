@@ -64,15 +64,7 @@ export function ProjectProvider({ children }) {
                 const res = await api.diff.getSyncStatus(selectedProject.id);
                 if (!res.is_initial_sync_complete) {
                     setSyncingProjects(prev => ({ ...prev, [selectedProject.id]: { isSyncing: true, status: res.status } }));
-                    
-                    const projectName = selectedProject.project_name || selectedProject.name;
-                    if (res.status === 'IN_PROGRESS') {
-                        showAlert(`Project "${projectName}" is currently synchronizing in the background.`, 'warning');
-                    } else if (res.status === 'FAILED') {
-                        showAlert(`Project "${projectName}" synchronization failed. Please trigger a new sync in Data Sources.`, 'error');
-                    } else if (res.status === 'NOT_STARTED') {
-                        showAlert(`Project "${projectName}" requires synchronization before messaging. Please trigger a sync in Data Sources.`, 'warning');
-                    }
+
                 } else {
                     setSyncingProjects(prev => ({ ...prev, [selectedProject.id]: { isSyncing: false, status: res.status } }));
                 }

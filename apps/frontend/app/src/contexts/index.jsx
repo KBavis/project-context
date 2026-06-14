@@ -6,17 +6,17 @@ import { AlertProvider } from './AlertContext';
 
 export function AppProvider({ children }) {
     return (
-        <ProjectProvider>
-            <ConversationProvider>
-                <DataSourcesProvider>
-                    <IngestionJobProvider>
-                        <AlertProvider>
+        <AlertProvider>
+            <ProjectProvider>
+                <ConversationProvider>
+                    <DataSourcesProvider>
+                        <IngestionJobProvider>
                             {children}
-                        </AlertProvider>
-                    </IngestionJobProvider>
-                </DataSourcesProvider>
-            </ConversationProvider>
-        </ProjectProvider>
+                        </IngestionJobProvider>
+                    </DataSourcesProvider>
+                </ConversationProvider>
+            </ProjectProvider>
+        </AlertProvider>
     );
 }
 

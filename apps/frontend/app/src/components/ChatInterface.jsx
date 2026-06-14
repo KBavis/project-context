@@ -5,6 +5,7 @@ import remarkBreaks from 'remark-breaks';
 import { api } from '../services/api';
 import { useConversations } from '../contexts/ConversationContext';
 import { useProjects } from '../contexts/ProjectContext';
+import { useAlert } from '../contexts/AlertContext';
 import Button from './Button';
 import '../styles/ChatInterface.css';
 
@@ -13,6 +14,8 @@ export default function ChatInterface({ conversationId }) {
     const { selectedProject, syncingProjects } = useProjects();
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const { showAlert } = useAlert();
+    const [lastAlertedConvId, setLastAlertedConvId] = useState(null);
 
     const syncState = selectedProject ? syncingProjects[selectedProject.id] : null;
     const isSyncing = syncState?.isSyncing;
@@ -33,6 +36,19 @@ export default function ChatInterface({ conversationId }) {
     useEffect(() => {
         scrollToBottom();
     }, [messages, streamingMessage]);
+
+    useEffect(() => {
+        if (conversationId && isSyncing && syncState && conversationId !== lastAlertedConvId) {
+            setLastAlertedConvId(conversationId);
+            const projectName = selectedProject?.project_name || selectedProject?.name || "Selected Project";
+            
+            if (syncState.status === 'in_progress') {
+                showAlert(`Project "${projectName}" is currently synchronizing in the background.`, 'warning');
+            } else if (syncState.status === 'failed') {
+                showAlert(`Project "${projectName}" synchronization failed. Please trigger a new sync in Data Sources.`, 'error');
+            }
+        }
+    }, [conversationId, isSyncing, syncState?.status, selectedProject, showAlert, lastAlertedConvId]);
 
     // Auto-resize textarea as user types
     useEffect(() => {
@@ -149,12 +165,10 @@ export default function ChatInterface({ conversationId }) {
         if (!syncState) return "Synchronizing Project Details (Please Wait...)";
         
         switch (syncState.status) {
-            case 'IN_PROGRESS':
+            case 'in_progress':
                 return "Project is currently syncing. Please wait...";
-            case 'FAILED':
+            case 'failed':
                 return "Project sync failed. Please trigger a new sync.";
-            case 'NOT_STARTED':
-                return "Project sync has not been started. Please trigger a sync.";
             default:
                 return "Synchronizing Project Details (Please Wait...)";
         }
@@ -240,7 +254,7 @@ export default function ChatInterface({ conversationId }) {
                         loading={loading}
                         icon={isSyncing ? undefined : "→"}
                     >
-                        {isSyncing ? "Send" : "Send"}
+                        Send
                     </Button>
                 </div>
                 {syncError && (

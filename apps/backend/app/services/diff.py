@@ -81,13 +81,16 @@ class DiffService:
     async def get_project_sync_state(self, project_id: UUID) -> str:
         """
         Determines the overall synchronization state of a project's repository data sources.
-        Returns: 'COMPLETED', 'IN_PROGRESS', 'FAILED', or 'NOT_STARTED'
+        Returns: 'success', 'in_progress', or 'failed'
         """
         linked_data_sources = await self.data_source_svc.aget_project_data_sources(project_id)
         repo_data_sources = [ds for ds in linked_data_sources if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues]
         
+        logger.info(f"[SyncState] project_id={project_id}: found {len(linked_data_sources)} linked data sources, {len(repo_data_sources)} are issue-scoped repositories")
+        
         if not repo_data_sources:
-            return "COMPLETED"
+            logger.info(f"[SyncState] project_id={project_id}: no issue-scoped repos → success")
+            return ProcessingStatus.SUCCESS.value
             
         states = []
         for ds in repo_data_sources:
@@ -98,7 +101,8 @@ class DiffService:
             )
             res = await self.async_db.execute(stmt)
             if res.scalars().first():
-                states.append("COMPLETED")
+                logger.info(f"[SyncState] project_id={project_id}, ds={ds.id} ({ds.name}): ProjectRepositoryChanges record exists → success")
+                states.append(ProcessingStatus.SUCCESS.value)
                 continue
                 
             # If not complete, check the latest DiffSyncJob
@@ -110,18 +114,21 @@ class DiffService:
             job = res.scalar_one_or_none()
             
             if job:
-                states.append(job.status.value)
+                job_state = job.status.value
+                logger.info(f"[SyncState] project_id={project_id}, ds={ds.id} ({ds.name}): latest DiffSyncJob={job.id}, status={job_state}")
+                states.append(job_state)
             else:
-                states.append("NOT_STARTED")
-                
-        if "IN_PROGRESS" in states:
-            return "IN_PROGRESS"
-        if "FAILED" in states:
-            return "FAILED"
-        if "NOT_STARTED" in states:
-            return "NOT_STARTED"
+                logger.info(f"[SyncState] project_id={project_id}, ds={ds.id} ({ds.name}): no DiffSyncJob found → failed")
+                states.append(ProcessingStatus.FAILED.value)
+        
+        logger.info(f"[SyncState] project_id={project_id}: all states={states}")
+        
+        if ProcessingStatus.IN_PROGRESS.value in states:
+            return ProcessingStatus.IN_PROGRESS.value
+        if ProcessingStatus.FAILED.value in states:
+            return ProcessingStatus.FAILED.value
             
-        return "COMPLETED"
+        return ProcessingStatus.SUCCESS.value
 
 
     async def init_diff_sync_job(self, project_id: UUID, data_source_id: UUID) -> DiffSyncJob:
