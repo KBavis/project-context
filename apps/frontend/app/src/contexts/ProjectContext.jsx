@@ -16,6 +16,7 @@ export function ProjectProvider({ children }) {
     const [selectedProject, setSelectedProject] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [syncingProjects, setSyncingProjects] = useState({}); // projectId -> { isSyncing: boolean, error?: string }
 
     const fetchProjects = useCallback(async () => {
         setLoading(true);
@@ -53,6 +54,65 @@ export function ProjectProvider({ children }) {
         setSelectedProject(project);
     };
 
+    useEffect(() => {
+        if (!selectedProject) return;
+
+        const checkInitialSync = async () => {
+            try {
+                const res = await api.diff.getSyncStatus(selectedProject.id);
+                if (!res.is_initial_sync_complete) {
+                    setSyncingProjects(prev => ({ ...prev, [selectedProject.id]: { isSyncing: true } }));
+                } else {
+                    setSyncingProjects(prev => ({ ...prev, [selectedProject.id]: { isSyncing: false } }));
+                }
+            } catch (e) {
+                console.error('Failed to check sync status', e);
+            }
+        };
+        
+        checkInitialSync();
+    }, [selectedProject]);
+
+    const startPolling = useCallback((projectId) => {
+        setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: true } }));
+        let intervalTime = 2000;
+        let elapsed = 0;
+
+        const poll = async () => {
+            if (elapsed >= 300000) { // 5 minutes ceiling
+                setSyncingProjects(prev => ({ 
+                    ...prev, 
+                    [projectId]: { 
+                        isSyncing: false, 
+                        error: 'Synchronization is taking longer than expected. Click to check state status again.' 
+                    } 
+                }));
+                return;
+            }
+
+            try {
+                const statusRes = await api.diff.getSyncStatus(projectId);
+                if (statusRes.is_initial_sync_complete) {
+                    setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: false } }));
+                    return;
+                }
+            } catch (err) {
+                console.error(err);
+            }
+
+            if (intervalTime < 30000) {
+                if (intervalTime === 2000) intervalTime = 5000;
+                else if (intervalTime === 5000) intervalTime = 10000;
+                else if (intervalTime === 10000) intervalTime = 30000;
+            }
+
+            elapsed += intervalTime;
+            setTimeout(poll, intervalTime);
+        };
+
+        setTimeout(poll, intervalTime);
+    }, []);
+
     const value = {
         projects,
         selectedProject,
@@ -60,7 +120,9 @@ export function ProjectProvider({ children }) {
         error,
         fetchProjects,
         createProject,
-        selectProject
+        selectProject,
+        syncingProjects,
+        startPolling
     };
 
     return (

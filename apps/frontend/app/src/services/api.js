@@ -212,6 +212,13 @@ export const api = {
             return handleResponse(response);
         },
     },
+    // Diff endpoints
+    diff: {
+        getSyncStatus: async (projectId) => {
+            const response = await fetch(`${API_BASE_URL}/diff/sync/status/${projectId}`);
+            return handleResponse(response);
+        }
+    },
 };
 
 export default api;

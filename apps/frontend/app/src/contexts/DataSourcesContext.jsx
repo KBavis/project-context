@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
+import { useProjects } from './ProjectContext';
 
 const DataSourcesContext = createContext();
 
@@ -16,6 +17,7 @@ export const DataSourcesProvider = ({ children }) => {
     const [mcpConfigs, setMcpConfigs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const { startPolling } = useProjects();
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -86,6 +88,7 @@ export const DataSourcesProvider = ({ children }) => {
         try {
             await api.projects.linkDataSource(projectId, dataSourceId);
             await fetchData();
+            startPolling(projectId);
         } catch (err) {
             setError('Failed to link project to data source');
             throw err;

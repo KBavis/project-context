@@ -4,13 +4,19 @@ import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { api } from '../services/api';
 import { useConversations } from '../contexts/ConversationContext';
+import { useProjects } from '../contexts/ProjectContext';
 import Button from './Button';
 import '../styles/ChatInterface.css';
 
 export default function ChatInterface({ conversationId }) {
     const { messages, setMessages } = useConversations();
+    const { selectedProject, syncingProjects } = useProjects();
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+
+    const syncState = selectedProject ? syncingProjects[selectedProject.id] : null;
+    const isSyncing = syncState?.isSyncing;
+    const syncError = syncState?.error;
     const [streamingMessage, setStreamingMessage] = useState('');
     const [status, setStatus] = useState('');
     const messagesEndRef = useRef(null);
@@ -206,19 +212,24 @@ export default function ChatInterface({ conversationId }) {
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={handleKeyPress}
-                        placeholder="Type your message..."
+                        placeholder={isSyncing ? "Synchronizing Project Details (Please Wait...)" : "Type your message..."}
                         rows={1}
-                        disabled={loading}
+                        disabled={loading || isSyncing}
                     />
                     <Button
                         onClick={handleSend}
-                        disabled={!input.trim() || loading}
+                        disabled={!input.trim() || loading || isSyncing}
                         loading={loading}
-                        icon="→"
+                        icon={isSyncing ? undefined : "→"}
                     >
-                        Send
+                        {isSyncing ? "Synchronizing Project Details (Please Wait...)" : "Send"}
                     </Button>
                 </div>
+                {syncError && (
+                    <div className="sync-error-banner" style={{ color: 'red', marginTop: '8px', fontSize: '12px' }}>
+                        {syncError}
+                    </div>
+                )}
             </div>
         </div>
     );
