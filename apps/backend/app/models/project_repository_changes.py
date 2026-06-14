@@ -11,7 +11,7 @@ from .base import Base
 
 if TYPE_CHECKING:
     from .file_diff import FileDiff
-    from .ingestion_job import IngestionJob
+    from .diff_sync_job import DiffSyncJob
     from .project_data import ProjectData
     from .git_commit import GitCommit
 
@@ -40,8 +40,15 @@ class ProjectRepositoryChanges(Base):
                 "computed once on first sync and reused on subsequent syncs",
     )
 
+    is_initial_sync_complete: Mapped[bool] = mapped_column(
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment="True if initial baseline synchronization has succeeded"
+    )
+
     # sync information regarding this state of project repository changes 
-    last_synced_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True, comment="End time of IngestionJob processing")
+    last_synced_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True, comment="End time of DiffSyncJob processing")
 
     files_touched: Mapped[list[str]] = mapped_column(
         ARRAY(String),
@@ -64,11 +71,11 @@ class ProjectRepositoryChanges(Base):
         primary_key=True,
         comment="Part of 1:1 PK with ProjectData",
     )
-    ingestion_job_id: Mapped[UUID] = mapped_column(
-        ForeignKey("ingestion_job.id"),
+    diff_sync_job_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("diff_sync_job.id"),
         index=True,
-        nullable=False,
-        comment="Last ingestion job that updated this record",
+        nullable=True,
+        comment="Last diff sync job that updated this record",
     )
 
     # one to one relationship with ProjectData
@@ -76,8 +83,8 @@ class ProjectRepositoryChanges(Base):
         back_populates="repository_changes",
     )
 
-    # many to one with IngestionJob (no reverse collection on IngestionJob)
-    ingestion_job: Mapped["IngestionJob"] = relationship()
+    # many to one with DiffSyncJob (no reverse collection on DiffSyncJob)
+    diff_sync_job: Mapped["DiffSyncJob"] = relationship()
 
     # one to many relationship with FileDiff
     file_diffs: Mapped[List["FileDiff"]] = relationship(

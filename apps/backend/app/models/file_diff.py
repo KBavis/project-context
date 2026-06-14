@@ -23,7 +23,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
 if TYPE_CHECKING:
-    from .ingestion_job import IngestionJob
+    from .diff_sync_job import DiffSyncJob
     from .project_repository_changes import ProjectRepositoryChanges
     from .git_commit import GitCommit
 
@@ -125,17 +125,17 @@ class FileDiff(Base):
         comment="SHAs that could not be cherry-picked for this file; populated when conflict_detected=True",
     )
 
-    ingestion_job_id: Mapped[UUID] = mapped_column(
-        ForeignKey("ingestion_job.id"),
+    diff_sync_job_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("diff_sync_job.id"),
         index=True,
-        nullable=False,
+        nullable=True,
         comment="Job that last wrote this row; used to determine last time this path was synced",
     )
 
     project_repository_changes: Mapped["ProjectRepositoryChanges"] = relationship(
         back_populates="file_diffs",
     )
-    ingestion_job: Mapped["IngestionJob"] = relationship()
+    diff_sync_job: Mapped["DiffSyncJob"] = relationship()
 
     commits: Mapped[List["GitCommit"]] = relationship(
         secondary="file_diff_commit",
