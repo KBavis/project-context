@@ -38,9 +38,9 @@ export function ProjectProvider({ children }) {
         fetchProjects();
     }, [fetchProjects]);
 
-    const createProject = async (name, description) => {
+    const createProject = async (name, description, parentIssues = []) => {
         try {
-            const newProject = await api.projects.create(name, description);
+            const newProject = await api.projects.create(name, description, parentIssues);
             setProjects(prev => [...prev, newProject]);
             setSelectedProject(newProject);
             return newProject;

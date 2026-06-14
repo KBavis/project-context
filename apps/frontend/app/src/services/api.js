@@ -73,13 +73,14 @@ export const api = {
 
     // Project endpoints
     projects: {
-        create: async (projectName, description = '') => {
-            const response = await fetch(`${API_BASE_URL}/projects/`, { // Fixed path
+        create: async (projectName, description = '', parentIssues = []) => {
+            const response = await fetch(`${API_BASE_URL}/projects/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: projectName,
                     description: description,
+                    parent_issues: parentIssues,
                 }),
             });
             return handleResponse(response);
