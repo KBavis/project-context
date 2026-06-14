@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
+from fastapi import HTTPException
 
 from app.services.data_source import DataSourceService
 from app.services.git_ops import GitOperationsService
@@ -16,9 +17,17 @@ from app.models.project import Project
 from app.models.project_repository_changes import ProjectRepositoryChanges
 from app.models.file_diff import FileDiff, ChangeType
 from app.models.git_commit import GitCommit
+from app.models.diff_sync_job import DiffSyncJob
+from app.models.ingestion_job import ProcessingStatus
+from app.models.record_lock import RecordType
+from app.services.record_lock import RecordLockService
+from app.models.project_data import ProjectData
 from app.data_providers.fetchable.issue_tracker import IssueTrackerDataProvider
 from app.data_providers.ingestible.repository import RepositoryDataProvider
 from app.pydantic.git_commit import GitCommitDetail
+from app.models.project_data import ProjectData
+from app.core import get_async_session_maker
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -35,115 +44,213 @@ class DiffService:
         project_svc: ProjectService, 
         data_source_svc: DataSourceService,
         git_ops_svc: GitOperationsService,
+        record_lock_svc: RecordLockService,
     ):
         self.async_db: AsyncSession = async_db
         self.project_svc = project_svc
         self.data_source_svc = data_source_svc
         self.git_ops_svc = git_ops_svc
+        self.record_lock_svc = record_lock_svc
+    
+
+    async def validate_project_sync_complete(self, project_id: UUID) -> None:
+        """
+        Validates that all repository data sources associated with this project 
+        have completed their initial sync.
+        """
+        # Fetch data sources linked to the project
+        linked_data_sources = await self.data_source_svc.aget_project_data_sources(project_id)
+        
+        # Filter for repository data sources that are issue scoped
+        repo_data_sources = [ds for ds in linked_data_sources if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues]
+        
+        for ds in repo_data_sources:
+            stmt = select(ProjectRepositoryChanges).where(
+                ProjectRepositoryChanges.project_id == project_id,
+                ProjectRepositoryChanges.data_source_id == ds.id
+            )
+            res = await self.async_db.execute(stmt)
+            record = res.scalars().first()
+            
+            if not record or not record.is_initial_sync_complete:
+                raise HTTPException(
+                    status_code=412,
+                    detail="The repository code changes for this project are performing their first time synchronization. Please wait for this to complete."
+                )
 
 
+    async def init_diff_sync_job(self, project_id: UUID, data_source_id: UUID) -> DiffSyncJob:
+        """
+        Validate ProjectData and create initial diff sync job with IN_PROGRESS status
+        """
+        
+        # validate ProjectData exists
+        stmt = select(ProjectData).where(ProjectData.project_id == project_id, ProjectData.data_source_id == data_source_id)
+        res = await self.async_db.execute(stmt)
+        project_data = res.scalar_one_or_none()
+        
+        if not project_data:
+            raise Exception("ProjectData link does not exist. Cannot sync.")
 
-    async def repository_sync(
-            self, 
-            repository_data_source_id: UUID, 
-            ingestion_job_id: UUID,
-            project_ids: list[UUID] | None = None
+        # lock the resource
+        pair_lock_key = f"sync:{project_id}:{data_source_id}"
+        lock_uuid = uuid.uuid5(uuid.NAMESPACE_OID, pair_lock_key)
+        locked = await self.record_lock_svc.lock(lock_uuid, RecordType.PROJECT_DATA)
+        if not locked:
+            raise Exception(f"Failed to acquire lock for project_data: Record already locked")
+
+        job = DiffSyncJob(
+            project_id=project_id,
+            data_source_id=data_source_id,
+            status=ProcessingStatus.IN_PROGRESS,
+            start_time=datetime.now(timezone.utc),
+        )
+        self.async_db.add(job)
+        await self.async_db.flush()
+        return job
+
+    async def update_diff_sync_job(
+        self,
+        job_id: UUID,
+        status: ProcessingStatus,
+        end_time: datetime,
+        duration: int,
+        session: AsyncSession,
+        error_message: str | None = None,
+        commit: bool = False
     ):
         """
-        Sync the updates made to a `Repository DataSource`
-            - Optionally specify a Project ID to limit the scope of the sync to a particular Project
-        
-        TODO: Handle failures gracefully (this should likely be a Transactional process, sort of hard to do with Chroma & git though)
-              Ensuring that this doesn't get into a corurpt state is vital since the Agent will hallucinate other wise and 
-              have bad data to operate from
-
-        TODO: We may need to handle PDF's explicitly when processing diffs 
-        
-        Args:
-            repository_data_source_id (UUID): The ID of the Data Source to sync.
-            ingestion_job_id (UUID): The ID of the IngestionJob updating this record.
-            project_ids (list[UUID] | None): The IDs of the Projects to limit the sync to.
+        Update existing DiffSyncJob with relevant status, end_time, and duration.
         """
-        # validate that the provided DataSource is of type `REPOSITORY` and configured properly for syncing 
-        repository_ds = await self.data_source_svc.aget_data_source_by_id(data_source_id=repository_data_source_id)
-        if repository_ds.type != DataSourceType.REPOSITORY or not repository_ds.scope_by_issues:
-            logger.warning(f"DataSource with ID {repository_data_source_id} is not configured for repository syncing. Skipping sync.")
-            return
+        job = await session.get(DiffSyncJob, job_id)
+        if not job:
+            raise Exception(f"Failed to find DiffSyncJob by ID={job_id}")
 
-        # if no projects are provided, sync the repository for ALL projects 
-        if not project_ids:
-            projects = await self.project_svc.get_projects_for_data_source(data_source_id=repository_data_source_id)
-            project_ids_to_sync = [project["id"] for project in projects]
-        else:
-            project_ids_to_sync = project_ids
+        job.status = status
+        job.end_time = end_time
+        job.total_duration = duration
+        if error_message is not None:
+            job.error_message = error_message
 
-        # ensure that there are Projects to sync before proceeding with the repository sync
-        if not project_ids_to_sync:
-            logger.warning(f"No Projects found for DataSource={repository_data_source_id}. Skipping repository sync.")
-            return
+        session.add(job)
+        await session.flush()
         
-        # perform repository sync for each project
-        for project_id in project_ids_to_sync:
-            logger.info(f"Syncing repository for Project={project_id} and DataSource={repository_data_source_id}")
+        if commit:
+            await session.commit()
 
-            # validate that the configured Project has relevant ParentIssues that are required for scoping 
-            project = await self.project_svc.aget_project_by_id(project_id=project_id)
-            if not project.parent_issues:
-                logger.error(f"Project with ID {project_id} does not have any Parent Issues configured. This is invalid as any configured Project for DataSource of type REPOSITORY and scope_by_issues=True requires this information")
-                raise Exception(f"Project with ID {project_id} does not have any Parent Issues configured, which is required for Repository syncing")
+    async def execute_repository_sync_job(self, job_id: UUID):
 
-            # validate IssueTracker DataSource configured for this Project (if != 1 for Project, this will error out)
-            issue_tracker_ds = await self.data_source_svc.get_issue_tracker_data_source(project_id)
+        # retrieve the initalized DiffSyncJob
+        stmt = select(DiffSyncJob).where(DiffSyncJob.id == job_id)
+        res = await self.async_db.execute(stmt)
+        job = res.scalar_one_or_none()
+        
+        if not job:
+            logger.error(f"No DiffSyncJob found for ID: {job_id}")
+            raise Exception(f"No DiffSyncJob found for ID: {job_id}")
 
-            # fetch new commits details to know what's changed
+        pair_lock_key = f"sync:{job.project_id}:{job.data_source_id}"
+        lock_uuid = uuid.uuid5(uuid.NAMESPACE_OID, pair_lock_key)
+        job_start_time = job.start_time
+
+        try:
+            repository_ds = await self.data_source_svc.aget_data_source_by_id(data_source_id=job.data_source_id)
+            project = await self.project_svc.aget_project_by_id(project_id=job.project_id)
+            
+            issue_tracker_ds = await self.data_source_svc.get_issue_tracker_data_source(job.project_id)
+
             new_commits = await self.get_new_repository_commits(
                 issue_tracker_ds,
                 repository_ds,
                 project
             )
-            if not new_commits:
-                logger.info(f"No new commits found when syncing Project={project_id} for DataSource={repository_ds.id} -- skipping Git operations")
-                continue 
+
+            if new_commits:
+                persisted_commits = await self._persist_git_commits(
+                    project_id=job.project_id,
+                    repository_data_source_id=job.data_source_id,
+                    commits=new_commits
+                )
+
+                project_repo_changes = await self.get_project_repository_changes(job.project_id, job.data_source_id)
+                base_sha = project_repo_changes.base_commit_sha if project_repo_changes else None
+
+                all_commits = await self.get_project_git_commits(job.project_id, job.data_source_id)
+
+                file_diff_results, resolved_base_sha = await self.sync_repository_branch_git(
+                    repository_ds=repository_ds,
+                    all_commits=all_commits,
+                    base_sha=base_sha
+                )
+
+                await self.persist_repository_diff_changes(
+                    project_id=job.project_id,
+                    repository_data_source_id=job.data_source_id,
+                    diff_sync_job_id=job_id,
+                    persisted_commits=persisted_commits,
+                    file_diff_results=file_diff_results,
+                    resolved_base_sha=resolved_base_sha
+                )
+            else:
+                logger.info(f"No new GitCommits found for DataSource={job.data_source_id} and Project={job.project_id}. Marking DiffSyncJob as successful and updating the ProjectRepositoryChanges object to reflect succesful completion")
+
+                project_repo_changes = await self.get_project_repository_changes(job.project_id, job.data_source_id)
+                if not project_repo_changes:
+                    # create blank ProjectRepositoryChanges record in the case that this is first sync AND no commits found
+                    project_repo_changes = ProjectRepositoryChanges(
+                        project_id=job.project_id,
+                        data_source_id=job.data_source_id,
+                        diff_sync_job_id=job_id,
+                        files_touched=[],
+                        file_count=0,
+                        is_initial_sync_complete=True
+                    )
+                    self.async_db.add(project_repo_changes)
+                else:
+                    # update existing ProjectReposiotryChanges record to indicate last processed by this DiffSyncJob
+                    project_repo_changes.diff_sync_job_id = job_id
+                    project_repo_changes.last_synced_time = datetime.now(timezone.utc)
+                await self.async_db.flush()
+
+            # update DiffSyncJob status as successful
+            end_time = datetime.now(timezone.utc)
+            duration = int((end_time - job_start_time).total_seconds())
+            await self.update_diff_sync_job(
+                job_id=job_id,
+                status=ProcessingStatus.SUCCESS,
+                end_time=end_time,
+                duration=duration,
+                session=self.async_db,
+                commit=False
+            )
+
+        except Exception as e:
+            logger.error(f"Error during execute_repository_sync_job for job {job_id}: {e}", exc_info=True)
             
-            # TODO: We'll need to account for scenario where fatal exception happens downstream 
-            # by likely rolling this back (or subsequent Ingesiton Jobs we'll deem know updates needed)
-            # persist git commits immediately
-            persisted_commits = await self._persist_git_commits(
-                project_id=project_id,
-                repository_data_source_id=repository_data_source_id,
-                commits=new_commits
-            )
-
-            # get base sha (parent commit of first Project commit on repository)
-            project_repo_changes = await self.get_project_repository_changes(project_id, repository_data_source_id)
-            base_sha = project_repo_changes.base_commit_sha if project_repo_changes else None
-
-            # get all commits (including new commits being synced)
-            all_commits = await self.get_project_git_commits(project_id, repository_data_source_id)
-
-            # derive per-file composite diffs via ephemeral local git operations
-            file_diff_results, resolved_base_sha = await self.sync_repository_branch_git(
-                repository_ds=repository_ds,
-                all_commits=all_commits,
-                base_sha=base_sha
-            )
-
-            # persist changes
-            await self.persist_repository_diff_changes(
-                project_id=project_id,
-                repository_data_source_id=repository_data_source_id,
-                ingestion_job_id=ingestion_job_id,
-                persisted_commits=persisted_commits,
-                file_diff_results=file_diff_results,
-                resolved_base_sha=resolved_base_sha
-            )
+            # update the DiffSyncJob with appropaite status and error message when failing
+            session_maker = get_async_session_maker()
+            async with session_maker() as session:
+                fail_end_time = datetime.now(timezone.utc)
+                fail_duration = int((fail_end_time - job_start_time).total_seconds())
+                await self.update_diff_sync_job(
+                    job_id=job_id,
+                    status=ProcessingStatus.FAILED,
+                    end_time=fail_end_time,
+                    duration=fail_duration,
+                    session=session,
+                    error_message=str(e),
+                    commit=True
+                )
+        finally:
+            # always unlock ProjectData record after job completes
+            await self.record_lock_svc.unlock(lock_uuid, record_type=RecordType.PROJECT_DATA)
 
 
     async def persist_repository_diff_changes(
         self,
         project_id: UUID,
         repository_data_source_id: UUID,
-        ingestion_job_id: UUID,
+        diff_sync_job_id: UUID,
         persisted_commits: list[GitCommit],
         file_diff_results: list[FileDiffResult],
         resolved_base_sha: str,
@@ -158,7 +265,7 @@ class DiffService:
         await self._persist_file_diffs(
             project_id=project_id,
             repository_data_source_id=repository_data_source_id,
-            ingestion_job_id=ingestion_job_id,
+            diff_sync_job_id=diff_sync_job_id,
             commits=persisted_commits,
             file_diff_results=file_diff_results,
         )
@@ -167,7 +274,7 @@ class DiffService:
         await self._persist_project_repository_changes(
             project_id=project_id,
             repository_data_source_id=repository_data_source_id,
-            ingestion_job_id=ingestion_job_id,
+            diff_sync_job_id=diff_sync_job_id,
             resolved_base_sha=resolved_base_sha
         )
 
@@ -216,7 +323,7 @@ class DiffService:
         self,
         project_id: UUID,
         repository_data_source_id: UUID,
-        ingestion_job_id: UUID,
+        diff_sync_job_id: UUID,
         commits: list[GitCommit],
         file_diff_results: list[FileDiffResult],
     ):
@@ -275,7 +382,7 @@ class DiffService:
                     diff_truncated=diff_result.diff_truncated if diff_result else False,
                     conflict_detected=diff_result.conflict_detected if diff_result else False,
                     failed_commit_shas=diff_result.failed_commit_shas if diff_result else [],
-                    ingestion_job_id=ingestion_job_id,
+                    diff_sync_job_id=diff_sync_job_id,
                 )
                 self.async_db.add(file_diff_record)
                 await self.async_db.flush()
@@ -288,7 +395,7 @@ class DiffService:
                     file_diff_record.conflict_detected = diff_result.conflict_detected
                     file_diff_record.failed_commit_shas = diff_result.failed_commit_shas
                     file_diff_record.change_type = change_type
-                file_diff_record.ingestion_job_id = ingestion_job_id
+                file_diff_record.diff_sync_job_id = diff_sync_job_id
 
             # link commits that touched this file
             for commit in commits_by_path.get(file_path, []):
@@ -339,7 +446,7 @@ class DiffService:
         self,
         project_id: UUID,
         repository_data_source_id: UUID,
-        ingestion_job_id: UUID,
+        diff_sync_job_id: UUID,
         resolved_base_sha: str
     ):
         """
@@ -354,15 +461,17 @@ class DiffService:
             project_repository_changes = ProjectRepositoryChanges(
                 project_id=project_id,
                 data_source_id=repository_data_source_id,
-                ingestion_job_id=ingestion_job_id,
+                diff_sync_job_id=diff_sync_job_id,
                 base_commit_sha=resolved_base_sha,
                 files_touched=[],
-                file_count=0
+                file_count=0,
+                is_initial_sync_complete=True
             )
             self.async_db.add(project_repository_changes)
             await self.async_db.flush()
         else:
-            project_repository_changes.ingestion_job_id = ingestion_job_id
+            project_repository_changes.diff_sync_job_id = diff_sync_job_id
+            project_repository_changes.is_initial_sync_complete = True
 
         # Update files_touched
         stmt = select(FileDiff.file_path).where(
