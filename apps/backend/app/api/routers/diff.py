@@ -5,6 +5,7 @@ from app.services import DiffService
 from app.models.diff_sync_job import DiffSyncJob
 from sqlalchemy import select
 from ..svc_deps import get_async_diff_svc
+from app.pydantic.status import ProcessingStatus
 import logging
 
 router = APIRouter(prefix="/diff")
@@ -60,7 +61,7 @@ async def validate_project_initial_syncing(
     try:
         state = await svc.get_project_sync_state(project_id)
         return {
-            "is_initial_sync_complete": state == "COMPLETED",
+            "is_initial_sync_complete": state == ProcessingStatus.SUCCESS.value,
             "status": state
         }
     except Exception as e:
