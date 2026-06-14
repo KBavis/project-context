@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
+import { useAlert } from './AlertContext';
 
 const ProjectContext = createContext();
 
@@ -17,6 +18,7 @@ export function ProjectProvider({ children }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [syncingProjects, setSyncingProjects] = useState({}); // projectId -> { isSyncing: boolean, error?: string }
+    const { showAlert } = useAlert();
 
     const fetchProjects = useCallback(async () => {
         setLoading(true);
@@ -61,9 +63,18 @@ export function ProjectProvider({ children }) {
             try {
                 const res = await api.diff.getSyncStatus(selectedProject.id);
                 if (!res.is_initial_sync_complete) {
-                    setSyncingProjects(prev => ({ ...prev, [selectedProject.id]: { isSyncing: true } }));
+                    setSyncingProjects(prev => ({ ...prev, [selectedProject.id]: { isSyncing: true, status: res.status } }));
+                    
+                    const projectName = selectedProject.project_name || selectedProject.name;
+                    if (res.status === 'IN_PROGRESS') {
+                        showAlert(`Project "${projectName}" is currently synchronizing in the background.`, 'warning');
+                    } else if (res.status === 'FAILED') {
+                        showAlert(`Project "${projectName}" synchronization failed. Please trigger a new sync in Data Sources.`, 'error');
+                    } else if (res.status === 'NOT_STARTED') {
+                        showAlert(`Project "${projectName}" requires synchronization before messaging. Please trigger a sync in Data Sources.`, 'warning');
+                    }
                 } else {
-                    setSyncingProjects(prev => ({ ...prev, [selectedProject.id]: { isSyncing: false } }));
+                    setSyncingProjects(prev => ({ ...prev, [selectedProject.id]: { isSyncing: false, status: res.status } }));
                 }
             } catch (e) {
                 console.error('Failed to check sync status', e);
@@ -93,8 +104,10 @@ export function ProjectProvider({ children }) {
             try {
                 const statusRes = await api.diff.getSyncStatus(projectId);
                 if (statusRes.is_initial_sync_complete) {
-                    setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: false } }));
+                    setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: false, status: statusRes.status } }));
                     return;
+                } else {
+                    setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: true, status: statusRes.status } }));
                 }
             } catch (err) {
                 console.error(err);

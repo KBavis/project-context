@@ -144,6 +144,24 @@ export default function ChatInterface({ conversationId }) {
         return role && role.toUpperCase() === 'USER';
     };
 
+    const getSyncPlaceholder = () => {
+        if (!isSyncing) return "Type your message...";
+        if (!syncState) return "Synchronizing Project Details (Please Wait...)";
+        
+        switch (syncState.status) {
+            case 'IN_PROGRESS':
+                return "Project is currently syncing. Please wait...";
+            case 'FAILED':
+                return "Project sync failed. Please trigger a new sync.";
+            case 'NOT_STARTED':
+                return "Project sync has not been started. Please trigger a sync.";
+            default:
+                return "Synchronizing Project Details (Please Wait...)";
+        }
+    };
+
+
+
     const getRoleClass = (msg) => {
         return isUser(msg) ? 'message-user' : 'message-assistant';
     };
@@ -212,7 +230,7 @@ export default function ChatInterface({ conversationId }) {
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={handleKeyPress}
-                        placeholder={isSyncing ? "Synchronizing Project Details (Please Wait...)" : "Type your message..."}
+                        placeholder={getSyncPlaceholder()}
                         rows={1}
                         disabled={loading || isSyncing}
                     />
@@ -222,7 +240,7 @@ export default function ChatInterface({ conversationId }) {
                         loading={loading}
                         icon={isSyncing ? undefined : "→"}
                     >
-                        {isSyncing ? "Synchronizing Project Details (Please Wait...)" : "Send"}
+                        {isSyncing ? "Send" : "Send"}
                     </Button>
                 </div>
                 {syncError && (

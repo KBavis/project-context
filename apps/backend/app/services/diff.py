@@ -78,6 +78,51 @@ class DiffService:
                     detail="The repository code changes for this project are performing their first time synchronization. Please wait for this to complete."
                 )
 
+    async def get_project_sync_state(self, project_id: UUID) -> str:
+        """
+        Determines the overall synchronization state of a project's repository data sources.
+        Returns: 'COMPLETED', 'IN_PROGRESS', 'FAILED', or 'NOT_STARTED'
+        """
+        linked_data_sources = await self.data_source_svc.aget_project_data_sources(project_id)
+        repo_data_sources = [ds for ds in linked_data_sources if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues]
+        
+        if not repo_data_sources:
+            return "COMPLETED"
+            
+        states = []
+        for ds in repo_data_sources:
+            # Check if sync is already complete for this ds
+            stmt = select(ProjectRepositoryChanges).where(
+                ProjectRepositoryChanges.project_id == project_id,
+                ProjectRepositoryChanges.data_source_id == ds.id
+            )
+            res = await self.async_db.execute(stmt)
+            if res.scalars().first():
+                states.append("COMPLETED")
+                continue
+                
+            # If not complete, check the latest DiffSyncJob
+            stmt = select(DiffSyncJob).where(
+                DiffSyncJob.project_id == project_id,
+                DiffSyncJob.data_source_id == ds.id
+            ).order_by(DiffSyncJob.start_time.desc()).limit(1)
+            res = await self.async_db.execute(stmt)
+            job = res.scalar_one_or_none()
+            
+            if job:
+                states.append(job.status.value)
+            else:
+                states.append("NOT_STARTED")
+                
+        if "IN_PROGRESS" in states:
+            return "IN_PROGRESS"
+        if "FAILED" in states:
+            return "FAILED"
+        if "NOT_STARTED" in states:
+            return "NOT_STARTED"
+            
+        return "COMPLETED"
+
 
     async def init_diff_sync_job(self, project_id: UUID, data_source_id: UUID) -> DiffSyncJob:
         """

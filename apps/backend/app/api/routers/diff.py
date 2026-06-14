@@ -58,9 +58,11 @@ async def validate_project_initial_syncing(
     svc: DiffService = Depends(get_async_diff_svc)
 ):
     try:
-        await svc.validate_project_sync_complete(project_id)
-        return {"is_initial_sync_complete": True}
-    except HTTPException as e:
-        if e.status_code == 412:
-            return {"is_initial_sync_complete": False}
-        raise e
+        state = await svc.get_project_sync_state(project_id)
+        return {
+            "is_initial_sync_complete": state == "COMPLETED",
+            "status": state
+        }
+    except Exception as e:
+        logger.error(f"Error checking project sync status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
