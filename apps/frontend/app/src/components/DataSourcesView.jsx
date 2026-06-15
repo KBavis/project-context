@@ -152,6 +152,7 @@ export default function DataSourcesView({ projectId }) {
                                     <option value="GitHub">GitHub</option>
                                     <option value="BitBucket">BitBucket</option>
                                     <option value="Confluence">Confluence</option>
+                                    <option value="Jira">Jira</option>
                                 </select>
                             </div>
                             <div className="form-field">
@@ -163,6 +164,7 @@ export default function DataSourcesView({ projectId }) {
                                 >
                                     <option value="REPOSITORY">Repository</option>
                                     <option value="DOCUMENTATION">Documentation</option>
+                                    <option value="ISSUE_TRACKER">Issue Tracker</option>
                                 </select>
                             </div>
                             <div className="form-field">
