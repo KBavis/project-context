@@ -84,7 +84,7 @@ class DataSourceService:
         self._validate_data_source_request(data_source_request)
 
         # create data source
-        if data_source_request.provider == "GitHub" and not data_source_request.branch: #TODO: Make this more Generic (any provider liek Bitbucket same deal)
+        if data_source_request.type == DataSourceType.REPOSITORY and data_source_request.provider == "GitHub" and not data_source_request.branch: #TODO: Make this more Generic (any provider liek Bitbucket same deal)
             data_source_request.branch = "main"
         data_source = DataSource(
             provider=data_source_request.provider, 

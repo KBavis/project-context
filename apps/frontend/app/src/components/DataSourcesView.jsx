@@ -189,7 +189,7 @@ export default function DataSourcesView({ projectId }) {
                                     required
                                 />
                             </div>
-                            {newDS.provider === 'GitHub' && (
+                            {newDS.provider === 'GitHub' && newDS.type === 'REPOSITORY' && (
                                 <div className="form-field fade-in">
                                     <label className="input-label">Branch (optional)</label>
                                     <input
@@ -406,15 +406,17 @@ export default function DataSourcesView({ projectId }) {
                                     </div>
 
                                     <div className="data-source-actions-flat">
-                                        <button
-                                            className={`flat-action ${activeJobView === ds.id ? 'active' : ''}`}
-                                            onClick={() => {
-                                                const isActive = activeJobView === ds.id;
-                                                setActiveJobView(isActive ? null : ds.id);
-                                            }}
-                                        >
-                                            {activeJobView === ds.id ? 'Hide History' : 'View Latest Jobs'}
-                                        </button>
+                                        {ds.type !== 'ISSUE_TRACKER' && (
+                                            <button
+                                                className={`flat-action ${activeJobView === ds.id ? 'active' : ''}`}
+                                                onClick={() => {
+                                                    const isActive = activeJobView === ds.id;
+                                                    setActiveJobView(isActive ? null : ds.id);
+                                                }}
+                                            >
+                                                {activeJobView === ds.id ? 'Hide History' : 'View Latest Jobs'}
+                                            </button>
+                                        )}
                                         <button
                                             className="flat-action"
                                             onClick={() => {
@@ -433,13 +435,15 @@ export default function DataSourcesView({ projectId }) {
                                         >
                                             Edit
                                         </button>
-                                        <button
-                                            className="flat-action primary"
-                                            onClick={() => handleRunIngestion(ds.id)}
-                                            disabled={creatingJob}
-                                        >
-                                            {creatingJob ? 'Starting...' : 'Run Ingestion'}
-                                        </button>
+                                        {ds.type !== 'ISSUE_TRACKER' && (
+                                            <button
+                                                className="flat-action primary"
+                                                onClick={() => handleRunIngestion(ds.id)}
+                                                disabled={creatingJob}
+                                            >
+                                                {creatingJob ? 'Starting...' : 'Run Ingestion'}
+                                            </button>
+                                        )}
                                     </div>
 
                                     {activeJobView === ds.id && (
