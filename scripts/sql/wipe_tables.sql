@@ -9,6 +9,7 @@ DELETE FROM data_chunks_docstore;
 DELETE FROM project_data;
 DELETE FROM message;
 DELETE FROM conversation;
+DELETE FROM diff_sync_job;
 DELETE FROM project;
 DELETE FROM chroma_collection;
 DELETE FROM ingestion_job;
