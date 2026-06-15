@@ -41,6 +41,10 @@ COPY --from=builder /root/.local /root/.local
 
 COPY . /app
 
+# Configure git identity required for cherry-pick and other write operations
+RUN git config --global user.email "contextualized@app.local" && \
+    git config --global user.name "Contextualized"
+
 EXPOSE 8000
 
 CMD ["python3", "-m", "app.main"]
