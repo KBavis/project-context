@@ -89,25 +89,27 @@ export default function CreateConversationModal({ isOpen, onClose }) {
             }
         >
             <form id="create-conversation-form" onSubmit={handleSubmit} className="create-conversation-form">
-                <div className="form-field">
-                    <label className="input-label">
-                        Select Project
-                        <span className="input-required">*</span>
-                    </label>
-                    <select
-                        value={selectedProjectId}
-                        onChange={(e) => setSelectedProjectId(e.target.value)}
-                        className="input"
-                        required
-                    >
-                        <option value="">Choose a project...</option>
-                        {projects.map((project) => (
-                            <option key={project.id} value={project.id}>
-                                {project.project_name || project.name}
-                            </option>
-                        ))}
-                    </select>
-                </div>
+                {!selectedProject && (
+                    <div className="form-field">
+                        <label className="input-label">
+                            Select Project
+                            <span className="input-required">*</span>
+                        </label>
+                        <select
+                            value={selectedProjectId}
+                            onChange={(e) => setSelectedProjectId(e.target.value)}
+                            className="input"
+                            required
+                        >
+                            <option value="">Choose a project...</option>
+                            {projects.map((project) => (
+                                <option key={project.id} value={project.id}>
+                                    {project.project_name || project.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
 
                 <div className="form-field">
                     <label className="input-label">
