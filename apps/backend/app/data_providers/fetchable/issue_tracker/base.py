@@ -16,6 +16,9 @@ class IssueTrackerDataProvider(FetchableDataProvider):
             case Provider.JIRA:
                 from app.data_providers.fetchable.issue_tracker.jira import JiraDataProvider
                 return JiraDataProvider(data_source=data_source)
+            case Provider.GITHUB:
+                from app.data_providers.fetchable.issue_tracker.github import GitHubIssueDataProvider
+                return GitHubIssueDataProvider(data_source=data_source)
             case _:
                 raise Exception(f"Data Source provider {data_source.provider} is not configured as a Issue Tracker Data Provider")
 
