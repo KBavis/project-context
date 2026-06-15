@@ -71,6 +71,8 @@ class GitCommit(Base):
             ["project_id", "data_source_id"],
             ["project_repository_changes.project_id", "project_repository_changes.data_source_id"],
             ondelete="CASCADE",
+            deferrable=True, # only enforce the constraint at transaction commit
+            initially="DEFERRED", 
         ),
     )
 
