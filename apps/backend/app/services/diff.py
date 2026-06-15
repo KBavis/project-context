@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from fastapi import HTTPException
+from sqlalchemy.orm import selectinload
 
 from app.services.data_source import DataSourceService
 from app.services.git_ops import GitOperationsService
@@ -414,7 +415,9 @@ class DiffService:
             # determine change type from the diff header when available
             change_type = self._infer_change_type(diff_result)
 
-            stmt = select(FileDiff).where(
+            stmt = select(FileDiff).options(
+                selectinload(FileDiff.commits)
+            ).where(
                 FileDiff.project_id == project_id,
                 FileDiff.data_source_id == repository_data_source_id,
                 FileDiff.file_path == file_path,
