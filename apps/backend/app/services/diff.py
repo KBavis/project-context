@@ -319,7 +319,8 @@ class DiffService:
             except Exception as e:
                 logger.error(f"Error during execute_repository_sync_job for job {job_id}: {e}", exc_info=True)
                 
-                # update the DiffSyncJob with appropaite status and error message when failing
+                # update the DiffSyncJob with appropaite status and error message when failing 
+                # NOTE: This is done in seperate session as all other changes will be rolled back
                 session_maker = get_async_session_maker()
                 async with session_maker() as session:
                     fail_end_time = datetime.now(timezone.utc)
@@ -333,6 +334,9 @@ class DiffService:
                         error_message=str(e),
                         commit=True
                     )
+
+                # re-raise so changes are rolled back
+                raise
             finally:
                 # always unlock ProjectData record after job completes
                 await self.record_lock_svc.unlock(lock_uuid, record_type=RecordType.PROJECT_DATA)
@@ -381,6 +385,8 @@ class DiffService:
             resolved_base_sha=resolved_base_sha,
             async_session=async_session
         )
+
+        logger.info(f"Successful persisted FileDiff and ProjectRepositoryChanges records for Project={project_id} and DataSource={repository_data_source_id}")
 
 
     async def _persist_git_commits(
@@ -491,6 +497,7 @@ class DiffService:
                     conflict_detected=diff_result.conflict_detected if diff_result else False,
                     failed_commit_shas=diff_result.failed_commit_shas if diff_result else [],
                     diff_sync_job_id=diff_sync_job_id,
+                    commits=[]
                 )
                 async_session.add(file_diff_record)
                 await async_session.flush()
@@ -587,15 +594,15 @@ class DiffService:
             FileDiff.project_id == project_id,
             FileDiff.data_source_id == repository_data_source_id
         )
-        res = await self.async_db.execute(stmt)
+        res = await async_session.execute(stmt)
         touched_paths = res.scalars().all()
 
         project_repository_changes.files_touched = list(set(touched_paths))
         project_repository_changes.file_count = len(project_repository_changes.files_touched)
         project_repository_changes.last_synced_time = datetime.now(timezone.utc)
 
-        self.async_db.add(project_repository_changes)
-        await self.async_db.flush()
+        async_session.add(project_repository_changes)
+        await async_session.flush()
 
 
     async def get_new_repository_commits(
