@@ -145,6 +145,18 @@ class DataSourceService:
         # flush to ensure relationships are loaded/persisted
         self.db.flush()
 
+        # If this DataSource creation included linked projects AND it's an
+        # issue-scoped repository, commit the sync transaction so any
+        # background async sessions (e.g. DiffSync jobs) can see the
+        # newly-created `project_data` rows. We only commit in this
+        # specific case to avoid committing other create flows prematurely.
+        if (
+            data_source_request.type == DataSourceType.REPOSITORY
+            and data_source_request.scope_by_issues
+            and data_source_request.project_ids
+        ):
+            self.db.commit()
+
 
         return {
             "id": data_source.id,
