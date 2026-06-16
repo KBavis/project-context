@@ -389,7 +389,7 @@ class FileService:
 
     async def add_new_file(self, file: FilePydantic, data_source: DataSource, job_pk: UUID):
         """
-        Functionality to insert a new File & corresponding FileCollection record
+        Functionality to insert a new File record into the relational database.
         """
 
         session = self.session
