@@ -6,7 +6,8 @@ from app.pydantic import CreateConversationRequest, UpdateConversationRequest
 from app.services.conversation import ConversationService
 from app.services.chroma import ChromaService
 
-from app.api.svc_deps import get_async_conversation_svc, get_chroma_svc
+from app.api.svc_deps import get_async_conversation_svc, get_chroma_svc, get_data_source_svc
+from app.services.data_source import DataSourceService
 
 router = APIRouter(prefix="/conversation")
 
@@ -33,6 +34,7 @@ async def create_new_conversation(
     background_tasks: BackgroundTasks,
     conversation_svc: ConversationService = Depends(get_async_conversation_svc),
     chroma_svc: ChromaService = Depends(get_chroma_svc),
+    data_source_svc: DataSourceService = Depends(get_data_source_svc),
 ):
     """
     Start a new conversation with a fresh context with a model regarding a project
@@ -41,8 +43,11 @@ async def create_new_conversation(
     try:
         created_conversation = await conversation_svc.create_conversation(conversation)
 
-        # download and cache embeddings in background when creating new conversation
-        background_tasks.add_task(chroma_svc.download_and_cache_collection_embeddings, conversation.project_id)
+        # download and cache embeddings in background for all data sources
+        # associated with this project (we must pass data_source IDs).
+        data_sources = await data_source_svc.aget_project_data_sources(conversation.project_id)
+        for ds in data_sources:
+            background_tasks.add_task(chroma_svc.download_and_cache_collection_embeddings, ds.id)
 
         return created_conversation
     except Exception as e:
