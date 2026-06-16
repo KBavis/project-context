@@ -186,4 +186,12 @@ def init_db() -> None:
     """
     Initalize necessary DB tables used through application
     """
-    Base.metadata.create_all(bind=sync_engine)
+
+    # prevent `data_chunks_docstore` table from being created 
+    # NOTE: This is because we wnat PostgresKVStore to create this for us in order to 
+    # prevent corrupted the internal strucutre of the table 
+    tables_to_create = [
+        table for table in Base.metadata.tables.values()
+        if table.name != 'data_chunks_docstore'
+    ]
+    Base.metadata.create_all(bind=sync_engine, tables=tables_to_create)
