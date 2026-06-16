@@ -93,17 +93,17 @@ class IngestionJobService:
             project_id: UUID | None = None
         ):
         """
-        Kick off ingestion job for specified data source and store relevant ingested data into ChromaDB
+        Run the ingestion job for the specified data source: download files, chunk them,
+        and persist nodes to both Chroma (vector store) and the PostgreSQL DocStore.
+
+        Since Chroma and DocStore are each 1-1 with a DataSource, all ingested nodes
+        belong exclusively to this data source's collection and namespace.
 
         Args:
-            data_source_id (UUID)
-                - specifici data source to retrieve data from
-            project_id (Optional(UUID))
-                - optional project ID to only retrieve data for specified project
-
-        TODO:
-            1. Consider adding multi-threading concurrency to this approach to speed up larger IngestionJobs 
-            2. Look into total amount of time processing takes when ONLY using CPU (any optimizations we can make?)
+            job_pk (UUID): unique ID of the current ingestion job
+            job_start_time (datetime): wall-clock time the job was initiated
+            data_source (DataSource): the data source being ingested
+            project_id (Optional[UUID]): unused; reserved for future project-scoped filtering
         """
 
         data_source_id = data_source.id
@@ -128,7 +128,7 @@ class IngestionJobService:
         try:
 
             # use data source information to fetch relevant data & store in temp directory
-            code_path, docs_path = await self._retrieve_data(provider, project_id, job_pk)
+            code_path, docs_path = await self._retrieve_data(provider, job_pk)
 
             # determine which data source types were downloaded
             has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(code_path)
@@ -257,7 +257,7 @@ class IngestionJobService:
     
 
     async def _retrieve_data(
-        self, provider: IngestibleDataProvider, project_id: UUID | None, job_pk: UUID,
+        self, provider: IngestibleDataProvider, job_pk: UUID,
     ) -> tuple[Path, Path]:
         """
         Retrieve relevant data from specified Data Source and store within temporary /data directory

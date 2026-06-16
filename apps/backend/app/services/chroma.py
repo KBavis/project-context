@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, update
 
 from app.models.file import File
-from app.services.util import get_normalized_collection_name
 from app.core import ChromaClientManager
 from app.pydantic import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse
 from app.models import ChromaCollection
@@ -197,25 +196,26 @@ class ChromaService:
         data_source_name: str, 
     ):
         """
-        Create collection for a particular data source
+        Create a Chroma collection for a particular data source.
+
+        The collection is named after the data source's UUID, ensuring a stable,
+        unique identifier that does not depend on the human-readable name.
 
         Args:
-            data_source_id (UUID): specific data source id to create collections for 
-            data_source_name (str): data source name 
+            data_source_id (UUID): data source ID — used as the collection name
+            data_source_name (str): data source name (used only for log messages)
         """
 
-        COLLECTION_NAME = get_normalized_collection_name(data_source_name)
-
-        self._verify_project_collections_dne(COLLECTION_NAME, original_name=data_source_name)
+        collection_name = str(data_source_id)
 
         try:
-            # create collections in ChromaDB
-            _ = self.client.create_collection(name=COLLECTION_NAME)
+            # create collection in ChromaDB
+            _ = self.client.create_collection(name=collection_name)
 
-            # create relational DB records 
+            # persist relational DB record
             collection = ChromaCollection(
                 data_source_id=data_source_id,
-                name=COLLECTION_NAME
+                name=collection_name
             )
 
             self.db.add(collection)
@@ -224,50 +224,24 @@ class ChromaService:
             return collection      
 
         except Exception as e:
-            logger.error(f"Failure occurred while attempting to create ChromaDB Collections for Data Source={data_source_name}: {str(e)}")
+            logger.error(f"Failure occurred while attempting to create ChromaDB collection for DataSource={data_source_name} (id={data_source_id}): {str(e)}")
             raise e
-
-    
-    def _verify_project_collections_dne(
-        self, project_name: str, original_name: str
-    ) -> None:
-        """
-        Helper function for verifying relevant collections for specified project do not exist already
-
-        NOTE: ChromaDB will raise exception in the case the collction does not exist by name
-        """
-
-        project_dne = True
-
-        # attempt to retrieve docs chroma db collection
-        try:
-            _ = self.client.get_collection(f"{project_name}")
-            project_dne = False
-        except Exception as e:
-            pass
-
-        # error out if either one exists (as this indicates a project with this name is in use)
-        if project_dne == False:
-            raise Exception(f"Project with the name {original_name} already exists")
 
 
     def delete_collection(self, data_source_id: UUID):
         """
-        Delete collection(s) associated with particular data source
+        Delete the Chroma collection associated with a particular data source.
 
         Args:
-            data_source_id (UUID): specific data source id to retrieve files for 
+            data_source_id (UUID): data source whose collection should be removed
         """
 
-        # fetch all ChromaCollections corresponding to Data Source ID 
         collection = self.get_collection_by_data_source(data_source_id)
         if not collection:
-            logger.warning(f"No ChromaCollections found corresponding to DataSourceId={data_source_id}")
+            logger.warning(f"No ChromaCollection found for DataSource={data_source_id}")
             return
-    
-        collection_name = get_normalized_collection_name(name=collection.data_source.name)
 
-        self._delete_collection(collection_name)
+        self._delete_collection(collection.name)
     
 
     def delete_collection_documents(
@@ -276,42 +250,36 @@ class ChromaService:
             data_source_id: UUID 
         ):
         """
-        Delete documents from a particular collection 
+        Delete documents from the Chroma collection tied to a particular data source.
 
         Args:
-            data_source_id (UUID): specific data source id to retrieve files for 
-            document_ids (List): list of document ids to delete 
+            data_source_id (UUID): data source whose collection documents should be removed
+            delete_collections (DeleteCollectionDocsRequest): request body containing doc IDs
         """
 
-        # fetch all ChromaCollections corresponding to Data Source ID 
         collection = self.get_collection_by_data_source(data_source_id)
         if not collection:
-            logger.warning(f"No ChromaCollection found corresponding to DataSourceId={data_source_id}")
+            logger.warning(f"No ChromaCollection found for DataSource={data_source_id}")
             return
-    
-        collection_name = get_normalized_collection_name(name=collection.data_source.name)
 
-        self._delete_documents(collection_name, delete_collections.doc_ids)
+        self._delete_documents(collection.name, delete_collections.doc_ids)
 
-        return {"message": f"Successfully deleted documents from collections for Data Source={data_source_id}"}
+        return {"message": f"Successfully deleted documents from collection for DataSource={data_source_id}"}
 
     def get_all_files(self, data_source_id: UUID) -> CollectionFilesResponse | MessageResponse | dict[str, CollectionFilesResponse] | None:
         """
-        Retrieve all files stored within collections corresponding to a particular Data Source
+        Retrieve all files stored within the Chroma collection for a particular data source.
 
         Args:
-            data_source_id (UUID): specific data source id to retrieve files for 
+            data_source_id (UUID): data source to retrieve collection files for
         """
-        
-        # fetch all ChromaCollections corresponding to Data Source ID 
+
         collection = self.get_collection_by_data_source(data_source_id)
         if not collection:
-            logger.warning(f"No ChromaCollection found corresponding to DataSourceId={data_source_id}")
+            logger.warning(f"No ChromaCollection found for DataSource={data_source_id}")
             return
-    
-        collection_name = get_normalized_collection_name(name=collection.data_source.name)
 
-        return self._get_files_from_collection(collection_name)
+        return self._get_files_from_collection(collection.name)
 
 
     def _delete_documents(self, project_name: str, doc_ids: list[str]):
