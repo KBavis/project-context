@@ -4,9 +4,8 @@ from uuid import UUID
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
-
 
 
 from app.pydantic import DataSourceRequest
@@ -15,6 +14,7 @@ from app.models.data_source import DataSourceType
 from app.services.chroma import ChromaService
 from app.core import settings
 from app.data_providers.ingestible.base import IngestibleDataProvider
+from app.models.data_source_mcp import DataSourceMCPConfig
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,11 @@ class DataSourceService:
         return data_source
 
     
-    async def get_issue_tracker_data_source(self, project_id: UUID) -> DataSource:
+    async def get_issue_tracker_data_source(
+        self, 
+        project_id: UUID, 
+        async_session: AsyncSession
+    ) -> DataSource:
         """
         Validate that there is only a single issue tracker for a given Project. This is required for 
         sycning a Repository DataSource for a given Project. If more than 1 Data Source 
@@ -54,7 +58,7 @@ class DataSourceService:
             project_id (UUID): the project to validate 
         """
 
-        data_sources = await self.aget_project_data_sources(project_id=project_id)
+        data_sources = await self.aget_project_data_sources(project_id=project_id, async_session=async_session)
         issue_provider_data_sources = [ds for ds in data_sources if ds.type == DataSourceType.ISSUE_TRACKER]
         if not issue_provider_data_sources or len(issue_provider_data_sources) != 1:
             raise Exception(f"Only one IssueProvider expected to be configured for Project={project_id}, but found {len(issue_provider_data_sources)}")
@@ -154,13 +158,14 @@ class DataSourceService:
         }
     
 
-    async def aget_project_data_sources(self, project_id: UUID) -> list[DataSource]:
+    async def aget_project_data_sources(self, project_id: UUID, async_session: AsyncSession | None = None) -> list[DataSource]:
         """
         Functionality to retreive persisted data_sourcs that correspond to particular Project ID
-        """
 
-        from sqlalchemy.orm import selectinload
-        from app.models.data_source_mcp import DataSourceMCPConfig
+        Args:
+            project_id (UUID): the unique project ID to retrieve data sources for 
+            async_session (AsyncSession?): optional session to leverage when executing this query (used if query is ran via Background Job)
+        """
 
         stmt = (
             select(DataSource)
@@ -171,7 +176,9 @@ class DataSourceService:
             .join(DataSource.project_data)
             .where(ProjectData.project_id == project_id)
         )
-        data_sources = await self.async_db.execute(stmt)
+
+        # default to use provided async_session if present, else use service's injected Async DB session
+        data_sources = await async_session.execute(stmt) if async_session else await self.async_db.execute(stmt)
         return list(data_sources.scalars().unique().all())
 
     async def aget_data_source_ids_by_type(

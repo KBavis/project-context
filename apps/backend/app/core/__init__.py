@@ -3,6 +3,7 @@ from .config import settings, setup_logging
 from .relational_db import (
     get_sync_db_session, 
     get_async_db_session, 
+    get_async_db_session_context,
     init_db, 
     sync_engine, 
     async_engine,
@@ -16,6 +17,7 @@ __all__ = [
     "settings",
     "get_sync_db_session",
     "get_async_db_session",
+    "get_async_db_session_context",
     "init_db",
     "sync_engine",
     "async_engine",

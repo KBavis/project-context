@@ -55,8 +55,8 @@ async def create_datasource(
                     f"[CreateDataSource] DataSource={data_source_id} is REPOSITORY with scope_by_issues=True: "
                     f"kicking off DiffSyncJob for Project={project_id}"
                 )
-                job = await diff_svc.init_diff_sync_job(project_id, data_source_id)
-                background_tasks.add_task(diff_svc.execute_repository_sync_job, job.id)
+                job, repository_ds, project = await diff_svc.init_diff_sync_job(project_id, data_source_id)
+                background_tasks.add_task(diff_svc.execute_repository_sync_job, job.id, repository_ds, project)
 
         return result
     except ValueError as e:

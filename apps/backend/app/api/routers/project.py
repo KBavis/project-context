@@ -73,8 +73,8 @@ async def link_data_source(
         ds = await ds_svc.aget_data_source_by_id(data_source_id)
         if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues:
             logger.info(f"DataSource={data_source_id} is type={ds.type} and scoped_by_issues={ds.scope_by_issues}: attempting to run DiffSyncJob for Project={project_id} and Data Source={data_source_id}")
-            job = await diff_svc.init_diff_sync_job(project_id, data_source_id)
-            background_tasks.add_task(diff_svc.execute_repository_sync_job, job.id)
+            job, repository_ds, project = await diff_svc.init_diff_sync_job(project_id, data_source_id)
+            background_tasks.add_task(diff_svc.execute_repository_sync_job, job.id, repository_ds, project)
             
         return res
     except ValueError as e:

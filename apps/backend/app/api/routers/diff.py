@@ -1,6 +1,7 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from uuid import UUID
+from app.models import data_source
 from app.services import DiffService
 from app.models.diff_sync_job import DiffSyncJob
 from sqlalchemy import select
@@ -45,8 +46,8 @@ async def trigger_diff_sync(
     svc: DiffService = Depends(get_async_diff_svc)
 ):
     try:
-        job = await svc.init_diff_sync_job(project_id, data_source_id)
-        background_tasks.add_task(svc.execute_repository_sync_job, job.id)
+        job, repository_ds, project = await svc.init_diff_sync_job(project_id, data_source_id)
+        background_tasks.add_task(svc.execute_repository_sync_job, job.id, repository_ds, project)
         return {"job_id": job.id, "status": job.status.value}
     except Exception as e:
         logger.error(f"Error triggering diff sync: {e}")

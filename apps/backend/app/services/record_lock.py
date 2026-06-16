@@ -59,7 +59,6 @@ class RecordLockService:
                 .values(is_locked = "Y")
             )
             res = await session.execute(update_stmt)
-            await session.flush()
             await session.commit()
 
             # Step 3. Ensure exactly one row updated
@@ -104,7 +103,6 @@ class RecordLockService:
                     logger.error(f"Failed to find RecordLock by recordId={record_id} and recordType={record_type}")
                     raise Exception(f"No RecordLock found by recordId={record_id} and recordType={record_type}")
 
-                await session.flush()
                 await session.commit()
                 logger.debug(f"Successfully unlocked RecordLock with recordId={record_id} and recordType={record_type}")
             

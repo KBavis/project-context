@@ -27,7 +27,7 @@ from app.data_providers.fetchable.issue_tracker import IssueTrackerDataProvider
 from app.data_providers.ingestible.repository import RepositoryDataProvider
 from app.pydantic.git_commit import GitCommitDetail
 from app.models.project_data import ProjectData
-from app.core import get_async_session_maker
+from app.core import get_async_db_session_context, get_async_session_maker
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -132,9 +132,16 @@ class DiffService:
         return ProcessingStatus.SUCCESS.value
 
 
-    async def init_diff_sync_job(self, project_id: UUID, data_source_id: UUID) -> DiffSyncJob:
+    async def init_diff_sync_job(self, project_id: UUID, data_source_id: UUID) -> tuple[DiffSyncJob, DataSource, Project]:
         """
         Validate ProjectData and create initial diff sync job with IN_PROGRESS status
+
+        Args:
+            project_id (UUID): the PK for the project to sync
+            data_source_id (UUID): the PK for the repository to sync
+
+        Returns:
+            tuple[DiffSyncJob, DataSource, Project]: the initialized DiffSyncJob, the associated Repository Data Source, and the associated Project
         """
         
         # validate ProjectData exists
@@ -144,6 +151,10 @@ class DiffService:
         
         if not project_data:
             raise Exception("ProjectData link does not exist. Cannot sync.")
+        
+        # retrieve the associated Repository Data Source and Project (NOTE: Given project_data is valid, these MUST be present)
+        repository_ds = await self.data_source_svc.aget_data_source_by_id(data_source_id=data_source_id)
+        project = await self.project_svc.aget_project_by_id(project_id=project_id)
 
         # lock the resource
         pair_lock_key = f"sync:{project_id}:{data_source_id}"
@@ -160,7 +171,8 @@ class DiffService:
         )
         self.async_db.add(job)
         await self.async_db.flush()
-        return job
+        
+        return (job, repository_ds, project)
 
     async def update_diff_sync_job(
         self,
@@ -191,111 +203,139 @@ class DiffService:
         if commit:
             await session.commit()
 
-    async def execute_repository_sync_job(self, job_id: UUID):
+    async def execute_repository_sync_job(self, job_id: UUID, repository_ds: DataSource, project: Project):
+        """
+        Execute an initalized DiffSyncJob keyed by the specified JobID. This job will be ran in 
+        a FastAPI.BackgroundTask and will be responsbile for syncing the code changes introduced
+        to a particular Repository DataSource by a specific Project. The associated PROJECT_DATA
+        record is locked to prohibit parallel DiffSyncJob's running at once, and will be unlocked
+        following its completetion
 
-        # retrieve the initalized DiffSyncJob
-        stmt = select(DiffSyncJob).where(DiffSyncJob.id == job_id)
-        res = await self.async_db.execute(stmt)
-        job = res.scalar_one_or_none()
-        
-        if not job:
-            logger.error(f"No DiffSyncJob found for ID: {job_id}")
-            raise Exception(f"No DiffSyncJob found for ID: {job_id}")
+        Args:
+            job_id (UUID): the DiffSyncJob PK to execute 
+            repository_ds (DataSource): the data source this job is being ran for 
+            project (Project): the proejct this job is being ran for
+        """
 
-        pair_lock_key = f"sync:{job.project_id}:{job.data_source_id}"
-        lock_uuid = uuid.uuid5(uuid.NAMESPACE_OID, pair_lock_key)
-        job_start_time = job.start_time
+        async with get_async_db_session_context() as async_session:
 
-        try:
-            repository_ds = await self.data_source_svc.aget_data_source_by_id(data_source_id=job.data_source_id)
-            project = await self.project_svc.aget_project_by_id(project_id=job.project_id)
+            # retrieve the initalized DiffSyncJob
+            stmt = select(DiffSyncJob).where(DiffSyncJob.id == job_id)
+            res = await async_session.execute(stmt)
+            job = res.scalar_one_or_none()
             
-            issue_tracker_ds = await self.data_source_svc.get_issue_tracker_data_source(job.project_id)
+            if not job:
+                logger.error(f"No DiffSyncJob found for ID: {job_id}")
+                raise Exception(f"No DiffSyncJob found for ID: {job_id}")
 
-            new_commits = await self.get_new_repository_commits(
-                issue_tracker_ds,
-                repository_ds,
-                project
-            )
+            pair_lock_key = f"sync:{job.project_id}:{job.data_source_id}"
+            lock_uuid = uuid.uuid5(uuid.NAMESPACE_OID, pair_lock_key)
+            job_start_time = job.start_time
 
-            if new_commits:
-                persisted_commits = await self._persist_git_commits(
+            try:
+                # get the IssueTracker tied to this Project (NOTE: This is REQUIRED when scoping a Repository's changes by Issues)
+                issue_tracker_ds = await self.data_source_svc.get_issue_tracker_data_source(
                     project_id=job.project_id,
-                    repository_data_source_id=job.data_source_id,
-                    commits=new_commits
+                    async_session=async_session
                 )
 
-                project_repo_changes = await self.get_project_repository_changes(job.project_id, job.data_source_id)
-                base_sha = project_repo_changes.base_commit_sha if project_repo_changes else None
-
-                all_commits = await self.get_project_git_commits(job.project_id, job.data_source_id)
-
-                file_diff_results, resolved_base_sha = await self.sync_repository_branch_git(
-                    repository_ds=repository_ds,
-                    all_commits=all_commits,
-                    base_sha=base_sha
+                # grab new commits since last sync
+                new_commits = await self.get_new_repository_commits(
+                    issue_tracker_ds,
+                    repository_ds,
+                    project,
+                    async_session
                 )
 
-                await self.persist_repository_diff_changes(
-                    project_id=job.project_id,
-                    repository_data_source_id=job.data_source_id,
-                    diff_sync_job_id=job_id,
-                    persisted_commits=persisted_commits,
-                    file_diff_results=file_diff_results,
-                    resolved_base_sha=resolved_base_sha
-                )
-            else:
-                logger.info(f"No new GitCommits found for DataSource={job.data_source_id} and Project={job.project_id}. Marking DiffSyncJob as successful and updating the ProjectRepositoryChanges object to reflect succesful completion")
-
-                project_repo_changes = await self.get_project_repository_changes(job.project_id, job.data_source_id)
-                if not project_repo_changes:
-                    # create blank ProjectRepositoryChanges record in the case that this is first sync AND no commits found
-                    project_repo_changes = ProjectRepositoryChanges(
+                if new_commits:
+                    # new commits found (persist commits, sync with remote repository state, and persist diff results)
+                    persisted_commits = await self._persist_git_commits(
                         project_id=job.project_id,
-                        data_source_id=job.data_source_id,
-                        diff_sync_job_id=job_id,
-                        files_touched=[],
-                        file_count=0
+                        repository_data_source_id=job.data_source_id,
+                        commits=new_commits,
+                        async_session=async_session
                     )
-                    self.async_db.add(project_repo_changes)
+
+                    project_repo_changes = await self.get_project_repository_changes(
+                        job.project_id, 
+                        job.data_source_id,
+                        async_session=async_session
+                    )
+                    base_sha = project_repo_changes.base_commit_sha if project_repo_changes else None
+
+                    all_commits = await self.get_project_git_commits(
+                        job.project_id,
+                        job.data_source_id,
+                        async_session=async_session
+                    )
+
+                    file_diff_results, resolved_base_sha = await self.sync_repository_branch_git(
+                        repository_ds=repository_ds,
+                        all_commits=all_commits,
+                        base_sha=base_sha
+                    )
+
+                    await self.persist_repository_diff_changes(
+                        project_id=job.project_id,
+                        repository_data_source_id=job.data_source_id,
+                        diff_sync_job_id=job_id,
+                        persisted_commits=persisted_commits,
+                        file_diff_results=file_diff_results,
+                        resolved_base_sha=resolved_base_sha,
+                        async_session=async_session
+                    )
                 else:
-                    # update existing ProjectReposiotryChanges record to indicate last processed by this DiffSyncJob
-                    project_repo_changes.diff_sync_job_id = job_id
-                    project_repo_changes.last_synced_time = datetime.now(timezone.utc)
-                await self.async_db.flush()
+                    logger.info(f"No new GitCommits found for DataSource={job.data_source_id} and Project={job.project_id}. Marking DiffSyncJob as successful and updating the ProjectRepositoryChanges object to reflect succesful completion")
 
-            # update DiffSyncJob status as successful
-            end_time = datetime.now(timezone.utc)
-            duration = int((end_time - job_start_time).total_seconds())
-            await self.update_diff_sync_job(
-                job_id=job_id,
-                status=ProcessingStatus.SUCCESS,
-                end_time=end_time,
-                duration=duration,
-                session=self.async_db,
-                commit=False
-            )
+                    project_repo_changes = await self.get_project_repository_changes(job.project_id, job.data_source_id, async_session)
+                    if not project_repo_changes:
+                        # create blank ProjectRepositoryChanges record in the case that this is first sync AND no commits found
+                        project_repo_changes = ProjectRepositoryChanges(
+                            project_id=job.project_id,
+                            data_source_id=job.data_source_id,
+                            diff_sync_job_id=job_id,
+                            files_touched=[],
+                            file_count=0
+                        )
+                        async_session.add(project_repo_changes)
+                    else:
+                        # update existing ProjectReposiotryChanges record to indicate last processed by this DiffSyncJob
+                        project_repo_changes.diff_sync_job_id = job_id
+                        project_repo_changes.last_synced_time = datetime.now(timezone.utc)
+                    await async_session.flush()
 
-        except Exception as e:
-            logger.error(f"Error during execute_repository_sync_job for job {job_id}: {e}", exc_info=True)
-            
-            # update the DiffSyncJob with appropaite status and error message when failing
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-                fail_end_time = datetime.now(timezone.utc)
-                fail_duration = int((fail_end_time - job_start_time).total_seconds())
+                # update DiffSyncJob status as successful
+                end_time = datetime.now(timezone.utc)
+                duration = int((end_time - job_start_time).total_seconds())
                 await self.update_diff_sync_job(
                     job_id=job_id,
-                    status=ProcessingStatus.FAILED,
-                    end_time=fail_end_time,
-                    duration=fail_duration,
-                    session=session,
-                    error_message=str(e),
+                    status=ProcessingStatus.SUCCESS,
+                    end_time=end_time,
+                    duration=duration,
+                    session=async_session,
                     commit=True
                 )
-        finally:
-            # always unlock ProjectData record after job completes
-            await self.record_lock_svc.unlock(lock_uuid, record_type=RecordType.PROJECT_DATA)
+
+            except Exception as e:
+                logger.error(f"Error during execute_repository_sync_job for job {job_id}: {e}", exc_info=True)
+                
+                # update the DiffSyncJob with appropaite status and error message when failing
+                session_maker = get_async_session_maker()
+                async with session_maker() as session:
+                    fail_end_time = datetime.now(timezone.utc)
+                    fail_duration = int((fail_end_time - job_start_time).total_seconds())
+                    await self.update_diff_sync_job(
+                        job_id=job_id,
+                        status=ProcessingStatus.FAILED,
+                        end_time=fail_end_time,
+                        duration=fail_duration,
+                        session=session,
+                        error_message=str(e),
+                        commit=True
+                    )
+            finally:
+                # always unlock ProjectData record after job completes
+                await self.record_lock_svc.unlock(lock_uuid, record_type=RecordType.PROJECT_DATA)
 
 
     async def persist_repository_diff_changes(
@@ -306,10 +346,20 @@ class DiffService:
         persisted_commits: list[GitCommit],
         file_diff_results: list[FileDiffResult],
         resolved_base_sha: str,
+        async_session: AsyncSession
     ):
         """
         Orchestrate the persistence of all repository diff changes across FileDiff, 
         and ProjectRepositoryChanges models.
+
+        Args:
+            project_id (UUID): The ID of the Project for which to retrieve the changes.
+            repository_data_source_id (UUID): The ID of the Data Source to filter the changes by.
+            diff_sync_job_id (UUID): The ID of the DiffSyncJob to use when persisting changes.
+            persisted_commits (list[GitCommit]): The list of GitCommits that have been persisted.
+            file_diff_results (list[FileDiffResult]): The list of FileDiffResults to persist.
+            resolved_base_sha (str): The resolved base SHA for the diffs.
+            async_session (AsyncSession): the AsyncSession to use when persisting changes.
         """
         logger.info(f"Persisting changes for Project={project_id} and DataSource={repository_data_source_id}")
 
@@ -320,6 +370,7 @@ class DiffService:
             diff_sync_job_id=diff_sync_job_id,
             commits=persisted_commits,
             file_diff_results=file_diff_results,
+            async_session=async_session
         )
 
         # 2. update the ProjectRepositoryChanges metadata
@@ -327,7 +378,8 @@ class DiffService:
             project_id=project_id,
             repository_data_source_id=repository_data_source_id,
             diff_sync_job_id=diff_sync_job_id,
-            resolved_base_sha=resolved_base_sha
+            resolved_base_sha=resolved_base_sha,
+            async_session=async_session
         )
 
 
@@ -335,7 +387,8 @@ class DiffService:
         self,
         project_id: UUID,
         repository_data_source_id: UUID,
-        commits: list[GitCommitDetail]
+        commits: list[GitCommitDetail],
+        async_session: AsyncSession
     ) -> list[GitCommit]:
         """
         Save the new GitCommit records. Raise exception if we see a commit we thought was new
@@ -345,7 +398,7 @@ class DiffService:
         for commit in commits:
             # check if commit already exists
             stmt = select(GitCommit).where(GitCommit.commit_hash == commit.sha)
-            res = await self.async_db.execute(stmt)
+            res = await async_session.execute(stmt)
             existing_commit = res.scalar_one_or_none()
 
             if existing_commit:
@@ -364,10 +417,10 @@ class DiffService:
                 message=commit.message,
                 files_modified=commit.files_modified
             )
-            self.async_db.add(commit_record)
+            async_session.add(commit_record)
             persisted_commits.append(commit_record)
 
-        await self.async_db.flush()
+        await async_session.flush()
         return persisted_commits
 
 
@@ -378,6 +431,7 @@ class DiffService:
         diff_sync_job_id: UUID,
         commits: list[GitCommit],
         file_diff_results: list[FileDiffResult],
+        async_session: AsyncSession
     ):
         """
         Update/create FileDiff records from the composite diff results produced
@@ -422,7 +476,7 @@ class DiffService:
                 FileDiff.data_source_id == repository_data_source_id,
                 FileDiff.file_path == file_path,
             )
-            res = await self.async_db.execute(stmt)
+            res = await async_session.execute(stmt)
             file_diff_record = res.scalar_one_or_none()
 
             if not file_diff_record:
@@ -438,8 +492,8 @@ class DiffService:
                     failed_commit_shas=diff_result.failed_commit_shas if diff_result else [],
                     diff_sync_job_id=diff_sync_job_id,
                 )
-                self.async_db.add(file_diff_record)
-                await self.async_db.flush()
+                async_session.add(file_diff_record)
+                await async_session.flush()
             else:
                 # update composite diff to reflect newly cherry-picked commits
                 if diff_result:
@@ -469,9 +523,9 @@ class DiffService:
                 FileDiff.project_id == project_id,
                 FileDiff.data_source_id == repository_data_source_id
             )
-        await self.async_db.execute(stmt)
+        await async_session.execute(stmt)
 
-        await self.async_db.flush()
+        await async_session.flush()
 
 
     def _infer_change_type(self, diff_result: FileDiffResult | None) -> ChangeType:
@@ -501,14 +555,16 @@ class DiffService:
         project_id: UUID,
         repository_data_source_id: UUID,
         diff_sync_job_id: UUID,
-        resolved_base_sha: str
+        resolved_base_sha: str,
+        async_session: AsyncSession
     ):
         """
         Update or create the ProjectRepositoryChanges record and update its files_touched list.
         """
         project_repository_changes = await self.get_project_repository_changes(
             project_id=project_id, 
-            data_source_id=repository_data_source_id
+            data_source_id=repository_data_source_id,
+            async_session=async_session
         )
 
         if not project_repository_changes:
@@ -520,8 +576,8 @@ class DiffService:
                 files_touched=[],
                 file_count=0
             )
-            self.async_db.add(project_repository_changes)
-            await self.async_db.flush()
+            async_session.add(project_repository_changes)
+            await async_session.flush()
         else:
             project_repository_changes.diff_sync_job_id = diff_sync_job_id
 
@@ -546,7 +602,8 @@ class DiffService:
             self, 
             issue_tracker_ds: DataSource, 
             repository_ds: DataSource,
-            project: Project
+            project: Project,
+            async_session: AsyncSession
     ) -> list[GitCommitDetail]:
         """
         Process new repository commits that have been added as a result of specified Project.
@@ -558,7 +615,7 @@ class DiffService:
             .order_by(GitCommit.commit_datetime.desc())
             .limit(1)
         )
-        res = await self.async_db.execute(stmt)
+        res = await async_session.execute(stmt)
         latest_commit = res.scalar_one_or_none()
         last_sync_time = latest_commit.commit_datetime if latest_commit else None
 
@@ -566,12 +623,12 @@ class DiffService:
         issue_data_provider = IssueTrackerDataProvider.from_provider(issue_tracker_ds)
         child_issues = await issue_data_provider.get_issues(project.parent_issues)
         if not child_issues:
-            logger.warning("No child issues found -- skipping processing repository changes")
+            logger.warning(f"No child issues found for Project={project.id} and IssueTracker={issue_tracker_ds.id} -- skipping processing repository changes")
             return []
 
         repository_data_provider = RepositoryDataProvider.from_provider(repository_ds)
         
-        # determine if latest state is up-to-date with state in Repository (skip if first time sync)
+        # determine if latest commit persisted to DB is up-to-date with state in remote Repository (skip if first time sync)
         if latest_commit:
             logger.info(f"Existing GitCommits found for Project={project.id} and DataSource={repository_ds.id}. Checking for new commits since last sync.")
             latest_repository_hash = await repository_data_provider.get_latest_commit_sha(child_issues)
@@ -605,7 +662,12 @@ class DiffService:
         """
 
 
-    async def get_project_repository_changes(self, project_id: UUID, data_source_id: UUID) -> ProjectRepositoryChanges | None:
+    async def get_project_repository_changes(
+        self, 
+        project_id: UUID, 
+        data_source_id: UUID,
+        async_session: AsyncSession | None = None
+    ) -> ProjectRepositoryChanges | None:
         """
         Get the accumulation of `Repository Code Changes` that we're introduced as a part of this Project
             - shows all changes across each Repository that are a part of this Project if no DataSourceID supplied 
@@ -613,9 +675,10 @@ class DiffService:
         Args:
             project_id (UUID): The ID of the Project for which to retrieve the changes.
             data_source_id (UUID): The ID of the Data Source to filter the changes by.
+            async_session (AsyncSession?): optional AsyncSession to leverage if this is a background job (default to use this if present)
         """
         stmt = select(ProjectRepositoryChanges).where(ProjectRepositoryChanges.project_id == project_id, ProjectRepositoryChanges.data_source_id == data_source_id)
-        result = await self.async_db.execute(stmt)
+        result = await async_session.execute(stmt) if async_session else await self.async_db.execute(stmt)
         return result.scalar_one_or_none()
 
 
@@ -664,9 +727,19 @@ class DiffService:
             return f"Error retrieving file diff: {str(e)}"
 
 
-    async def get_project_git_commits(self, project_id: UUID, data_source_id: UUID) -> list[GitCommit]:
+    async def get_project_git_commits(
+        self,
+        project_id: UUID,
+        data_source_id: UUID,
+        async_session: AsyncSession | None = None
+    ) -> list[GitCommit]:
         """
         Get all GitCommits persisted in the database for a specific Project and DataSource in chronological order
+
+        Args:
+            project_id (UUID): The ID of the Project for which to retrieve the changes.
+            data_source_id (UUID): The ID of the Data Source to filter the changes by.
+            async_session (AsyncSession?): optional AsyncSession to leverage if this is a background job (default to use this if present)
         """
         stmt = (
             select(GitCommit)
@@ -676,7 +749,7 @@ class DiffService:
             )
             .order_by(GitCommit.commit_datetime.asc())
         )
-        result = await self.async_db.execute(stmt)
+        result = await async_session.execute(stmt) if async_session else await self.async_db.execute(stmt)
         return list(result.scalars().all())
 
 
