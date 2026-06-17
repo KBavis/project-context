@@ -51,7 +51,14 @@ class EmbeddingManager:
             case "HuggingFace":
                 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
-                return HuggingFaceEmbedding(model_name=settings.EMBEDDING_MODEL)
+                class CachedHuggingFaceEmbedding(HuggingFaceEmbedding):
+                    def __deepcopy__(self, memo):
+                        # Workaround: LlamaIndex's QueryFusionRetriever attempts to deepcopy retrievers,
+                        # which crashes PyTorch when encountering meta tensors from HuggingFace accelerate.
+                        # Returning `self` avoids the crash and prevents duplicating the model in RAM.
+                        return self
+
+                return CachedHuggingFaceEmbedding(model_name=settings.EMBEDDING_MODEL)
             case _:
                 logging.error(
                     f"The embedidng provider specified, '{settings.EMBEDDING_PROVIDER}', is not curretly set up for this application"
