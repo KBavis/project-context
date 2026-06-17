@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import logging
-from uuid import UUID
-from abc import abstractmethod
-
 from app.models import DataSource
 from app.data_providers import DataProvider
-from app.data_providers.base import Provider
+from app.models.data_source import DataSourceType
 
 class FetchableDataProvider(DataProvider):
     def __init__(
@@ -17,9 +13,9 @@ class FetchableDataProvider(DataProvider):
 
     @classmethod
     def from_provider(cls, data_source: DataSource) -> FetchableDataProvider:
-        match data_source.provider:
-            case Provider.JIRA:
-                from app.data_providers.fetchable.issue_tracker.jira import JiraDataProvider
-                return JiraDataProvider(data_source=data_source)
+        match data_source.type:
+            case DataSourceType.ISSUE_TRACKER:
+                from app.data_providers.fetchable.issue_tracker import IssueTrackerDataProvider
+                return IssueTrackerDataProvider.from_provider(data_source)
             case _:
-                raise Exception(f"Data Source provider {data_source.provider} is not configured as a Fetchable Data Provider")
+                raise Exception(f"Data Source type {data_source.type} is not configured as a Fetchable Data Provider")

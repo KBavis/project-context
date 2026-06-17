@@ -6,8 +6,8 @@ from abc import abstractmethod
 
 from app.models import DataSource
 from app.services.file import FileService
+from app.models.data_source import DataSourceType
 from app.data_providers import DataProvider
-from app.data_providers.base import Provider
 from pathlib import Path
 from io import BytesIO
 
@@ -23,15 +23,21 @@ class IngestibleDataProvider(DataProvider):
 
     @classmethod
     def from_provider(cls, data_source: DataSource) -> IngestibleDataProvider:
-        match data_source.provider:
-            case Provider.GITHUB:
-                from app.data_providers.ingestible.repository.github import GithubDataProvider
-                return GithubDataProvider(data_source=data_source)
+        match data_source.type:
+            case DataSourceType.REPOSITORY:
+                from app.data_providers.ingestible.repository.base import RepositoryDataProvider
+                return RepositoryDataProvider.from_provider(data_source)
+            case DataSourceType.DOCUMENTATION:
+                raise Exception(
+                    f"Data Source type {data_source.type} is not configured as an Ingestible Data Provider"
+                )
             case _:
-                raise Exception(f"Data Source provider {data_source.provider} is not configured as an Ingestible Data Provider")
+                raise Exception(
+                    f"Data Source type {data_source.type} is not configured as an Ingestible Data Provider"
+                )
     
     @abstractmethod
-    async def ingest_data(self, job_pk: UUID, file_svc: FileService):
+    async def ingest_data(self, job_pk: UUID, file_svc: "FileService"):
         raise NotImplementedError()
 
         

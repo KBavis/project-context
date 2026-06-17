@@ -1,7 +1,7 @@
 from __future__ import annotations
 from enum import Enum
 
-from app.models.data_source import DataSource
+from app.models.data_source import DataSource, DataSourceType
 
 from abc import abstractmethod, ABC
 import logging
@@ -24,15 +24,17 @@ class DataProvider(ABC):
 
     @classmethod 
     def from_provider(cls, data_source: DataSource):
-        match data_source.provider:
-            case Provider.GITHUB:
-                from app.data_providers.ingestible.repository.github import GithubDataProvider
-                return GithubDataProvider(data_source=data_source)
-            case Provider.JIRA:
-                from app.data_providers.fetchable.issue_tracker.jira import JiraDataProvider
-                return JiraDataProvider(data_source=data_source)
+        match data_source.type:
+            case DataSourceType.ISSUE_TRACKER:
+                from app.data_providers.fetchable.issue_tracker.base import IssueTrackerDataProvider
+                return IssueTrackerDataProvider.from_provider(data_source)
+            case DataSourceType.REPOSITORY:
+                from app.data_providers.ingestible.repository.base import RepositoryDataProvider
+                return RepositoryDataProvider.from_provider(data_source)
             case _:
-                raise Exception(f"The specified Data Source provider is not configured for this application")
+                raise Exception(
+                    f"The specified Data Source type {data_source.type} is not configured for this application"
+                )
     
     @abstractmethod
     def _validate_url(self):
