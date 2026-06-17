@@ -164,9 +164,11 @@ class Tools:
             try:
                 provider = IngestibleDataProvider.from_provider(ds)
             except Exception as e:
-                logger.info(f"Skipping tool creation for DataSource={ds.id}: {e}")
+                logger.info(
+                    f"Skipping tool creation for DataSource={ds.id}: "
+                    f"type={ds.type} is not ingestible. Reason: {e}"
+                )
                 continue
-                
             slug = self._ds_slug(ds)
 
             self._ds_view_file_tools[ds.id] = self._build_function_tool(
