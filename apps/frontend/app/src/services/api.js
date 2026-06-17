@@ -216,8 +216,13 @@ export const api = {
     // Diff endpoints
     diff: {
         getSyncStatus: async (projectId) => {
-            const response = await fetch(`${API_BASE_URL}/diff/sync/status/${projectId}`);
-            return handleResponse(response);
+            const response = await fetch(`${API_BASE_URL}/projects/${projectId}/sync-status`);
+            const data = await handleResponse(response);
+            return {
+                ...data,
+                is_initial_sync_complete: data.is_ready,
+                status: data.overall_status
+            };
         },
         getSyncJobs: async (projectId, dataSourceId) => {
             const response = await fetch(`${API_BASE_URL}/diff/sync/jobs/${projectId}/${dataSourceId}`);

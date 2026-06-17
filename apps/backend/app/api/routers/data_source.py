@@ -2,11 +2,11 @@ from __future__ import annotations
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 
-from app.services import DataSourceService
+from app.services import DataSourceService, ProjectService
 from app.pydantic import DataSourceRequest
 from app.models.data_source import DataSourceType
 from app.services.diff import DiffService
-from ..svc_deps import get_data_source_svc, get_async_diff_svc
+from ..svc_deps import get_data_source_svc, get_async_diff_svc, get_project_svc
 
 from uuid import UUID
 from app.pydantic import DataSourceRequest, DataSourceUpdateRequest
@@ -36,7 +36,8 @@ async def create_datasource(
     request: DataSourceRequest, 
     background_tasks: BackgroundTasks,
     svc: DataSourceService = Depends(get_data_source_svc),
-    diff_svc: DiffService = Depends(get_async_diff_svc)
+    diff_svc: DiffService = Depends(get_async_diff_svc),
+    project_svc: ProjectService = Depends(get_project_svc)
 ):
     """
     Connect application to an external datasource in order to ingest data from.
@@ -45,6 +46,18 @@ async def create_datasource(
     """
 
     try:
+        # Validation: Cannot link an issue-scoped repo to projects missing an issue tracker or parent issues
+        if request.type == DataSourceType.REPOSITORY and request.scope_by_issues and request.project_ids:
+            for project_id in request.project_ids:
+                project = await project_svc.aget_project_by_id(project_id)
+                if not project.parent_issues:
+                    raise ValueError(f"Cannot link an issue-scoped repository to project {project_id} without parent issues configured.")
+                
+                all_project_ds = await svc.aget_project_data_sources(project_id)
+                has_issue_tracker = any(pds.type == DataSourceType.ISSUE_TRACKER for pds in all_project_ds)
+                if not has_issue_tracker:
+                    raise ValueError(f"Cannot link an issue-scoped repository to project {project_id} because it lacks an Issue Tracker data source.")
+
         result = svc.create_data_source(request)
 
         # Kick off DiffSyncJobs for linked projects if this is an issue-scoped repository
@@ -55,8 +68,8 @@ async def create_datasource(
                     f"[CreateDataSource] DataSource={data_source_id} is REPOSITORY with scope_by_issues=True: "
                     f"kicking off DiffSyncJob for Project={project_id}"
                 )
-                job, repository_ds, project = await diff_svc.init_diff_sync_job(project_id, data_source_id)
-                background_tasks.add_task(diff_svc.execute_repository_sync_job, job.id, repository_ds, project)
+                job = await diff_svc.init_diff_sync_job(project_id, data_source_id)
+                background_tasks.add_task(diff_svc.execute_repository_sync_job, job.id)
 
         return result
     except ValueError as e:

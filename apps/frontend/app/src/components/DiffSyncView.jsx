@@ -69,6 +69,7 @@ export default function DiffSyncView({ projectId }) {
                     for (const ds of eligibleSources) {
                         await api.diff.triggerSync(projectId, ds.id);
                     }
+                    startPolling(projectId);
                     showAlert('🚀 Project-wide Diff Sync triggered!', 'success');
                     setTimeout(fetchAllJobs, 2000);
                 } catch (err) {
@@ -91,6 +92,7 @@ export default function DiffSyncView({ projectId }) {
                 closeConfirmModal();
                 try {
                     await api.diff.triggerSync(projectId, ds.id);
+                    startPolling(projectId);
                     showAlert(`🚀 Diff Sync triggered for "${ds.name}"!`, 'success');
                     setTimeout(fetchAllJobs, 2000);
                 } catch (err) {

@@ -13,7 +13,7 @@ export function useIngestionJobs() {
 }
 
 export function IngestionJobProvider({ children }) {
-    const { selectedProject } = useProjects();
+    const { selectedProject, startPolling } = useProjects();
     const [ingestionJobs, setIngestionJobs] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -42,6 +42,9 @@ export function IngestionJobProvider({ children }) {
         try {
             const job = await api.ingestion.create(dataSourceId);
             setIngestionJobs(prev => [job, ...prev]);
+            if (selectedProject) {
+                startPolling(selectedProject.id);
+            }
             return job;
         } catch (err) {
             console.error('Failed to create ingestion job:', err);

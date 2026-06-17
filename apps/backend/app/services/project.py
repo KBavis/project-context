@@ -1,14 +1,23 @@
 from __future__ import annotations
 import logging
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import HTTPException
 
 from app.pydantic import ProjectRequest
-from app.models import Project, ProjectData, DataSource
+from app.pydantic.status import ProcessingStatus
+from app.models import Project, ProjectData, DataSource, IngestionJob
 from app.models.data_source import DataSourceType
+from app.data_providers.ingestible.base import IngestibleDataProvider
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from app.services.diff import DiffService
+    from app.services.data_source import DataSourceService
+    from app.services.ingestion_job import IngestionJobService
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +25,87 @@ class ProjectService:
     def __init__(
         self,
         db: Session,
-        async_db: AsyncSession
+        async_db: AsyncSession,
+        diff_svc: DiffService,
+        ingestion_job_svc: IngestionJobService,
+        data_source_svc: DataSourceService | None = None,
     ):
         self.db = db
         self.async_db = async_db
+        self.diff_svc = diff_svc
+        self.data_source_svc = data_source_svc
+        self.ingestion_job_svc = ingestion_job_svc
+
+    # ─────────────────────────────────────────────
+    # Project Readiness
+    # ─────────────────────────────────────────────
+
+    async def validate_project_ready(self, project_id: UUID) -> None:
+        """
+        Gate for conversation message sending. Raises HTTP 412 if:
+          - Any ingestible data source (REPOSITORY, DOCUMENTATION) has not completed
+            a successful IngestionJob, OR
+          - Any issue-scoped Repository data source has not completed a successful
+            DiffSyncJob (i.e. ProjectRepositoryChanges record not yet created).
+
+        Fetchable-only sources (ISSUE_TRACKER) are ignored for both checks.
+        """
+        readiness = await self.get_project_readiness_state(project_id)
+
+        if readiness["overall_status"] == ProcessingStatus.IN_PROGRESS.value:
+            raise HTTPException(
+                status_code=412,
+                detail=(
+                    "Project data sources are still being processed. "
+                    "Please wait for ingestion and synchronization to complete before sending messages."
+                ),
+            )
+
+        if readiness["ingestion_status"] != ProcessingStatus.SUCCESS.value:
+            raise HTTPException(
+                status_code=412,
+                detail=(
+                    "Initial ingestion for one or more project data sources has not completed successfully. "
+                    "Please resolve the ingestion error and retry before sending messages."
+                ),
+            )
+
+        if readiness["sync_status"] != ProcessingStatus.SUCCESS.value:
+            raise HTTPException(
+                status_code=412,
+                detail=(
+                    "Repository code-change synchronization has not completed for this project. "
+                    "Please wait for the sync to finish before sending messages."
+                ),
+            )
+
+    async def get_project_readiness_state(self, project_id: UUID) -> dict:
+        """
+        Return a combined readiness snapshot used by the /sync-status endpoint.
+
+        Returns a dict with:
+            is_ready (bool): True only when both ingestion and diff-sync are successful.
+            ingestion_status (str): ProcessingStatus value for ingestion.
+            sync_status (str): ProcessingStatus value for diff-sync.
+            overall_status (str): worst-case aggregate of the two.
+        """
+        ingestion_state = await self.ingestion_job_svc.get_project_ingestion_state(project_id)
+        diff_state = await self.diff_svc.get_project_sync_state(project_id)
+
+        if ProcessingStatus.IN_PROGRESS.value in (ingestion_state, diff_state):
+            overall = ProcessingStatus.IN_PROGRESS.value
+        elif ProcessingStatus.FAILED.value in (ingestion_state, diff_state):
+            overall = ProcessingStatus.FAILED.value
+        else:
+            overall = ProcessingStatus.SUCCESS.value
+
+        return {
+            "is_ready": overall == ProcessingStatus.SUCCESS.value,
+            "overall_status": overall,
+            "ingestion_status": ingestion_state,
+            "sync_status": diff_state,
+        }
+
 
     def create_project(self, request: ProjectRequest) -> dict:
         """

@@ -42,42 +42,15 @@ class DiffService:
     def __init__(
         self, 
         async_db: AsyncSession, 
-        project_svc: ProjectService, 
         data_source_svc: DataSourceService,
         git_ops_svc: GitOperationsService,
         record_lock_svc: RecordLockService,
     ):
         self.async_db: AsyncSession = async_db
-        self.project_svc = project_svc
         self.data_source_svc = data_source_svc
         self.git_ops_svc = git_ops_svc
         self.record_lock_svc = record_lock_svc
     
-
-    async def validate_project_sync_complete(self, project_id: UUID) -> None:
-        """
-        Validates that all repository data sources associated with this project 
-        have completed their initial sync.
-        """
-        # Fetch data sources linked to the project
-        linked_data_sources = await self.data_source_svc.aget_project_data_sources(project_id)
-        
-        # Filter for repository data sources that are issue scoped
-        repo_data_sources = [ds for ds in linked_data_sources if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues]
-        
-        for ds in repo_data_sources:
-            stmt = select(ProjectRepositoryChanges).where(
-                ProjectRepositoryChanges.project_id == project_id,
-                ProjectRepositoryChanges.data_source_id == ds.id
-            )
-            res = await self.async_db.execute(stmt)
-            record = res.scalars().first()
-            
-            if not record:
-                raise HTTPException(
-                    status_code=412,
-                    detail="The repository code changes for this project are performing their first time synchronization. Please wait for this to complete."
-                )
 
     async def get_project_sync_state(self, project_id: UUID) -> str:
         """
@@ -124,7 +97,7 @@ class DiffService:
         
         logger.info(f"[SyncState] project_id={project_id}: all states={states}")
         
-        if ProcessingStatus.IN_PROGRESS.value in states:
+        if ProcessingStatus.IN_PROGRESS.value in states or ProcessingStatus.SKIPPED.value in states:
             return ProcessingStatus.IN_PROGRESS.value
         if ProcessingStatus.FAILED.value in states:
             return ProcessingStatus.FAILED.value
@@ -132,7 +105,7 @@ class DiffService:
         return ProcessingStatus.SUCCESS.value
 
 
-    async def init_diff_sync_job(self, project_id: UUID, data_source_id: UUID) -> tuple[DiffSyncJob, DataSource, Project]:
+    async def init_diff_sync_job(self, project_id: UUID, data_source_id: UUID) -> DiffSyncJob:
         """
         Validate ProjectData and create initial diff sync job with IN_PROGRESS status
 
@@ -141,7 +114,7 @@ class DiffService:
             data_source_id (UUID): the PK for the repository to sync
 
         Returns:
-            tuple[DiffSyncJob, DataSource, Project]: the initialized DiffSyncJob, the associated Repository Data Source, and the associated Project
+            DiffSyncJob: the initialized DiffSyncJob
         """
         
         # validate ProjectData exists
@@ -152,9 +125,7 @@ class DiffService:
         if not project_data:
             raise Exception("ProjectData link does not exist. Cannot sync.")
         
-        # retrieve the associated Repository Data Source and Project (NOTE: Given project_data is valid, these MUST be present)
-        repository_ds = await self.data_source_svc.aget_data_source_by_id(data_source_id=data_source_id)
-        project = await self.project_svc.aget_project_by_id(project_id=project_id)
+
 
         # lock the resource
         pair_lock_key = f"sync:{project_id}:{data_source_id}"
@@ -172,7 +143,7 @@ class DiffService:
         self.async_db.add(job)
         await self.async_db.flush()
         
-        return (job, repository_ds, project)
+        return job
 
     async def update_diff_sync_job(
         self,
@@ -203,7 +174,72 @@ class DiffService:
         if commit:
             await session.commit()
 
-    async def execute_repository_sync_job(self, job_id: UUID, repository_ds: DataSource, project: Project):
+    async def _validate_diff_sync_preconditions(
+        self,
+        job_id: UUID,
+        job_start_time: datetime,
+        project: Project,
+        repository_ds: DataSource,
+        async_session: AsyncSession
+    ) -> bool:
+        """
+        Validate whether the DiffSyncJob should run based on the Project's configuration.
+        Returns True if preconditions are met, False if the job was skipped.
+        """
+        # Pre-condition 1: The data source must be a REPOSITORY and scoped by issues
+        if repository_ds.type != DataSourceType.REPOSITORY or not repository_ds.scope_by_issues:
+            logger.info(f"DataSource={repository_ds.id} is not an issue-scoped repository — skipping DiffSyncJob={job_id}")
+            end_time = datetime.now(timezone.utc)
+            await self.update_diff_sync_job(
+                job_id=job_id,
+                status=ProcessingStatus.SKIPPED,
+                end_time=end_time,
+                duration=int((end_time - job_start_time).total_seconds()),
+                session=async_session,
+                commit=True
+            )
+            return False
+
+        # Pre-condition 2: The Project must have available Parent Issues
+        if not project.parent_issues:
+            logger.info(f"Project={project.id} has no parent_issues configured — skipping DiffSyncJob={job_id}")
+            end_time = datetime.now(timezone.utc)
+            await self.update_diff_sync_job(
+                job_id=job_id,
+                status=ProcessingStatus.SKIPPED,
+                end_time=end_time,
+                duration=int((end_time - job_start_time).total_seconds()),
+                session=async_session,
+                commit=True
+            )
+            return False
+
+        # Pre-condition 3: validate that an ISSUE_TRACKER data source is configured for Project
+        all_project_ds = await self.data_source_svc.aget_project_data_sources(
+            project_id=project.id,
+            async_session=async_session
+        )
+        issue_trackers = [ds for ds in all_project_ds if ds.type == DataSourceType.ISSUE_TRACKER]
+        if not issue_trackers:
+            logger.info(
+                f"No ISSUE_TRACKER configured for Project={project.id} — "
+                f"skipping DiffSyncJob={job_id} (pre-condition not met)"
+            )
+            end_time = datetime.now(timezone.utc)
+            duration = int((end_time - job_start_time).total_seconds())
+            await self.update_diff_sync_job(
+                job_id=job_id,
+                status=ProcessingStatus.SKIPPED,
+                end_time=end_time,
+                duration=duration,
+                session=async_session,
+                commit=True
+            )
+            return False
+            
+        return True
+
+    async def execute_repository_sync_job(self, job_id: UUID):
         """
         Execute an initalized DiffSyncJob keyed by the specified JobID. This job will be ran in 
         a FastAPI.BackgroundTask and will be responsbile for syncing the code changes introduced
@@ -213,8 +249,6 @@ class DiffService:
 
         Args:
             job_id (UUID): the DiffSyncJob PK to execute 
-            repository_ds (DataSource): the data source this job is being ran for 
-            project (Project): the proejct this job is being ran for
         """
 
         async with get_async_db_session_context() as async_session:
@@ -228,32 +262,30 @@ class DiffService:
                 logger.error(f"No DiffSyncJob found for ID: {job_id}")
                 raise Exception(f"No DiffSyncJob found for ID: {job_id}")
 
+            # Fetch the associated Project and DataSource inside this session
+            stmt = select(Project).where(Project.id == job.project_id)
+            res = await async_session.execute(stmt)
+            project = res.scalars().one()
+            
+            stmt = select(DataSource).where(DataSource.id == job.data_source_id)
+            res = await async_session.execute(stmt)
+            repository_ds = res.scalars().one()
+
             pair_lock_key = f"sync:{job.project_id}:{job.data_source_id}"
             lock_uuid = uuid.uuid5(uuid.NAMESPACE_OID, pair_lock_key)
             job_start_time = job.start_time
 
             try:
-                # validate that an ISSUE_TRACKER data source is configured for Project (else, skip the job entirely)
-                all_project_ds = await self.data_source_svc.aget_project_data_sources(
-                    project_id=job.project_id,
+                # Validate job preconditions. If they aren't met, the job is cleanly skipped.
+                is_valid = await self._validate_diff_sync_preconditions(
+                    job_id=job_id,
+                    job_start_time=job_start_time,
+                    project=project,
+                    repository_ds=repository_ds,
                     async_session=async_session
                 )
-                issue_trackers = [ds for ds in all_project_ds if ds.type == DataSourceType.ISSUE_TRACKER]
-                if not issue_trackers:
-                    logger.info(
-                        f"No ISSUE_TRACKER configured for Project={job.project_id} — "
-                        f"skipping DiffSyncJob={job_id} (pre-condition not met)"
-                    )
-                    end_time = datetime.now(timezone.utc)
-                    duration = int((end_time - job_start_time).total_seconds())
-                    await self.update_diff_sync_job(
-                        job_id=job_id,
-                        status=ProcessingStatus.SKIPPED,
-                        end_time=end_time,
-                        duration=duration,
-                        session=async_session,
-                        commit=True
-                    )
+                
+                if not is_valid:
                     return
 
                 # get the IssueTracker tied to this Project (NOTE: This is REQUIRED when scoping a Repository's changes by Issues)

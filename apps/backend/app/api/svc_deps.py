@@ -201,7 +201,8 @@ def get_async_ingestion_job_svc(
         db: AsyncSession = Depends(get_async_db_session),
         record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc),
         file_svc: FileService = Depends(get_async_file_svc),
-        chunk_insertion_service: ChunkInsertionService = Depends(get_async_chunk_insertion_svc)
+        chunk_insertion_service: ChunkInsertionService = Depends(get_async_chunk_insertion_svc),
+        data_source_svc: DataSourceService = Depends(get_data_source_svc)
 ):
     """
     Setup async IngestionJobService dependency 
@@ -211,12 +212,14 @@ def get_async_ingestion_job_svc(
         file_svc (FileService): async file service dependency
         chunk_insertion_service (ChunkInsertionService): async chunk insertion service dependency
         diff_svc (DiffService): async diff service dependency
+        data_source_svc (DataSourceService): async data source service dependency
     """
     return IngestionJobService(
         db=db, 
         record_lock_svc=record_lock_svc,
         file_svc=file_svc,
-        chunk_insertion_service=chunk_insertion_service
+        chunk_insertion_service=chunk_insertion_service,
+        data_source_svc=data_source_svc
     )
 
 

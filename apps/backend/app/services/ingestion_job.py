@@ -11,14 +11,15 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType, ProjectData, Project
-from app.data_providers import DataProvider
 from app.core import settings, get_async_session_maker
 from app.services.record_lock import RecordLockService
 from app.services.file import FileService
 from app.services.chunk_insertion import ChunkInsertionService
+from typing import TYPE_CHECKING
 from app.data_providers.ingestible.base import IngestibleDataProvider
 
-
+if TYPE_CHECKING:
+    from app.services.data_source import DataSourceService
 logger = logging.getLogger(__name__)
 
 class IngestionJobService:
@@ -27,8 +28,9 @@ class IngestionJobService:
             self, 
             db: AsyncSession, 
             record_lock_svc: RecordLockService,
-            file_svc: FileService,
-            chunk_insertion_service: ChunkInsertionService
+            file_svc: "FileService",
+            chunk_insertion_service: "ChunkInsertionService",
+            data_source_svc: "DataSourceService"
     ):
         """
         Initialize IngestionJobService with necessary dependencies
@@ -38,14 +40,65 @@ class IngestionJobService:
             record_lock_svc (RecordLockService): Service for managing record locks
             file_svc (FileService): Service for file operations
             chunk_insertion_service (ChunkInsertionService): Service for chunking and storing data
-            diff_svc (DiffService): Service for handling diff operations
+            data_source_svc (DataSourceService): Service for managing data sources
         """
         self.db: AsyncSession = db
         self.record_lock_svc: RecordLockService = record_lock_svc
-        self.file_svc: FileService = file_svc
-        self.chunk_insertion_service: ChunkInsertionService = chunk_insertion_service
+        self.file_svc: "FileService" = file_svc
+        self.chunk_insertion_service: "ChunkInsertionService" = chunk_insertion_service
+        self.data_source_svc: "DataSourceService" = data_source_svc
+
+    async def get_project_ingestion_state(self, project_id: UUID) -> str:
+        """
+        Determine whether every ingestible DataSource (REPOSITORY, DOCUMENTATION)
+        for this project has a successful IngestionJob.
+
+        Returns a ProcessingStatus string value: 'success', 'in_progress', or 'failed'.
+        """
+        ingestible = await self.data_source_svc.get_ingestible_data_sources(project_id, self.db)
+
+        if not ingestible:
+            logger.info(f"[IngestionState] project_id={project_id}: no ingestible sources → success")
+            return ProcessingStatus.SUCCESS.value
+
+        states = []
+        for ds in ingestible:
+            stmt = (
+                select(IngestionJob)
+                .where(IngestionJob.data_source_id == ds.id)
+                .order_by(IngestionJob.start_time.desc())
+                .limit(1)
+            )
+            res = await self.db.execute(stmt)
+            latest_job = res.scalar_one_or_none()
+
+            if not latest_job:
+                logger.info(
+                    f"[IngestionState] project_id={project_id}, ds={ds.id} ({ds.name}): "
+                    "no IngestionJob found → failed"
+                )
+                states.append(ProcessingStatus.FAILED.value)
+                continue
+
+            job_state = latest_job.processing_status.value
+            logger.info(
+                f"[IngestionState] project_id={project_id}, ds={ds.id} ({ds.name}): "
+                f"latest IngestionJob={latest_job.id}, status={job_state}"
+            )
+            states.append(ProcessingStatus.FAILED.value if job_state == ProcessingStatus.SKIPPED.value else job_state)
+
+        logger.info(f"[IngestionState] project_id={project_id}: states={states}")
+
+        if ProcessingStatus.IN_PROGRESS.value in states:
+            return ProcessingStatus.IN_PROGRESS.value
+        if ProcessingStatus.FAILED.value in states:
+            return ProcessingStatus.FAILED.value
+        return ProcessingStatus.SUCCESS.value
+
+
 
     
+
     async def init_ingestion_job(self, data_source_id: UUID, job_start_time: datetime): 
         """
         Validate Datasource & create inital ingestion job with IN_PROGRESS status 
@@ -111,13 +164,14 @@ class IngestionJobService:
         try:
             provider = IngestibleDataProvider.from_provider(data_source)
         except Exception as e:
-            logger.info(f"Skipping ingestion for DataSource={data_source_id} as it is not an IngestibleDataProvider: {e}")
-            
-            # skip ingestion & update DB 
+            logger.info(
+                f"Skipping ingestion for DataSource={data_source_id}: "
+                f"type={data_source.type} is not ingestible. Reason: {e}"
+            )
             job_end_time = datetime.now(ZoneInfo("America/New_York"))
             duration = job_end_time - job_start_time
             await self.update_ingestion_job(
-                job_pk=job_pk, 
+                job_pk=job_pk,
                 status=ProcessingStatus.SKIPPED,
                 end_time=job_end_time,
                 duration=duration.seconds,

@@ -1,12 +1,10 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from uuid import UUID
-from app.models import data_source
 from app.services import DiffService
 from app.models.diff_sync_job import DiffSyncJob
 from sqlalchemy import select
 from ..svc_deps import get_async_diff_svc
-from app.pydantic.status import ProcessingStatus
 import logging
 
 router = APIRouter(prefix="/diff")
@@ -46,28 +44,13 @@ async def trigger_diff_sync(
     svc: DiffService = Depends(get_async_diff_svc)
 ):
     try:
-        job, repository_ds, project = await svc.init_diff_sync_job(project_id, data_source_id)
-        background_tasks.add_task(svc.execute_repository_sync_job, job.id, repository_ds, project)
+        job = await svc.init_diff_sync_job(project_id, data_source_id)
+        background_tasks.add_task(svc.execute_repository_sync_job, job.id)
         return {"job_id": job.id, "status": job.status.value}
     except Exception as e:
         logger.error(f"Error triggering diff sync: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.get("/sync/status/{project_id}")
-async def validate_project_initial_syncing(
-    project_id: UUID,
-    svc: DiffService = Depends(get_async_diff_svc)
-):
-    try:
-        state = await svc.get_project_sync_state(project_id)
-        return {
-            "is_initial_sync_complete": state == ProcessingStatus.SUCCESS.value,
-            "status": state
-        }
-    except Exception as e:
-        logger.error(f"Error checking project sync status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/sync/jobs/{project_id}/{data_source_id}")
 async def get_diff_sync_jobs(
