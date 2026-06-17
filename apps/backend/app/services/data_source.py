@@ -197,10 +197,9 @@ class DataSourceService:
         self, project_id: UUID, source_type: DataSourceType | None = None
     ) -> list[str]:
         """
-        Get all data source IDs for a given project, optionally filtered by DataSourceType. In the case 
-        that no source_type was specified, we will ONLY get the Data Sources that we have ingested
-        data for (assocaited IngestibleDataProvider) as these are the only Data Sources 
-        that we'll be able to leverage via grep_search and semantic_search 
+        Get all data source IDs for a given project, optionally filtered by DataSourceType. When no
+        source_type is specified, only data sources that support ingestion (REPOSITORY, DOCUMENTATION)
+        are returned — these are the only ones we'll have chunks stored for in Chroma/DocStore.
 
         This is the primary resolver used by the Tools wrappers to determine which 
         collections to search.
@@ -213,7 +212,6 @@ class DataSourceService:
         if source_type:
             data_sources = [ds for ds in data_sources if ds.type == source_type]
         else:
-            
             valid_ds = []
             for ds in data_sources:
                 try:
@@ -224,6 +222,30 @@ class DataSourceService:
             data_sources = valid_ds
 
         return [str(ds.id) for ds in data_sources]
+
+    async def get_ingestible_data_sources(
+        self, project_id: UUID, async_session: AsyncSession | None = None
+    ) -> list[DataSource]:
+        """
+        Return only the data sources linked to a project that support file ingestion/chunking
+        (i.e. REPOSITORY and DOCUMENTATION types). Purely fetchable sources such as ISSUE_TRACKER
+        are excluded.
+
+        Args:
+            project_id (UUID): The project to query data sources for.
+            async_session (AsyncSession | None): Optional session override for background jobs.
+        """
+        all_sources = await self.aget_project_data_sources(project_id, async_session)
+        
+        valid_ds = []
+        for ds in all_sources:
+            try:
+                IngestibleDataProvider.from_provider(ds)
+                valid_ds.append(ds)
+            except Exception:
+                pass
+        
+        return valid_ds
 
     def get_project_data_sources(self, project_id: UUID) -> list[dict[str, Any]]:
         """
