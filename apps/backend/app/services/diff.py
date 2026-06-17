@@ -52,10 +52,10 @@ class DiffService:
         self.record_lock_svc = record_lock_svc
     
 
-    async def get_project_sync_state(self, project_id: UUID) -> str:
+    async def get_project_sync_state(self, project_id: UUID) -> tuple[str, list[str]]:
         """
         Determines the overall synchronization state of a project's repository data sources.
-        Returns: 'success', 'in_progress', or 'failed'
+        Returns: tuple(status_string, list_of_reasons)
         """
         linked_data_sources = await self.data_source_svc.aget_project_data_sources(project_id)
         repo_data_sources = [ds for ds in linked_data_sources if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues]
@@ -64,9 +64,10 @@ class DiffService:
         
         if not repo_data_sources:
             logger.info(f"[SyncState] project_id={project_id}: no issue-scoped repos → success")
-            return ProcessingStatus.SUCCESS.value
+            return ProcessingStatus.SUCCESS.value, []
             
         states = []
+        reasons = []
         for ds in repo_data_sources:
             # Check if sync is already complete for this ds
             stmt = select(ProjectRepositoryChanges).where(
@@ -91,18 +92,26 @@ class DiffService:
                 job_state = job.status.value
                 logger.info(f"[SyncState] project_id={project_id}, ds={ds.id} ({ds.name}): latest DiffSyncJob={job.id}, status={job_state}")
                 states.append(job_state)
+                
+                if job_state == ProcessingStatus.FAILED.value:
+                    reasons.append(f"Latest diff sync job failed for repository '{ds.name}'.")
+                elif job_state == ProcessingStatus.IN_PROGRESS.value:
+                    reasons.append(f"Repository '{ds.name}' is currently being synced.")
+                elif job_state == ProcessingStatus.SKIPPED.value:
+                    reasons.append(f"Diff sync was skipped for repository '{ds.name}' due to missing configuration.")
             else:
                 logger.info(f"[SyncState] project_id={project_id}, ds={ds.id} ({ds.name}): no DiffSyncJob found → failed")
                 states.append(ProcessingStatus.FAILED.value)
+                reasons.append(f"Repository '{ds.name}' has not been synced yet.")
         
         logger.info(f"[SyncState] project_id={project_id}: all states={states}")
         
         if ProcessingStatus.IN_PROGRESS.value in states or ProcessingStatus.SKIPPED.value in states:
-            return ProcessingStatus.IN_PROGRESS.value
+            return ProcessingStatus.IN_PROGRESS.value, reasons
         if ProcessingStatus.FAILED.value in states:
-            return ProcessingStatus.FAILED.value
+            return ProcessingStatus.FAILED.value, reasons
             
-        return ProcessingStatus.SUCCESS.value
+        return ProcessingStatus.SUCCESS.value, []
 
 
     async def init_diff_sync_job(self, project_id: UUID, data_source_id: UUID) -> DiffSyncJob:

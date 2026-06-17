@@ -64,10 +64,10 @@ export function ProjectProvider({ children }) {
             try {
                 const res = await api.diff.getSyncStatus(selectedProject.id);
                 if (!res.is_initial_sync_complete) {
-                    setSyncingProjects(prev => ({ ...prev, [selectedProject.id]: { isSyncing: true, status: res.status } }));
+                    setSyncingProjects(prev => ({ ...prev, [selectedProject.id]: { isSyncing: true, ...res } }));
 
                 } else {
-                    setSyncingProjects(prev => ({ ...prev, [selectedProject.id]: { isSyncing: false, status: res.status } }));
+                    setSyncingProjects(prev => ({ ...prev, [selectedProject.id]: { isSyncing: false, ...res } }));
                 }
             } catch (e) {
                 console.error('Failed to check sync status', e);
@@ -97,13 +97,13 @@ export function ProjectProvider({ children }) {
             try {
                 const statusRes = await api.diff.getSyncStatus(projectId);
                 if (statusRes.is_initial_sync_complete) {
-                    setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: false, status: statusRes.status } }));
+                    setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: false, ...statusRes } }));
                     return;
                 } else if (statusRes.status === 'failed') {
-                    setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: true, status: statusRes.status } }));
+                    setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: false, ...statusRes } }));
                     return; // Stop polling on failure
                 } else {
-                    setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: true, status: statusRes.status } }));
+                    setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: true, ...statusRes } }));
                 }
             } catch (err) {
                 console.error(err);

@@ -56,6 +56,13 @@ export default function DiffSyncView({ projectId }) {
         fetchAllJobs();
     }, [projectId, dataSources.length]);
 
+    // Refetch jobs when polling finishes so we get the final status (SUCCESS or FAILED)
+    useEffect(() => {
+        if (syncState && !syncState.isSyncing) {
+            fetchAllJobs();
+        }
+    }, [syncState?.isSyncing]);
+
     const handleSyncAll = () => {
         setConfirmModal({
             isOpen: true,
@@ -137,13 +144,13 @@ export default function DiffSyncView({ projectId }) {
                 </Button>
             </div>
 
-            {syncState && (
-                <div className={`sync-status-banner status-${mapStatus(syncState.status)}`}>
+            {syncState && syncState.sync_status && (
+                <div className={`sync-status-banner status-${mapStatus(syncState.sync_status)}`}>
                     <span className="status-dot"></span>
                     <span>
-                        {syncState.status === 'in_progress' && 'Sync is currently in progress...'}
-                        {syncState.status === 'failed' && 'Last sync failed. Please trigger a new sync.'}
-                        {syncState.status === 'success' && 'All repositories are synced and up to date.'}
+                        {syncState.sync_status === 'in_progress' && 'Sync is currently in progress...'}
+                        {syncState.sync_status === 'failed' && 'Last sync failed. Please trigger a new sync.'}
+                        {syncState.sync_status === 'success' && 'All repositories are synced and up to date.'}
                     </span>
                 </div>
             )}

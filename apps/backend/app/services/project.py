@@ -52,32 +52,22 @@ class ProjectService:
         """
         readiness = await self.get_project_readiness_state(project_id)
 
+        if readiness["is_ready"]:
+            return
+
+        reasons = readiness.get("reasons", [])
+        reasons_str = " ".join(reasons) if reasons else "Project data sources are not fully synced."
+
         if readiness["overall_status"] == ProcessingStatus.IN_PROGRESS.value:
             raise HTTPException(
                 status_code=412,
-                detail=(
-                    "Project data sources are still being processed. "
-                    "Please wait for ingestion and synchronization to complete before sending messages."
-                ),
+                detail=f"Project synchronization is in progress. {reasons_str}"
             )
 
-        if readiness["ingestion_status"] != ProcessingStatus.SUCCESS.value:
-            raise HTTPException(
-                status_code=412,
-                detail=(
-                    "Initial ingestion for one or more project data sources has not completed successfully. "
-                    "Please resolve the ingestion error and retry before sending messages."
-                ),
-            )
-
-        if readiness["sync_status"] != ProcessingStatus.SUCCESS.value:
-            raise HTTPException(
-                status_code=412,
-                detail=(
-                    "Repository code-change synchronization has not completed for this project. "
-                    "Please wait for the sync to finish before sending messages."
-                ),
-            )
+        raise HTTPException(
+            status_code=412,
+            detail=f"Project synchronization failed or is incomplete. {reasons_str}"
+        )
 
     async def get_project_readiness_state(self, project_id: UUID) -> dict:
         """
@@ -88,9 +78,10 @@ class ProjectService:
             ingestion_status (str): ProcessingStatus value for ingestion.
             sync_status (str): ProcessingStatus value for diff-sync.
             overall_status (str): worst-case aggregate of the two.
+            reasons (list[str]): detailed string reasons for any pending or failed data sources.
         """
-        ingestion_state = await self.ingestion_job_svc.get_project_ingestion_state(project_id)
-        diff_state = await self.diff_svc.get_project_sync_state(project_id)
+        ingestion_state, ingestion_reasons = await self.ingestion_job_svc.get_project_ingestion_state(project_id)
+        diff_state, diff_reasons = await self.diff_svc.get_project_sync_state(project_id)
 
         if ProcessingStatus.IN_PROGRESS.value in (ingestion_state, diff_state):
             overall = ProcessingStatus.IN_PROGRESS.value
@@ -99,11 +90,14 @@ class ProjectService:
         else:
             overall = ProcessingStatus.SUCCESS.value
 
+        all_reasons = ingestion_reasons + diff_reasons
+
         return {
             "is_ready": overall == ProcessingStatus.SUCCESS.value,
             "overall_status": overall,
             "ingestion_status": ingestion_state,
             "sync_status": diff_state,
+            "reasons": all_reasons
         }
 
 

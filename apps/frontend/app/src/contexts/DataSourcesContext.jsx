@@ -46,7 +46,6 @@ export const DataSourcesProvider = ({ children }) => {
             await api.dataSources.delete(id);
             setDataSources(prev => prev.filter(ds => ds.id !== id));
         } catch (err) {
-            setError('Failed to delete data source');
             throw err;
         }
     };
@@ -58,7 +57,6 @@ export const DataSourcesProvider = ({ children }) => {
             setDataSources(prev => [...prev, newDataSource]);
             return newDataSource;
         } catch (err) {
-            setError('Failed to create data source');
             throw err;
         }
     };
@@ -69,7 +67,6 @@ export const DataSourcesProvider = ({ children }) => {
             setMcpConfigs(prev => [...prev, newConfig]);
             return newConfig;
         } catch (err) {
-            setError('Failed to create MCP configuration');
             throw err;
         }
     };
@@ -79,7 +76,6 @@ export const DataSourcesProvider = ({ children }) => {
             await api.mcp.deleteConfig(id);
             setMcpConfigs(prev => prev.filter(c => c.id !== id));
         } catch (err) {
-            setError('Failed to delete MCP configuration');
             throw err;
         }
     };
@@ -90,7 +86,6 @@ export const DataSourcesProvider = ({ children }) => {
             await fetchData();
             startPolling(projectId);
         } catch (err) {
-            setError('Failed to link project to data source');
             throw err;
         }
     };
@@ -100,7 +95,6 @@ export const DataSourcesProvider = ({ children }) => {
             await api.dataSources.linkMcp(dataSourceId, mcpConfigId);
             await fetchData();
         } catch (err) {
-            setError('Failed to link MCP configuration to data source');
             throw err;
         }
     };
@@ -111,7 +105,6 @@ export const DataSourcesProvider = ({ children }) => {
             setDataSources(prev => prev.map(ds => ds.id === updated.id ? updated : ds));
             return updated;
         } catch (err) {
-            setError('Failed to update data source');
             throw err;
         }
     };

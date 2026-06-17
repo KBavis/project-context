@@ -48,20 +48,21 @@ class IngestionJobService:
         self.chunk_insertion_service: "ChunkInsertionService" = chunk_insertion_service
         self.data_source_svc: "DataSourceService" = data_source_svc
 
-    async def get_project_ingestion_state(self, project_id: UUID) -> str:
+    async def get_project_ingestion_state(self, project_id: UUID) -> tuple[str, list[str]]:
         """
         Determine whether every ingestible DataSource (REPOSITORY, DOCUMENTATION)
         for this project has a successful IngestionJob.
 
-        Returns a ProcessingStatus string value: 'success', 'in_progress', or 'failed'.
+        Returns a tuple: (ProcessingStatus string value, list of detailed reasons for failure/in_progress).
         """
         ingestible = await self.data_source_svc.get_ingestible_data_sources(project_id, self.db)
 
         if not ingestible:
             logger.info(f"[IngestionState] project_id={project_id}: no ingestible sources → success")
-            return ProcessingStatus.SUCCESS.value
+            return ProcessingStatus.SUCCESS.value, []
 
         states = []
+        reasons = []
         for ds in ingestible:
             stmt = (
                 select(IngestionJob)
@@ -78,6 +79,7 @@ class IngestionJobService:
                     "no IngestionJob found → failed"
                 )
                 states.append(ProcessingStatus.FAILED.value)
+                reasons.append(f"Data source '{ds.name}' has not been ingested yet.")
                 continue
 
             job_state = latest_job.processing_status.value
@@ -86,14 +88,21 @@ class IngestionJobService:
                 f"latest IngestionJob={latest_job.id}, status={job_state}"
             )
             states.append(ProcessingStatus.FAILED.value if job_state == ProcessingStatus.SKIPPED.value else job_state)
+            
+            if job_state == ProcessingStatus.FAILED.value:
+                reasons.append(f"Latest ingestion job failed for data source '{ds.name}'.")
+            elif job_state == ProcessingStatus.IN_PROGRESS.value:
+                reasons.append(f"Data source '{ds.name}' is currently being ingested.")
+            elif job_state == ProcessingStatus.SKIPPED.value:
+                reasons.append(f"Ingestion was skipped for data source '{ds.name}'.")
 
         logger.info(f"[IngestionState] project_id={project_id}: states={states}")
 
         if ProcessingStatus.IN_PROGRESS.value in states:
-            return ProcessingStatus.IN_PROGRESS.value
+            return ProcessingStatus.IN_PROGRESS.value, reasons
         if ProcessingStatus.FAILED.value in states:
-            return ProcessingStatus.FAILED.value
-        return ProcessingStatus.SUCCESS.value
+            return ProcessingStatus.FAILED.value, reasons
+        return ProcessingStatus.SUCCESS.value, []
 
 
 
