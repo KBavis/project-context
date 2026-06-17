@@ -8,8 +8,6 @@ export default function IngestionJobsView() {
 
     useEffect(() => {
         fetchIngestionJobs();
-        const interval = setInterval(fetchIngestionJobs, 5000);
-        return () => clearInterval(interval);
     }, [fetchIngestionJobs]);
 
     const mapStatus = (status) => {
