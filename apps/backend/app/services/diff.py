@@ -233,6 +233,29 @@ class DiffService:
             job_start_time = job.start_time
 
             try:
+                # validate that an ISSUE_TRACKER data source is configured for Project (else, skip the job entirely)
+                all_project_ds = await self.data_source_svc.aget_project_data_sources(
+                    project_id=job.project_id,
+                    async_session=async_session
+                )
+                issue_trackers = [ds for ds in all_project_ds if ds.type == DataSourceType.ISSUE_TRACKER]
+                if not issue_trackers:
+                    logger.info(
+                        f"No ISSUE_TRACKER configured for Project={job.project_id} — "
+                        f"skipping DiffSyncJob={job_id} (pre-condition not met)"
+                    )
+                    end_time = datetime.now(timezone.utc)
+                    duration = int((end_time - job_start_time).total_seconds())
+                    await self.update_diff_sync_job(
+                        job_id=job_id,
+                        status=ProcessingStatus.SKIPPED,
+                        end_time=end_time,
+                        duration=duration,
+                        session=async_session,
+                        commit=True
+                    )
+                    return
+
                 # get the IssueTracker tied to this Project (NOTE: This is REQUIRED when scoping a Repository's changes by Issues)
                 issue_tracker_ds = await self.data_source_svc.get_issue_tracker_data_source(
                     project_id=job.project_id,
