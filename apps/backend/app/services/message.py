@@ -9,17 +9,18 @@ from llama_index.core.llms import ChatMessage, MessageRole
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from fastapi import HTTPException
+
 from app.models import Conversation, Sender
 from app.services.conversation import ConversationService
 from app.services.agent import AgentService
-from app.services.diff import DiffService
+from app.services.project import ProjectService
 from app.services.execution_token_usage import ExecutionTokenUsageService
 from app.models import Message
 from app.llm import LLMManager, LLMBase
 from app.pydantic import QueryResponse, MessageDto, MessageRequest
 from app.pydantic.streaming import StreamEventType
 from app.services.util import format_sse_event
-
 
 
 logger = logging.getLogger(__name__)
@@ -31,13 +32,13 @@ class MessageService:
         conversation_svc: ConversationService,
         agent_svc: AgentService,
         execution_token_usage_svc: ExecutionTokenUsageService,
-        diff_svc: DiffService
+        project_svc: ProjectService,
     ):
         self.db = db
         self.conversation_svc = conversation_svc
         self.agent_svc = agent_svc
         self.execution_token_usage_svc = execution_token_usage_svc
-        self.diff_svc = diff_svc
+        self.project_svc = project_svc
 
     
     async def get_messages(self, conversation_id: UUID):
@@ -77,8 +78,8 @@ class MessageService:
                 yield format_sse_event(StreamEventType.ERROR, f"Conversation {conversation_id} not found", "Error")
                 return
 
-            # 1a. Validate the Project's linked Data Sources initial sync is compelted
-            await self.diff_svc.validate_project_sync_complete(conversation.project_id)
+            # 1a. Validate Project's linked "ingestible" DataSources have at least one successful Ingestion Job
+            await self.project_svc.validate_project_ready(conversation.project_id)
 
             llm_manager = LLMManager(model_name=conversation.ll_model_name, provider=conversation.ll_model_provider)
             llm = llm_manager.get_llm()
@@ -180,6 +181,8 @@ class MessageService:
                 "execution_time_seconds": execution_time_seconds
             }, "Metadata")
 
+        except HTTPException as e:
+            yield format_sse_event(StreamEventType.ERROR, e.detail, "Error")
         except Exception as e:
             logger.error(f"Error in agentic streaming for conversation {conversation_id}: {str(e)}", exc_info=True)
             yield format_sse_event(StreamEventType.ERROR, str(e), "Error")

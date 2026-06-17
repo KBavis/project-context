@@ -63,19 +63,6 @@ def get_chroma_svc(
         chroma_manager=chroma_mnger
     )
 
-def get_project_svc(
-        db: Session = Depends(get_sync_db_session),
-        async_db: AsyncSession = Depends(get_async_db_session)
-):
-    """
-    Setup ProjectService dependency
-
-    Args:
-        db (Session): current DB session
-    """
-
-    return ProjectService(db=db, async_db=async_db)
-
 
 def get_data_source_svc(
         db: Session = Depends(get_sync_db_session),
@@ -129,7 +116,6 @@ def get_async_record_lock_svc():
 
 def get_async_diff_svc(
     db: AsyncSession = Depends(get_async_db_session),
-    project_svc: ProjectService = Depends(get_project_svc),
     data_source_svc: DataSourceService = Depends(get_data_source_svc),
     git_ops_svc: GitOperationsService = Depends(get_git_ops_svc),
     record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc)
@@ -139,7 +125,6 @@ def get_async_diff_svc(
     """
     return DiffService(
         async_db=db, 
-        project_svc=project_svc, 
         data_source_svc=data_source_svc, 
         git_ops_svc=git_ops_svc,
         record_lock_svc=record_lock_svc
@@ -237,6 +222,27 @@ def get_async_ingestion_job_svc(
 
 
 
+def get_project_svc(
+        db: Session = Depends(get_sync_db_session),
+        async_db: AsyncSession = Depends(get_async_db_session),
+        diff_svc: DiffService = Depends(get_async_diff_svc),
+        ingestion_job_svc: IngestionJobService = Depends(get_async_ingestion_job_svc),
+):
+    """
+    Setup ProjectService dependency
+
+    Args:
+        db (Session): current DB session
+    """
+
+    return ProjectService(
+        db=db, 
+        async_db=async_db, 
+        diff_svc=diff_svc, 
+        ingestion_job_svc=ingestion_job_svc
+    )
+
+
 def get_async_conversation_svc(
         db: AsyncSession = Depends(get_async_db_session)
 ):
@@ -267,7 +273,7 @@ def get_async_message_svc(
         conversation_svc: ConversationService = Depends(get_async_conversation_svc),
         agent_svc: AgentService = Depends(get_async_agent_svc),
         execution_token_usage_svc: ExecutionTokenUsageService = Depends(get_async_execution_token_usage_svc),
-        diff_svc: DiffService = Depends(get_async_diff_svc)
+        project_svc: ProjectService = Depends(get_project_svc),
 ):
     """
     Setup async MessageService dependency 
@@ -277,6 +283,7 @@ def get_async_message_svc(
         conversation_svc (ConversationService): async conversation service dependency
         agent_svc (AgentService): async agent service dependency
         execution_token_usage_svc (ExecutionTokenUsageService): async execution token usage service dependency
+        project_svc (ProjectService): project service dependency (owns readiness validation)
     """
 
     return MessageService(
@@ -284,5 +291,5 @@ def get_async_message_svc(
         conversation_svc=conversation_svc, 
         agent_svc=agent_svc, 
         execution_token_usage_svc=execution_token_usage_svc, 
-        diff_svc=diff_svc
+        project_svc=project_svc,
     )
