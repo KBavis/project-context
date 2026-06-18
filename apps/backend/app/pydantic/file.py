@@ -37,7 +37,7 @@ class FileProcesingStatus(Enum):
     CHANGED = "changed"
     NEW = "new"
     NOT_FOUND = "not_found"
-    MISSING_PROJECT_LINKS = "missing_project_links"
+
 
 
 class File(BaseModel):

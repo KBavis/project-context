@@ -4,23 +4,67 @@ from uuid import UUID
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
-
 
 
 from app.pydantic import DataSourceRequest
 from app.models import DataSource, Project, ProjectData
+from app.models.data_source import DataSourceType
+from app.services.chroma import ChromaService
 from app.core import settings
+from app.data_providers.ingestible.base import IngestibleDataProvider
+from app.models.data_source_mcp import DataSourceMCPConfig
 
 logger = logging.getLogger(__name__)
 
 
 class DataSourceService:
     
-    def __init__(self, db: Session, async_db: AsyncSession):
+    def __init__(self, db: Session, async_db: AsyncSession, chroma_svc: ChromaService):
         self.db: Session = db
         self.async_db: AsyncSession = async_db
+        self.chroma_svc = chroma_svc
+
+    async def aget_data_source_by_id(self, data_source_id: UUID) -> DataSource:
+        """
+        Async functionality to retrieve a DataSource by ID
+        """
+
+        stmt = select(DataSource).where(DataSource.id == data_source_id)
+        result = await self.async_db.execute(stmt)
+        data_source = result.scalar_one_or_none()
+
+        if not data_source:
+            raise Exception(f"Data Source with ID {data_source_id} not found")
+
+        return data_source
+
+    
+    async def get_issue_tracker_data_source(
+        self, 
+        project_id: UUID, 
+        async_session: AsyncSession
+    ) -> DataSource:
+        """
+        Validate that there is only a single issue tracker for a given Project. This is required for 
+        sycning a Repository DataSource for a given Project. If more than 1 Data Source 
+        configured for the Project that is an IssueTracker, error out
+
+        TODO: Likely some value in making this more generic (i.e specifying 
+        a particular ProviderType and then making validations based on provided type) 
+
+        Args:
+            project_id (UUID): the project to validate 
+        """
+
+        data_sources = await self.aget_project_data_sources(project_id=project_id, async_session=async_session)
+        issue_provider_data_sources = [ds for ds in data_sources if ds.type == DataSourceType.ISSUE_TRACKER]
+        if not issue_provider_data_sources or len(issue_provider_data_sources) != 1:
+            raise Exception(f"Only one IssueProvider expected to be configured for Project={project_id}, but found {len(issue_provider_data_sources)}")
+        
+        return issue_provider_data_sources[0]
+
 
     def get_data_source_by_id(self, data_source_id: UUID) -> DataSource:
         """
@@ -44,19 +88,29 @@ class DataSourceService:
         self._validate_data_source_request(data_source_request)
 
         # create data source
-        if data_source_request.provider == "GitHub" and not data_source_request.branch: #TODO: Make this more Generic (any provider liek Bitbucket same deal)
+        if data_source_request.type == DataSourceType.REPOSITORY and data_source_request.provider == "GitHub" and not data_source_request.branch: #TODO: Make this more Generic (any provider liek Bitbucket same deal)
             data_source_request.branch = "main"
         data_source = DataSource(
             provider=data_source_request.provider, 
             url=data_source_request.url, 
             name=data_source_request.name, 
             branch=data_source_request.branch,
-            type=data_source_request.type
+            type=data_source_request.type,
+            scope_by_issues=data_source_request.scope_by_issues
         )
 
         # persist & flush new record
         self.db.add(data_source)
         self.db.flush()
+
+        try:
+            self.chroma_svc.create_collection(
+                data_source_id=data_source.id,
+                data_source_name=data_source.name
+            )
+        except Exception as e:
+            self.db.rollback()
+            raise Exception(f"Failed to create Chroma Collection for Data Source: {str(e)}")
 
         # retrieve Projects corresponding to IDs specified in request
         project_ids = data_source_request.project_ids
@@ -71,6 +125,16 @@ class DataSourceService:
                 f"Failed to retrieve all Projects corresponding to follwoing Project Ids: {missing_ids}"
             )
 
+        # validate that if scope_by_issues is True, all projects have parent_issues configured
+        if data_source_request.scope_by_issues:
+            projects_without_parent_issues = [p for p in projects if not p.parent_issues]
+            if projects_without_parent_issues:
+                project_ids_str = ", ".join(str(p.id) for p in projects_without_parent_issues)
+                raise ValueError(
+                    f"Cannot link Projects to Data Source with scope_by_issues=True unless they have parent_issues configured. "
+                    f"Projects without parent_issues: {project_ids_str}"
+                )
+
         # create associations
         for project in projects:
             assocation = ProjectData(
@@ -81,6 +145,18 @@ class DataSourceService:
         # flush to ensure relationships are loaded/persisted
         self.db.flush()
 
+        # If this DataSource creation included linked projects AND it's an
+        # issue-scoped repository, commit the sync transaction so any
+        # background async sessions (e.g. DiffSync jobs) can see the
+        # newly-created `project_data` rows. We only commit in this
+        # specific case to avoid committing other create flows prematurely.
+        if (
+            data_source_request.type == DataSourceType.REPOSITORY
+            and data_source_request.scope_by_issues
+            and data_source_request.project_ids
+        ):
+            self.db.commit()
+
 
         return {
             "id": data_source.id,
@@ -88,18 +164,20 @@ class DataSourceService:
             "name": data_source.name,
             "type": data_source.type,
             "branch": data_source.branch,
+            "scope_by_issues": data_source.scope_by_issues,
             "config": {"url": data_source.url},
             "linked_projects": [str(pd.project_id) for pd in data_source.project_data]
         }
     
 
-    async def aget_project_data_sources(self, project_id: UUID) -> list[DataSource]:
+    async def aget_project_data_sources(self, project_id: UUID, async_session: AsyncSession | None = None) -> list[DataSource]:
         """
         Functionality to retreive persisted data_sourcs that correspond to particular Project ID
-        """
 
-        from sqlalchemy.orm import selectinload
-        from app.models.data_source_mcp import DataSourceMCPConfig
+        Args:
+            project_id (UUID): the unique project ID to retrieve data sources for 
+            async_session (AsyncSession?): optional session to leverage when executing this query (used if query is ran via Background Job)
+        """
 
         stmt = (
             select(DataSource)
@@ -110,8 +188,64 @@ class DataSourceService:
             .join(DataSource.project_data)
             .where(ProjectData.project_id == project_id)
         )
-        data_sources = await self.async_db.execute(stmt)
+
+        # default to use provided async_session if present, else use service's injected Async DB session
+        data_sources = await async_session.execute(stmt) if async_session else await self.async_db.execute(stmt)
         return list(data_sources.scalars().unique().all())
+
+    async def aget_data_source_ids_by_type(
+        self, project_id: UUID, source_type: DataSourceType | None = None
+    ) -> list[str]:
+        """
+        Get all data source IDs for a given project, optionally filtered by DataSourceType. When no
+        source_type is specified, only data sources that support ingestion (REPOSITORY, DOCUMENTATION)
+        are returned — these are the only ones we'll have chunks stored for in Chroma/DocStore.
+
+        This is the primary resolver used by the Tools wrappers to determine which 
+        collections to search.
+
+        Args:
+            project_id (UUID): The project ID.
+            source_type (DataSourceType | None): Optional type filter (REPOSITORY, DOCUMENTATION, etc).
+        """
+        data_sources = await self.aget_project_data_sources(project_id)
+        if source_type:
+            data_sources = [ds for ds in data_sources if ds.type == source_type]
+        else:
+            valid_ds = []
+            for ds in data_sources:
+                try:
+                    IngestibleDataProvider.from_provider(ds)
+                    valid_ds.append(ds)
+                except Exception:
+                    pass
+            data_sources = valid_ds
+
+        return [str(ds.id) for ds in data_sources]
+
+    async def get_ingestible_data_sources(
+        self, project_id: UUID, async_session: AsyncSession | None = None
+    ) -> list[DataSource]:
+        """
+        Return only the data sources linked to a project that support file ingestion/chunking
+        (i.e. REPOSITORY and DOCUMENTATION types). Purely fetchable sources such as ISSUE_TRACKER
+        are excluded.
+
+        Args:
+            project_id (UUID): The project to query data sources for.
+            async_session (AsyncSession | None): Optional session override for background jobs.
+        """
+        all_sources = await self.aget_project_data_sources(project_id, async_session)
+        
+        valid_ds = []
+        for ds in all_sources:
+            try:
+                IngestibleDataProvider.from_provider(ds)
+                valid_ds.append(ds)
+            except Exception:
+                pass
+        
+        return valid_ds
 
     def get_project_data_sources(self, project_id: UUID) -> list[dict[str, Any]]:
         """
@@ -132,6 +266,7 @@ class DataSourceService:
                 "name": data_source.name,
                 "type": data_source.type,
                 "branch": data_source.branch,
+                "scope_by_issues": data_source.scope_by_issues,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
                 "mcp_configs": [
@@ -162,6 +297,7 @@ class DataSourceService:
                 "name": data_source.name,
                 "type": data_source.type,
                 "branch": data_source.branch,
+                "scope_by_issues": data_source.scope_by_issues,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
                 "mcp_configs": [
@@ -178,6 +314,65 @@ class DataSourceService:
             for data_source in data_sources
         ]
 
+    def update_data_source(self, data_source_id: UUID, updates: dict) -> dict[str, Any]:
+        """
+        Update mutable fields of a DataSource
+
+        Args:
+            data_source_id: UUID of the DataSource to update
+            updates: dict containing fields to update (e.g. `name`, `branch`, `scope_by_issues`)
+        """
+        # retrieve existing data source
+        stmt = select(DataSource).where(DataSource.id == data_source_id)
+        ds = self.db.execute(stmt).scalar_one_or_none()
+        if not ds:
+            raise Exception(f"Data Source with ID {data_source_id} not found")
+
+        # Reject attempts to change `type` or `provider` via update - require recreate.
+        if "type" in updates or "provider" in updates:
+            raise ValueError(
+                "Changing `type` or `provider` of a Data Source is not allowed. "
+                "Please delete and recreate the Data Source with the desired type/provider."
+            )
+
+        # Determine target type (what the DataSource will be after the update)
+        target_type = ds.type
+
+        # Disallow setting branch when resulting type is not REPOSITORY
+        if "branch" in updates and target_type != DataSourceType.REPOSITORY:
+            raise ValueError("Cannot set 'branch' unless the resulting Data Source type is REPOSITORY")
+
+        # Validate `scope_by_issues` updates using helper to keep logic centralized.
+        if "scope_by_issues" in updates:
+            val = updates.get("scope_by_issues")
+            self._validate_scope_by_issues_update(ds, target_type, val)
+
+        # Apply allowed updates (exclude `type` and `provider` — those require recreate)
+        allowed = {"name", "branch", "scope_by_issues", "url"}
+        for k, v in updates.items():
+            if k in allowed:
+                setattr(ds, k, v)
+
+        # If resulting type is not REPOSITORY, normalize repo-only fields
+        if ds.type != DataSourceType.REPOSITORY:
+            ds.branch = None
+            ds.scope_by_issues = False
+
+        # persist
+        self.db.add(ds)
+        self.db.flush()
+
+        return {
+            "id": ds.id,
+            "provider": ds.provider,
+            "name": ds.name,
+            "type": ds.type,
+            "branch": ds.branch,
+            "scope_by_issues": ds.scope_by_issues,
+            "config": {"url": ds.url},
+            "linked_projects": [str(pd.project_id) for pd in ds.project_data]
+        }
+
     def _validate_data_source_request(self, request: DataSourceRequest):
         """
         Ensure the specified request is valid
@@ -187,6 +382,44 @@ class DataSourceService:
             raise Exception(
                 f"Invalid provider specified when attempting to create Data Source. Valid Providers: {settings.VALID_DATA_PROVIDERS}"
             )
+
+    def _validate_scope_by_issues_update(self, ds: DataSource, target_type: DataSourceType, val: bool | None):
+        """
+        Centralized validation for updating `scope_by_issues`.
+
+        - Enabling (`True`) requires the resulting `target_type` to be `REPOSITORY`
+          and all linked projects must have `parent_issues` configured.
+        - Disabling (`False`) is allowed only when the Data Source is linked to
+          zero or one project; otherwise require unlinking first.
+        - `None` (not provided) is ignored by caller.
+        """
+        if val is None:
+            return
+
+        # Enabling
+        if val is True:
+            if target_type != DataSourceType.REPOSITORY:
+                raise ValueError("`scope_by_issues` can only be enabled for REPOSITORY Data Sources")
+
+            linked_projects = [pd.project for pd in ds.project_data] if ds.project_data else []
+            projects_missing = [p for p in linked_projects if not p.parent_issues]
+            if projects_missing:
+                names = ", ".join([f"{p.project_name} ({p.id})" for p in projects_missing])
+                raise ValueError(
+                    "Cannot enable `scope_by_issues` on this Data Source because the following linked projects "
+                    f"do not have parent_issues configured: {names}. Please update those projects to include parent_issues "
+                    "(issue numbers) before enabling scoping, or unlink them from this Data Source."
+                )
+
+        # Disabling
+        if val is False:
+            linked_projects = [pd.project for pd in ds.project_data] if ds.project_data else []
+            if len(linked_projects) > 1:
+                names = ", ".join([f"{p.project_name} ({p.id})" for p in linked_projects])
+                raise ValueError(
+                    "Cannot disable `scope_by_issues` while this Data Source is linked to multiple projects: "
+                    f"{names}. Unlink other projects from this Data Source before disabling scoping."
+                )
 
     def link_mcp_config_to_data_source(self, data_source_id: UUID, mcp_config_id: UUID) -> dict[str, Any]:
         """

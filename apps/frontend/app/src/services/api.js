@@ -73,13 +73,14 @@ export const api = {
 
     // Project endpoints
     projects: {
-        create: async (projectName, description = '') => {
-            const response = await fetch(`${API_BASE_URL}/projects/`, { // Fixed path
+        create: async (projectName, description = '', parentIssues = []) => {
+            const response = await fetch(`${API_BASE_URL}/projects/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: projectName,
                     description: description,
+                    parent_issues: parentIssues,
                 }),
             });
             return handleResponse(response);
@@ -133,6 +134,7 @@ export const api = {
                     url: config.url,
                     name: config.name,
                     branch: config.branch,
+                    scope_by_issues: config.scope_by_issues,
                     project_ids: projectIds
                 }),
             });
@@ -149,6 +151,14 @@ export const api = {
         linkMcp: async (dataSourceId, mcpConfigId) => {
             const response = await fetch(`${API_BASE_URL}/data/sources/${dataSourceId}/mcp/configs/${mcpConfigId}`, {
                 method: 'POST',
+            });
+            return handleResponse(response);
+        },
+        update: async (dataSourceId, updates) => {
+            const response = await fetch(`${API_BASE_URL}/data/sources/${dataSourceId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updates),
             });
             return handleResponse(response);
         },
@@ -202,6 +212,28 @@ export const api = {
             const response = await fetch(`${API_BASE_URL}/ingestion/jobs/`);
             return handleResponse(response);
         },
+    },
+    // Diff endpoints
+    diff: {
+        getSyncStatus: async (projectId) => {
+            const response = await fetch(`${API_BASE_URL}/projects/${projectId}/sync-status`);
+            const data = await handleResponse(response);
+            return {
+                ...data,
+                is_initial_sync_complete: data.is_ready,
+                status: data.overall_status
+            };
+        },
+        getSyncJobs: async (projectId, dataSourceId) => {
+            const response = await fetch(`${API_BASE_URL}/diff/sync/jobs/${projectId}/${dataSourceId}`);
+            return handleResponse(response);
+        },
+        triggerSync: async (projectId, dataSourceId) => {
+            const response = await fetch(`${API_BASE_URL}/diff/sync/${projectId}/${dataSourceId}`, {
+                method: 'POST',
+            });
+            return handleResponse(response);
+        }
     },
 };
 

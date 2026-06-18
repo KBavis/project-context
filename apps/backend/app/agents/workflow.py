@@ -93,18 +93,32 @@ def _build_planning_agent(
     data_sources: list[DataSource],
     refined_question: str,
     question_type: str,
+    scope_summary: str,
     callback_manager: CallbackManager | None,
+    diff_tool_registered: bool = False,
 ) -> FunctionAgent:
     """
     PlanningAgent — root agent. Orients via semantic search and directory exploration,
     writes a structured research plan, then hands off to ResearchAgent.
     """
+    diff_tool_context = ""
+    if diff_tool_registered:
+        diff_tool_context = (
+            "**Diff Tool (Available to ResearchAgent)**\n"
+            "- **`get_file_diff(file_path, data_source_id)`** — Retrieve the unified diff for a specific file. "
+            "Instruct the ResearchAgent to use this tool whenever the user asks about what was modified, added, or changed by this project. "
+            "This tool is the ultimate source of truth for grounding answers in the ACTUAL changes introduced by the project to a data source. "
+            "Instruct the ResearchAgent to use `view_file_<slug>` only when it needs to see the surrounding context of those changes."
+        )
+
     system_prompt = _load_prompt(
         AgentType.PLANNING,
         context={
             "refined_question": refined_question,
             "question_type": question_type,
             "data_sources_context": _build_data_source_context(data_sources),
+            "diff_tool_context": diff_tool_context,
+            "scope_summary": scope_summary,
         },
     )
     return FunctionAgent(
@@ -126,19 +140,35 @@ def _build_research_agent(
     data_sources: list[DataSource],
     mcp_tools: dict[str, list[FunctionTool]],
     refined_question: str,
+    scope_summary: str,
     callback_manager: CallbackManager | None,
+    diff_tool_registered: bool = False,
 ) -> FunctionAgent:
     """
     ResearchAgent — executes the plan by reading files, navigating directories,
     and running searches. Logs all findings via update_research_state.
     May revise the plan if new discoveries change direction.
     """
+    diff_tool_context = ""
+    if diff_tool_registered:
+        diff_tool_context = (
+            "**Diff Tool**\n"
+            "- **`get_file_diff(file_path, data_source_id)`** — Retrieve the unified diff for a specific file. "
+            "ONLY call this tool for the valid list of data sources explicitly provided in the tool description. "
+            "Use this tool whenever the user asks about what was modified, added, or changed by this project. "
+            "This tool is the ultimate source of truth for grounding your understanding in the ACTUAL changes introduced by the Project to a data source. "
+            "Always use this to see exactly what lines of code were touched. "
+            "Use `view_file_<slug>` instead ONLY when you need to see the file's current full state and surrounding context."
+        )
+
     system_prompt = _load_prompt(
         AgentType.RESEARCH,
         context={
             "refined_question": refined_question,
             "data_sources_context": _build_data_source_context(data_sources),
             "mcp_context": _build_mcp_context(data_sources, mcp_tools),
+            "diff_tool_context": diff_tool_context,
+            "scope_summary": scope_summary,
         },
     )
     return FunctionAgent(
@@ -159,6 +189,7 @@ def _build_synth_agent(
     synthesis_tools: list[FunctionTool],
     data_sources: list[DataSource],
     refined_question: str,
+    scope_summary: str,
     callback_manager: CallbackManager | None,
 ) -> FunctionAgent:
     """
@@ -171,6 +202,7 @@ def _build_synth_agent(
         context={
             "refined_question": refined_question,
             "data_sources_context": _build_data_source_context(data_sources),
+            "scope_summary": scope_summary,
         },
     )
     return FunctionAgent(
@@ -197,6 +229,7 @@ def get_agentic_workflow(
     tool_manager: Tools,
     refined_question: str,
     question_type: str,
+    scope_summary: str = "",
     callback_manager: CallbackManager | None = None,
 ) -> AgentWorkflow:
     """
@@ -210,6 +243,7 @@ def get_agentic_workflow(
         tool_manager: Initialized Tools instance for this workflow run.
         refined_question: Clarified user question from Diagnosis.
         question_type: Question classification from Diagnosis.
+        scope_summary: Summary of project-scoped diffs to inject into prompts.
         callback_manager: Optional LlamaIndex CallbackManager for tracing.
     """
     planning_tools  = tool_manager.get_planning_tools()
@@ -231,7 +265,9 @@ def get_agentic_workflow(
         data_sources=data_sources,
         refined_question=refined_question,
         question_type=question_type,
+        scope_summary=scope_summary,
         callback_manager=callback_manager,
+        diff_tool_registered=tool_manager._get_file_diff_tool is not None,
     )
 
     research_agent = _build_research_agent(
@@ -240,7 +276,9 @@ def get_agentic_workflow(
         data_sources=data_sources,
         mcp_tools=mcp_tools,
         refined_question=refined_question,
+        scope_summary=scope_summary,
         callback_manager=callback_manager,
+        diff_tool_registered=tool_manager._get_file_diff_tool is not None,
     )
 
     synth_agent = _build_synth_agent(
@@ -248,6 +286,7 @@ def get_agentic_workflow(
         synthesis_tools=synthesis_tools,
         data_sources=data_sources,
         refined_question=refined_question,
+        scope_summary=scope_summary,
         callback_manager=callback_manager,
     )
 

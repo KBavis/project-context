@@ -11,7 +11,6 @@ from uuid import UUID
 
 if TYPE_CHECKING:
     from .data_source import DataSource
-    from .file_collection import FileCollection
 
 class File(Base):
 
@@ -71,9 +70,4 @@ class File(Base):
     )
     data_source: Mapped["DataSource"] = relationship(
         back_populates="files"
-    )
-
-    # one to many relationship with FileCollection
-    file_collections: Mapped[List["FileCollection"]] = relationship(
-        back_populates="file", cascade="all, delete-orphan"
     )

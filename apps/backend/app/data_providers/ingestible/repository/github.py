@@ -6,10 +6,11 @@ from uuid import UUID
 from pathlib import Path
 import httpx
 from io import BytesIO
+from datetime import datetime
 
-from .base import DataProvider
+from .base import RepositoryDataProvider
 from app.core import settings
-from app.pydantic import File, FileProcesingStatus
+from app.pydantic import File, FileProcesingStatus, GitCommitDetail
 from app.models.data_source import DataSource
 from app.services.file import FileService
 
@@ -17,30 +18,45 @@ from app.services.file import FileService
 logger = logging.getLogger(__name__)
 
  
-class GithubDataProvider(DataProvider):
+class GithubDataProvider(RepositoryDataProvider):
 
-    def __init__(self, data_source: DataSource, file_svc: FileService | None, job_pk: UUID | None = None):
-        super().__init__(data_source, file_svc=file_svc, job_pk=job_pk)
-        self._validate_url()
+    def __init__(self, data_source: DataSource):
+        super().__init__(data_source)
+    
 
-        # deconstruct URL 
+    def _parse_repository_ref(self) -> tuple[str, str]:
+        """
+        Extract relevant information from the specified URL 
+
+        Returns
+            (repository_owner, repository_name)
+        """
+
         parsed_url = self.url.split("/")
-        self.repository_user = parsed_url[3]
-        self.repository_name = parsed_url[4]
-        self.branch_name = data_source.branch
 
-        self.base_url = f"https://github.com/{self.repository_user}/{self.repository_name}/blob/{self.branch_name}/"
-        self.base_api_url = f"https://api.github.com/repos/{self.repository_user}/{self.repository_name}/contents"
+        owner = parsed_url[3]
+        repo_name = parsed_url[4]
+
+        return owner, repo_name
+    
+
+    def _construct_base_urls(self):
+
+        self.base_url = f"https://github.com/{self.repository_owner}/{self.repository_name}/blob/{self.branch_name}/"
+        self.base_api_url = f"https://api.github.com/repos/{self.repository_owner}/{self.repository_name}/contents"
         self.branch_reference = f"?ref={self.branch_name}"
-        
-        self.file_download_base_url = f"https://raw.githubusercontent.com/{self.repository_user}/{self.repository_name}/{self.branch_name}"
+        self.file_download_base_url = f"https://raw.githubusercontent.com/{self.repository_owner}/{self.repository_name}/{self.branch_name}"
 
-    async def ingest_data(self):
+
+    async def ingest_data(self, file_svc: FileService, job_pk: UUID):
         """
         Functionality to parse our GitHub Url and invoke relevant functionality
         to DFS through repository and retrieve relevant files to store within our
         temporary directory to be stored by Chroma DB
         """
+
+        self.file_svc = file_svc
+        self.job_pk = job_pk
 
         if not self.file_svc or not self.job_pk:
             raise Exception(f"FileService and JobPK not provided when attempting to ingest data")
@@ -76,7 +92,7 @@ class GithubDataProvider(DataProvider):
                 f"The specified data source URL, {self.url}, is not in the proper format: https://github.com/<user>/<repository>"
             )
 
-    async def _get_repository_data(self, curr_url):
+    async def _get_repository_data(self, curr_url: str):
         """
         Functionality to recurisvely download files from the specified repository
 
@@ -87,6 +103,7 @@ class GithubDataProvider(DataProvider):
         Args:
             curr_url (str) - current URL to retrieve content from
         """
+        assert self.file_svc and self.job_pk
 
         # make request to retrieve content from specific directory
         content = None
@@ -118,6 +135,7 @@ class GithubDataProvider(DataProvider):
         Helper function to download a file and store within relevant temporary directory
 
         """
+        assert self.file_svc and self.job_pk
 
         # ensure valid file name
         if not file_name or "." not in file_name:
@@ -150,11 +168,13 @@ class GithubDataProvider(DataProvider):
             buffer = BytesIO()
             hashed_content = await asyncio.to_thread(self.file_svc.hash_file_content, response, buffer)
 
+            
+
             # determine file status 
             file = File(
                 path=file_path, 
                 file_name=file_name, 
-                file_type=file_extension, 
+                file_type=self.file_svc.get_file_extension(file_extension), 
                 size=size, 
                 hash=hashed_content,
                 file_url=url
@@ -179,17 +199,10 @@ class GithubDataProvider(DataProvider):
                 f"Failure occurred while attempt to download file: {file_name}", e
             )
     
-    def _write_file(self, full_path: Path, buffer: BytesIO):
-        """Sync helper: write buffered content to disk (runs in worker thread)."""
 
-        """ TODO: This can get expensive in terms of memory when we read the entire file into Buffer
-        Consider alternative approach for iterating through chunks of response without storing in memory 
-        while still being able to Hash
-        """
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(full_path, "wb") as f:
-            f.write(buffer.getbuffer())
-   
+    ############################################################
+    ### Internal Tool Definitions For Ingestable Data Providers 
+    ############################################################
 
     async def view_file(self, file_path: str) -> str:
         """
@@ -197,9 +210,10 @@ class GithubDataProvider(DataProvider):
 
         Args:
             file_path (str): The absolute path to the file to view 
-                - NOTE: should contain prefixed "/"
+                Usage:
+                    - file_path == "file.py" --> <REPO_HOME>/file.py
+                    - file_path == "dir/file.py" --> <REPO_HOME>/dir/file.py
         """
-
 
         try:
             # build url to retrieve data
@@ -225,7 +239,9 @@ class GithubDataProvider(DataProvider):
 
         Args:
             path (str): The absolute path to the directory to list the contents of 
-                - NOTE: should contain prefixed "/" (IF NOT ROOT DIRECTORY)
+                Usage: 
+                    - path == "" --> root directory 
+                    - path == "/app" --> app directory 
         """
         
         content = None 
@@ -262,9 +278,6 @@ class GithubDataProvider(DataProvider):
             )
         
 
-
-
-
     async def generate_citation(self, path: str) -> str:
         """
         Generate a citation for a particular file based on its absolute path. Returns
@@ -281,4 +294,141 @@ class GithubDataProvider(DataProvider):
             logger.error(f"Failure generating citation for path={path} with exception={str(e)}")
             raise Exception(
                 f"Failure occurred while attempt to generate citation for path: {path}", e
+            )
+    
+
+    async def get_latest_commit_sha(self, child_issues: list[str]) -> str | None:
+        """
+        Get the latest commit SHA and datetime for the repository that has one of the specified 
+        issue numbers in its commit message 
+
+        Args:
+            issue_numbers (list[str]): The list of issue numbers to filter commits by
+        """
+
+        # ensure issue numbers provided
+        if not child_issues:
+            raise Exception("Issue numbers must be provided to filter commits by")
+
+        try:
+            
+            # construct URL 
+            issues = "+OR+".join(child_issues)
+            query = f"repo:{self.repository_owner}/{self.repository_name}+{issues}"
+            url = f"https://api.github.com/search/commits?q={query}&sort=committer-date&order=desc&per_page=1"
+
+            # make async request to retrieve data
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.request_headers)
+                response.raise_for_status()
+
+                # validate response
+                commits = response.json()
+                if not commits:
+                    logger.warning(f"No commits found for repository {self.full_name} with issue numbers {child_issues}")
+                    return None 
+                
+
+                items = commits.get("items", [])
+                if not items:
+                    logger.warning(f"No commits found for repository {self.full_name} with issue numbers {child_issues}")
+                    return None
+
+                # extract and return latest commit SHA and associated date/time
+                sha = items[0]['sha']
+                return sha
+
+        except Exception as e:
+            logger.error(f"Failure getting latest commit SHA with exception={str(e)}")
+            raise Exception(
+                f"Failure occurred while attempt to get latest commit SHA for repository: {self.full_name}", e
+            )
+    
+
+
+
+    async def get_all_commits_info(
+        self, child_issues: list[str], latest_commit_date: datetime | None = None
+    ) -> list[GitCommitDetail]:
+        """
+        Get all commit details for the repository since the last commit that have commit messages 
+        containing one of the specified issue numbers.
+        """
+        # Ensure issue numbers provided
+        if not child_issues:
+            raise Exception("Issue numbers must be provided to filter commits by")
+
+        try:
+            # 1. Base query setup
+            issues = "+OR+".join(child_issues)
+            query = f"repo:{self.repository_owner}/{self.repository_name}+{issues}"
+            
+            # 2. Conditionally append the date cutoff if provided
+            if latest_commit_date:
+                # Convert datetime object to ISO 8601 string expected by GitHub
+                iso_date = latest_commit_date.isoformat()
+                query += f"+committer-date:>{iso_date}"
+                
+            # 3. Assemble URL, sorting by committer-date ascending to maintain chronological order
+            url = f"https://api.github.com/search/commits?q={query}&sort=committer-date&order=asc&per_page=100"
+
+            # 4. Make async request to retrieve data
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.request_headers)
+                response.raise_for_status()
+
+                commits = response.json()
+                items = commits.get("items", [])
+                
+                if not items:
+                    logger.info(f"No new commits found for repository {self.full_name} matching criteria.")
+                    return []
+
+                # 5. Retrieve details for each commit (to get files modified, etc.)
+                commit_details = []
+                for item in items:
+                    sha = item['sha']
+                    detail = await self.get_commit_detail(sha)
+                    commit_details.append(detail)
+                return commit_details
+
+        except Exception as e:
+            logger.error(f"Failure getting all commits info with exception={str(e)}")
+            raise Exception(
+                f"Failure occurred while attempting to get all commits info for repository: {self.full_name}", e
+            )
+
+    async def get_commit_detail(self, sha: str) -> GitCommitDetail:
+        """
+        Get details for a specific commit, including modified files.
+        """
+        url = f"https://api.github.com/repos/{self.repository_owner}/{self.repository_name}/commits/{sha}"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.request_headers)
+                response.raise_for_status()
+                data = response.json()
+                
+                # Extract files modified
+                files_modified = [f["filename"] for f in data.get("files", [])]
+                
+                commit_data = data["commit"]
+                author_data = commit_data["author"]
+                
+                # Parse date
+                date_str = author_data["date"].replace("Z", "+00:00")
+                commit_date = datetime.fromisoformat(date_str)
+                
+                return GitCommitDetail(
+                    sha=sha,
+                    author_name=author_data["name"],
+                    author_email=author_data["email"],
+                    commit_datetime=commit_date,
+                    message=commit_data["message"],
+                    files_modified=files_modified
+                )
+        except Exception as e:
+            logger.error(f"Failure getting commit details for SHA={sha} with exception={str(e)}")
+            raise Exception(
+                f"Failure occurred while attempting to get commit details for SHA {sha} in repository: {self.full_name}", e
             )

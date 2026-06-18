@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Contextualized"
 
     PYTHONDONTWRITEBYTECODE: int = 1
+
+    ###########################
+    # Jira Configurations
+    ###########################
+    JIRA_EMAIL: str = ""
+    JIRA_API_TOKEN: str = ""
+
     
     ###########################
     # Database Configurations 
@@ -64,6 +71,12 @@ class Settings(BaseSettings):
     HUGGING_FACE_API_KEY: str | None = None
     OPENAI_API_KEY: str | None = None
 
+    BITBUCKET_USERNAME: str | None = None
+    BITBUCKET_SECRET_TOKEN: str | None = None
+    
+    CONFLUENCE_EMAIL: str | None = None
+    CONFLUENCE_SECRET_TOKEN: str | None = None
+
     ###########################
     # File Paths 
     ###########################
@@ -71,6 +84,7 @@ class Settings(BaseSettings):
     PROCESSED_DIR: str | None = "/processed"
     TMP_DOCS: str | None = "/tmp/contextualized/docs"
     TMP_CODE: str | None = "/tmp/contextualized/code"
+    GIT_CLONE_DIR: str = "/tmp/contextualized/git_clones" 
 
     ###########################
     # Environment 

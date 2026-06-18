@@ -12,7 +12,9 @@ from app.services import (
     ChunkRetrievalService,
     ChunkInsertionService,
     MCPService,
-    AgentService
+    AgentService,
+    DiffService,
+    GitOperationsService
 )
 
 from app.core import (
@@ -61,23 +63,11 @@ def get_chroma_svc(
         chroma_manager=chroma_mnger
     )
 
-def get_project_svc(
-        db: Session = Depends(get_sync_db_session),
-        chroma_svc: ChromaService= Depends(get_chroma_svc)
-):
-    """
-    Setup ProjectService dependency
-
-    Args:
-        db (Session): current DB session
-    """
-
-    return ProjectService(db=db, chroma_svc=chroma_svc)
-
 
 def get_data_source_svc(
         db: Session = Depends(get_sync_db_session),
-        async_db: AsyncSession = Depends(get_async_db_session)
+        async_db: AsyncSession = Depends(get_async_db_session),
+        chroma_svc: ChromaService = Depends(get_chroma_svc)
 ):
     """
     Setup DataSourceService dependency
@@ -86,7 +76,7 @@ def get_data_source_svc(
         db (Session): current DB session
     """
     
-    return DataSourceService(db=db, async_db=async_db)
+    return DataSourceService(db=db, async_db=async_db, chroma_svc=chroma_svc)
 
 
 def get_mcp_svc(
@@ -102,11 +92,43 @@ def get_mcp_svc(
     
     return MCPService(db=db, async_db=async_db)
 
-
+def get_git_ops_svc() -> GitOperationsService:
+    """
+    Setup GitOperationsService dependency
+    """
+    return GitOperationsService()
 
 ##########################
 # Async Service Dependencies 
 ###########################
+
+
+def get_async_record_lock_svc():
+    """
+    Setup async RecordLockService dependency 
+
+    Args:   
+        db (AsyncSession): async DB session
+    """
+
+    return RecordLockService()
+    
+
+def get_async_diff_svc(
+    db: AsyncSession = Depends(get_async_db_session),
+    data_source_svc: DataSourceService = Depends(get_data_source_svc),
+    git_ops_svc: GitOperationsService = Depends(get_git_ops_svc),
+    record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc)
+):
+    """
+    Setup DiffService dependency.
+    """
+    return DiffService(
+        async_db=db, 
+        data_source_svc=data_source_svc, 
+        git_ops_svc=git_ops_svc,
+        record_lock_svc=record_lock_svc
+    )
 
 
 def get_async_file_svc(
@@ -153,7 +175,8 @@ def get_async_agent_svc(
     db: AsyncSession = Depends(get_async_db_session),
     mcp_svc: MCPService = Depends(get_mcp_svc),
     data_source_svc: DataSourceService = Depends(get_data_source_svc),
-    chunk_retrieval_svc: ChunkRetrievalService = Depends(get_async_chunk_retrieval_svc)
+    chunk_retrieval_svc: ChunkRetrievalService = Depends(get_async_chunk_retrieval_svc),
+    diff_svc: DiffService = Depends(get_async_diff_svc)
 ):
     """
     Setup async AgentService dependency
@@ -168,25 +191,18 @@ def get_async_agent_svc(
         db=db, 
         mcp_svc=mcp_svc, 
         data_source_svc=data_source_svc,
-        chunk_retrieval_svc=chunk_retrieval_svc
+        chunk_retrieval_svc=chunk_retrieval_svc,
+        diff_svc=diff_svc
     )
 
-def get_async_record_lock_svc():
-    """
-    Setup async RecordLockService dependency 
-
-    Args:   
-        db (AsyncSession): async DB session
-    """
-
-    return RecordLockService()
 
 
 def get_async_ingestion_job_svc(
         db: AsyncSession = Depends(get_async_db_session),
         record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc),
         file_svc: FileService = Depends(get_async_file_svc),
-        chunk_insertion_service: ChunkInsertionService = Depends(get_async_chunk_insertion_svc)
+        chunk_insertion_service: ChunkInsertionService = Depends(get_async_chunk_insertion_svc),
+        data_source_svc: DataSourceService = Depends(get_data_source_svc)
 ):
     """
     Setup async IngestionJobService dependency 
@@ -195,15 +211,39 @@ def get_async_ingestion_job_svc(
         db (AsyncSession): async db session
         file_svc (FileService): async file service dependency
         chunk_insertion_service (ChunkInsertionService): async chunk insertion service dependency
+        diff_svc (DiffService): async diff service dependency
+        data_source_svc (DataSourceService): async data source service dependency
     """
     return IngestionJobService(
         db=db, 
         record_lock_svc=record_lock_svc,
         file_svc=file_svc,
-        chunk_insertion_service=chunk_insertion_service
+        chunk_insertion_service=chunk_insertion_service,
+        data_source_svc=data_source_svc
     )
 
 
+
+
+def get_project_svc(
+        db: Session = Depends(get_sync_db_session),
+        async_db: AsyncSession = Depends(get_async_db_session),
+        diff_svc: DiffService = Depends(get_async_diff_svc),
+        ingestion_job_svc: IngestionJobService = Depends(get_async_ingestion_job_svc),
+):
+    """
+    Setup ProjectService dependency
+
+    Args:
+        db (Session): current DB session
+    """
+
+    return ProjectService(
+        db=db, 
+        async_db=async_db, 
+        diff_svc=diff_svc, 
+        ingestion_job_svc=ingestion_job_svc
+    )
 
 
 def get_async_conversation_svc(
@@ -235,7 +275,8 @@ def get_async_message_svc(
         db: AsyncSession = Depends(get_async_db_session),
         conversation_svc: ConversationService = Depends(get_async_conversation_svc),
         agent_svc: AgentService = Depends(get_async_agent_svc),
-        execution_token_usage_svc: ExecutionTokenUsageService = Depends(get_async_execution_token_usage_svc)
+        execution_token_usage_svc: ExecutionTokenUsageService = Depends(get_async_execution_token_usage_svc),
+        project_svc: ProjectService = Depends(get_project_svc),
 ):
     """
     Setup async MessageService dependency 
@@ -245,6 +286,13 @@ def get_async_message_svc(
         conversation_svc (ConversationService): async conversation service dependency
         agent_svc (AgentService): async agent service dependency
         execution_token_usage_svc (ExecutionTokenUsageService): async execution token usage service dependency
+        project_svc (ProjectService): project service dependency (owns readiness validation)
     """
 
-    return MessageService(db=db, conversation_svc=conversation_svc, agent_svc=agent_svc, execution_token_usage_svc=execution_token_usage_svc)
+    return MessageService(
+        db=db, 
+        conversation_svc=conversation_svc, 
+        agent_svc=agent_svc, 
+        execution_token_usage_svc=execution_token_usage_svc, 
+        project_svc=project_svc,
+    )

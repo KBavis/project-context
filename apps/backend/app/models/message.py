@@ -1,7 +1,7 @@
 from __future__ import annotations
 from .base import Base 
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 from uuid import UUID
 from enum import Enum
 

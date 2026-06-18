@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
+import { useProjects } from './ProjectContext';
 
 const DataSourcesContext = createContext();
 
@@ -16,6 +17,7 @@ export const DataSourcesProvider = ({ children }) => {
     const [mcpConfigs, setMcpConfigs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const { startPolling } = useProjects();
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -44,7 +46,6 @@ export const DataSourcesProvider = ({ children }) => {
             await api.dataSources.delete(id);
             setDataSources(prev => prev.filter(ds => ds.id !== id));
         } catch (err) {
-            setError('Failed to delete data source');
             throw err;
         }
     };
@@ -56,7 +57,6 @@ export const DataSourcesProvider = ({ children }) => {
             setDataSources(prev => [...prev, newDataSource]);
             return newDataSource;
         } catch (err) {
-            setError('Failed to create data source');
             throw err;
         }
     };
@@ -67,7 +67,6 @@ export const DataSourcesProvider = ({ children }) => {
             setMcpConfigs(prev => [...prev, newConfig]);
             return newConfig;
         } catch (err) {
-            setError('Failed to create MCP configuration');
             throw err;
         }
     };
@@ -77,7 +76,6 @@ export const DataSourcesProvider = ({ children }) => {
             await api.mcp.deleteConfig(id);
             setMcpConfigs(prev => prev.filter(c => c.id !== id));
         } catch (err) {
-            setError('Failed to delete MCP configuration');
             throw err;
         }
     };
@@ -86,8 +84,8 @@ export const DataSourcesProvider = ({ children }) => {
         try {
             await api.projects.linkDataSource(projectId, dataSourceId);
             await fetchData();
+            startPolling(projectId);
         } catch (err) {
-            setError('Failed to link project to data source');
             throw err;
         }
     };
@@ -97,7 +95,16 @@ export const DataSourcesProvider = ({ children }) => {
             await api.dataSources.linkMcp(dataSourceId, mcpConfigId);
             await fetchData();
         } catch (err) {
-            setError('Failed to link MCP configuration to data source');
+            throw err;
+        }
+    };
+
+    const updateDataSource = async (id, updates) => {
+        try {
+            const updated = await api.dataSources.update(id, updates);
+            setDataSources(prev => prev.map(ds => ds.id === updated.id ? updated : ds));
+            return updated;
+        } catch (err) {
             throw err;
         }
     };
@@ -111,6 +118,7 @@ export const DataSourcesProvider = ({ children }) => {
             fetchData, 
             deleteDataSource, 
             createDataSource,
+            updateDataSource,
             createMcpConfig,
             deleteMcpConfig,
             linkProjectToDataSource,

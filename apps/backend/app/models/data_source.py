@@ -13,11 +13,13 @@ if TYPE_CHECKING:
     from .file import File
     from .mcp_config import MCPConfig
     from .data_source_mcp import DataSourceMCPConfig
+    from .collection import ChromaCollection
 
 
 class DataSourceType(str, Enum):
     REPOSITORY = "REPOSITORY"
     DOCUMENTATION = "DOCUMENTATION"
+    ISSUE_TRACKER = "ISSUE_TRACKER"
 
 
 class DataSource(Base):
@@ -50,6 +52,12 @@ class DataSource(Base):
         comment="Type of data source",
     )
 
+    # NOTE: on data source since o/w would imply that a two Projects could "own" same pieces of code (one has flag, one doesn't)
+    scope_by_issues: Mapped[bool] = mapped_column(
+        default=False, 
+        comment="Whether to scope ingestion for this data source to specific issues configured on the project"
+    )
+
 
     # many to many relationship with MCPConfig
     data_source_mcp_configs: Mapped[List["DataSourceMCPConfig"]] = relationship(
@@ -69,4 +77,9 @@ class DataSource(Base):
     # one to many relationship with File 
     files: Mapped[List["File"]] = relationship(
         back_populates="data_source", cascade="all, delete-orphan"
+    )
+
+    # one to one relationship with ChromaCollection
+    chroma_collection: Mapped["ChromaCollection"] = relationship(
+        back_populates="data_source", cascade="all, delete-orphan", uselist=False
     )

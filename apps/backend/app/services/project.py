@@ -1,13 +1,23 @@
 from __future__ import annotations
 import logging
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import HTTPException
 
 from app.pydantic import ProjectRequest
-from app.services.chroma import ChromaService
-from app.models import Project, ProjectData
+from app.pydantic.status import ProcessingStatus
+from app.models import Project, ProjectData, DataSource, IngestionJob
+from app.models.data_source import DataSourceType
+from app.data_providers.ingestible.base import IngestibleDataProvider
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from app.services.diff import DiffService
+    from app.services.data_source import DataSourceService
+    from app.services.ingestion_job import IngestionJobService
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +25,81 @@ class ProjectService:
     def __init__(
         self,
         db: Session,
-        chroma_svc: ChromaService
+        async_db: AsyncSession,
+        diff_svc: DiffService,
+        ingestion_job_svc: IngestionJobService,
+        data_source_svc: DataSourceService | None = None,
     ):
         self.db = db
-        self.chroma_svc = chroma_svc
+        self.async_db = async_db
+        self.diff_svc = diff_svc
+        self.data_source_svc = data_source_svc
+        self.ingestion_job_svc = ingestion_job_svc
+
+    # ─────────────────────────────────────────────
+    # Project Readiness
+    # ─────────────────────────────────────────────
+
+    async def validate_project_ready(self, project_id: UUID) -> None:
+        """
+        Gate for conversation message sending. Raises HTTP 412 if:
+          - Any ingestible data source (REPOSITORY, DOCUMENTATION) has not completed
+            a successful IngestionJob, OR
+          - Any issue-scoped Repository data source has not completed a successful
+            DiffSyncJob (i.e. ProjectRepositoryChanges record not yet created).
+
+        Fetchable-only sources (ISSUE_TRACKER) are ignored for both checks.
+        """
+        readiness = await self.get_project_readiness_state(project_id)
+
+        if readiness["is_ready"]:
+            return
+
+        reasons = readiness.get("reasons", [])
+        reasons_str = " ".join(reasons) if reasons else "Project data sources are not fully synced."
+
+        if readiness["overall_status"] == ProcessingStatus.IN_PROGRESS.value:
+            raise HTTPException(
+                status_code=412,
+                detail=f"Project synchronization is in progress. {reasons_str}"
+            )
+
+        raise HTTPException(
+            status_code=412,
+            detail=f"Project synchronization failed or is incomplete. {reasons_str}"
+        )
+
+    async def get_project_readiness_state(self, project_id: UUID) -> dict:
+        """
+        Return a combined readiness snapshot used by the /sync-status endpoint.
+
+        Returns a dict with:
+            is_ready (bool): True only when both ingestion and diff-sync are successful.
+            ingestion_status (str): ProcessingStatus value for ingestion.
+            sync_status (str): ProcessingStatus value for diff-sync.
+            overall_status (str): worst-case aggregate of the two.
+            reasons (list[str]): detailed string reasons for any pending or failed data sources.
+        """
+        ingestion_state, ingestion_reasons = await self.ingestion_job_svc.get_project_ingestion_state(project_id)
+        diff_state, diff_reasons = await self.diff_svc.get_project_sync_state(project_id)
+
+        if ProcessingStatus.IN_PROGRESS.value in (ingestion_state, diff_state):
+            overall = ProcessingStatus.IN_PROGRESS.value
+        elif ProcessingStatus.FAILED.value in (ingestion_state, diff_state):
+            overall = ProcessingStatus.FAILED.value
+        else:
+            overall = ProcessingStatus.SUCCESS.value
+
+        all_reasons = ingestion_reasons + diff_reasons
+
+        return {
+            "is_ready": overall == ProcessingStatus.SUCCESS.value,
+            "overall_status": overall,
+            "ingestion_status": ingestion_state,
+            "sync_status": diff_state,
+            "reasons": all_reasons
+        }
+
 
     def create_project(self, request: ProjectRequest) -> dict:
         """
@@ -31,7 +112,7 @@ class ProjectService:
             # create Project record & flush to DB
             project = Project(
                 project_name=request.name,
-                epics=request.epics,
+                parent_issues=request.parent_issues,
                 meta_data=request.meta_data,
                 lob=request.lob,
                 description=request.description,
@@ -41,28 +122,43 @@ class ProjectService:
             self.db.add(project)
             self.db.flush()
 
-            # create records for ChromaCollections
-            chroma_collection = self.chroma_svc.create_collection(
-                project_id=project.id,
-                project_name=project.project_name,
-                embedding_provider=request.embedding_provider,
-                embedding_model=request.embedding_model
-            )
-
             return {
                 "id": project.id,
                 "name": project.project_name,
-                "description": project.description,
-                "collection": {
-                    "id": chroma_collection.id,
-                    "name": chroma_collection.name,
-                    "provider": chroma_collection.embedding_provider,
-                    "model": chroma_collection.embedding_model
-                }
+                "description": project.description
             }
         except Exception as e:
             logger.exception(f"Failure occurred while attempting to create project: {str(e)}")
             raise e
+    
+
+    async def get_projects_for_data_source(self, data_source_id: UUID) -> list[dict]:
+        """
+        Get all Projects that are linked to a given DataSource ID
+        """
+
+        stmt = select(Project).join(ProjectData).where(ProjectData.data_source_id == data_source_id)
+        projects = self.db.execute(stmt).scalars().all()
+
+        return [
+            {"id": project.id, "name": project.project_name, "description": project.description} for project in projects
+        ]
+
+
+    async def aget_project_by_id(self, project_id) -> Project:
+        """
+        Async functionality to retreive a given Project by a Project Id
+        """
+        
+        stmt = select(Project).where(Project.id == project_id)
+        result = await self.async_db.execute(stmt)
+        project = result.scalars().first()
+
+        if not project:
+            raise Exception(f"No project found corresponding to ID {project_id}")
+
+        return project
+        
 
     def get_project_by_id(self, project_id) -> dict:
         """
@@ -75,7 +171,7 @@ class ProjectService:
         project = self.db.execute(stmt).scalars().first()
 
         return (
-            {"id": project.id, "name": project.project_name, "description": project.description}
+            {"id": project.id, "name": project.project_name, "description": project.description, "parent_issues": project.parent_issues}
             if project
             else {"message": f"No project found corresponding to ID {project_id}"}
         )
@@ -109,13 +205,47 @@ class ProjectService:
             if existing:
                 return {"message": "Data source is already linked to this project", "status": "already_linked"}
 
+            # retrieve the project to check parent_issues
+            project_stmt = select(Project).where(Project.id == project_id)
+            project = self.db.execute(project_stmt).scalar_one_or_none()
+            if not project:
+                raise Exception(f"Project with ID {project_id} not found")
+
+            # retrieve the data source to check scope_by_issues
+            ds_stmt = select(DataSource).where(DataSource.id == data_source_id)
+            data_source = self.db.execute(ds_stmt).scalar_one_or_none()
+            if not data_source:
+                raise Exception(f"Data Source with ID {data_source_id} not found")
+
+            # If the DataSource is already linked to other projects, enforce repository scoping rules
+            stmt_existing_links = select(ProjectData).where(ProjectData.data_source_id == data_source_id)
+            existing_links = self.db.execute(stmt_existing_links).scalars().all()
+            other_linked_projects = [l for l in existing_links if l.project_id != project_id]
+            if other_linked_projects:
+                # Data source already associated with at least one other project
+                if data_source.type == DataSourceType.REPOSITORY and not data_source.scope_by_issues:
+                    # Disallow linking a repository that is not scoped by issues to multiple projects
+                    raise ValueError(
+                        "Cannot link this Repository Data Source to multiple projects unless it is configured with "
+                        "scope_by_issues=True. To fix: set `scope_by_issues` to true on the Data Source and ensure "
+                        "the target Project has parent_issues configured (issue numbers), or unlink the Data Source from "
+                        "other projects before linking."
+                    )
+
+            # validate that if data source has scope_by_issues=True, project must have parent_issues
+            if data_source.scope_by_issues and not project.parent_issues:
+                raise ValueError(
+                    f"Cannot link Project (ID: {project_id}) to Data Source (ID: {data_source_id}) with scope_by_issues=True "
+                    f"unless the Project has parent_issues configured"
+                )
+
             # create association
             association = ProjectData(
                 project_id=project_id,
                 data_source_id=data_source_id
             )
             self.db.add(association)
-            self.db.flush()
+            self.db.commit() # NOTE: We commit here so that the downstream DiffSyncJob can successfully leverage the PROJECT_DATA record
             
             return {
                 "message": f"Successfully linked data source {data_source_id} to project {project_id}",

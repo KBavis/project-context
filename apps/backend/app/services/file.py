@@ -3,11 +3,12 @@ from sqlalchemy import select, or_, and_, update, delete
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import File, DataSource, FileCollection
+from app.models import File, DataSource
 from app.pydantic import FileProcesingStatus, File as FilePydantic
 from app.core import settings
 from app.services.chroma import ChromaService
 from app.models.docstore_chunk import DocstoreChunk
+from app.pydantic import CodeFileExtension, DocsFileExtension
 
 from typing import List
 from uuid import UUID
@@ -51,18 +52,6 @@ class FileService:
             raise Exception(f'Failed to retrieve/create File associated with path={file.path}')
 
         
-        # Step 3. Determine if this File is currently not ingested for a particular Project, even if Project Status indicates we can skip further processing
-        if status == FileProcesingStatus.UNCHANGED:
-            data_source_project_ids = [source.project_id for source in data_source.project_data]
-            unlinked_project_ids = await self.get_project_ids_not_linked_to_file(persisted_file, data_source_project_ids)
-            if unlinked_project_ids:
-                status = FileProcesingStatus.MISSING_PROJECT_LINKS # update status to indicate further processing required 
-
-                # TODO: We need to account for this, we either a) should specify this only needs to be reingested for a
-                #       particular project, or b) we should just reingest for all projects. If we go with 
-                #       option b, we need to remove the chunks from Chroma / Docstore (maybe just Chroma)
-                
-
 
         # Step 4. Mark this File's "last_ingestion_job_id" with relevant ingestion_job that is currently being ran (if needed)
         if status != FileProcesingStatus.NEW:
@@ -170,6 +159,30 @@ class FileService:
 
         # remove stale File's from DB 
         await self.delete_stale_files_from_db(stale_file_ids)
+    
+
+    def get_file_extension(self, file_extension: str) -> CodeFileExtension | DocsFileExtension:
+        """
+        Utility function to convert file extension string into relevant Enum value (if exists)
+
+        Args:
+            file_extension (str): the file extension string we are looking to convert into an Enum value 
+        """
+
+        # attempt to convert to Code file extension
+        try:
+            return CodeFileExtension(file_extension)
+        except ValueError:
+            pass
+        
+        # attempt to convert to Docs file extension
+        try:
+            return DocsFileExtension(file_extension)
+        except ValueError:
+            pass
+        
+        # error out in the case that the file extension provided is invalid 
+        raise Exception(f"File extension {file_extension} not found in either CodeFileExtension or DocsFileExtension enums")
 
 
 
@@ -200,30 +213,7 @@ class FileService:
 
 
 
-    async def get_project_ids_not_linked_to_file(self, file: File, project_ids: List[UUID]):
-        """
-        Determine if a particular file has been ingested for all relevant Projects 
 
-        Args:
-            file (File): relevant file
-            project_ids (List[UUID]): list of project IDs associated with project_ids 
-        """
-
-        # get all project IDs this file is currently associated with 
-        associated_project_ids = [collection.chroma_collection.project_id for collection in file.file_collections]
-
-        # get list of project_ids assocaited with data source, but not file 
-        not_linked_project_ids = [
-            project_id 
-            for project_id in project_ids
-            if project_id not in associated_project_ids
-        ]
-
-        if not_linked_project_ids:
-            logger.debug(f"File with PK={file.id} not linked to Projects={not_linked_project_ids}; ingestion is required")
-            return not_linked_project_ids
-        else:
-            return []
 
     
     async def update_last_seen_job_pk(self, ingestion_job_id: UUID, data_source_id: UUID, files: List["File"]):
@@ -305,10 +295,6 @@ class FileService:
 
         stmt = (
             select(File)
-            .options(
-                selectinload(File.file_collections)
-                .selectinload(FileCollection.chroma_collection)
-            )
             .where(File.hash == hash, File.data_source_id == data_source_id)
         )
 
@@ -330,10 +316,6 @@ class FileService:
 
         stmt = (
             select(File)
-            .options(
-                selectinload(File.file_collections)
-                .selectinload(FileCollection.chroma_collection)
-            )
             .where(File.path == path, File.data_source_id == data_source_id)
         )
 
@@ -407,7 +389,7 @@ class FileService:
 
     async def add_new_file(self, file: FilePydantic, data_source: DataSource, job_pk: UUID):
         """
-        Functionality to insert a new File & corresponding FileCollection record
+        Functionality to insert a new File record into the relational database.
         """
 
         session = self.session
@@ -426,25 +408,6 @@ class FileService:
 
 
         session.add(new_file)
-        await session.flush()
-
-
-        # get all relevant project IDs corresponding to data source
-        data_source_project_ids = [source.project_id for source in data_source.project_data]
-
-        # get all ChromaCollections corresponding to file type for each relevant project 
-        chroma_collections = [await self.chroma_svc.aget_collection_by_project(project_id) for project_id in data_source_project_ids]
-
-        # create FileCollections records 
-        collections = [
-            FileCollection(
-                file_id=new_file.id, 
-                chroma_collection_id=chroma_collection.id
-            )
-            for chroma_collection in chroma_collections
-        ]
-
-        session.add_all(collections)
         await session.flush()
 
         return new_file

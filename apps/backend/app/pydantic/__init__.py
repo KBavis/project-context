@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .chat import ChatRequest
-from .data_source import DataSourceRequest
+from .data_source import DataSourceRequest, DataSourceUpdateRequest
 from .project import ProjectRequest
 from .file import File, CodeFileExtension, DocsFileExtension, FileProcesingStatus
 from .chroma import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse, DeleteCollectionRequest
@@ -9,10 +9,13 @@ from .conversation import CreateConversationRequest, UpdateConversationRequest
 from .message import MessageRequest, MessageResponse as PromptResponse, MessageDto
 from .query import QueryRequest, QueryResponse
 from .mcp import MCPConfig, HttpConfig, StdioConfig
+from .git_commit import GitCommitDetail
+from .file_diff_result import FileDiffResult
 
 __all__ = [
     "ChatRequest", 
     "DataSourceRequest", 
+    "DataSourceUpdateRequest",
     "ProjectRequest", 
     "File", 
     "CodeFileExtension", 
@@ -32,5 +35,7 @@ __all__ = [
     "DeleteCollectionRequest",
     "MCPConfig",
     "HttpConfig",
-    "StdioConfig"
+    "StdioConfig",
+    "GitCommitDetail",
+    "FileDiffResult"
 ]

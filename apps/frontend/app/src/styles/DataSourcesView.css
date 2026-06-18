@@ -503,6 +503,25 @@
     color: var(--color-text-tertiary);
 }
 
+.meta-section-label-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.scope-indicator {
+    font-size: 0.55rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(var(--color-accent-rgb), 0.08);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.25);
+    color: var(--color-accent);
+    opacity: 0.75;
+}
+
 .meta-section-tags {
     display: flex;
     flex-wrap: wrap;
@@ -1024,8 +1043,148 @@
     /* Explicit contrast for disabled placeholder */
 }
 
-.data-source-mcps {
+/* Ingestion Jobs Mini Panel Styles */
+.data-source-jobs-mini {
+    margin-top: var(--spacing-md);
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.mini-jobs-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.mini-jobs-header > span:first-child {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-secondary);
+}
+
+.jobs-count {
+    font-size: 0.625rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-tertiary);
+    border: 1px solid var(--color-border);
+}
+
+.no-jobs-text {
+    font-size: 0.8125rem;
+    color: var(--color-text-tertiary);
+    text-align: center;
+    margin: 8px 0;
+    font-style: italic;
+}
+
+.mini-jobs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.mini-job-item {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mini-job-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--color-border-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.mini-job-info {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--spacing-md);
+}
+
+.mini-job-id {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.mini-job-date {
+    font-size: 0.75rem;
+    color: var(--color-text-tertiary);
+}
+
+/* Premium, button-like Status Badges */
+.mini-job-status {
+    font-size: 0.625rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 100px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 80px;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.mini-job-status.status-completed {
+    background: rgba(46, 204, 113, 0.1);
+    border: 1px solid rgba(46, 204, 113, 0.4);
+    color: #2ecc71;
+}
+
+.mini-job-status.status-failed {
+    background: rgba(231, 76, 60, 0.1);
+    border: 1px solid rgba(231, 76, 60, 0.4);
+    color: #e74c3c;
+}
+
+.mini-job-status.status-running {
+    background: rgba(241, 196, 15, 0.1);
+    border: 1px solid rgba(241, 196, 15, 0.4);
+    color: #f1c40f;
+    animation: jobPulse 2s infinite ease-in-out;
+}
+
+.mini-job-status.status-pending {
+    background: rgba(149, 165, 166, 0.1);
+    border: 1px solid rgba(149, 165, 166, 0.4);
+    color: #95a5a6;
+}
+
+@keyframes jobPulse {
+    0% {
+        opacity: 0.7;
+        transform: scale(0.98);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1);
+        box-shadow: 0 0 8px rgba(241, 196, 15, 0.2);
+    }
+    100% {
+        opacity: 0.7;
+        transform: scale(0.98);
+    }
 }

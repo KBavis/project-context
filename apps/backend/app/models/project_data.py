@@ -8,6 +8,7 @@ from uuid import UUID
 if TYPE_CHECKING:
     from .data_source import DataSource
     from .project import Project
+    from .project_repository_changes import ProjectRepositoryChanges
 
 
 class ProjectData(Base):
@@ -21,3 +22,9 @@ class ProjectData(Base):
     # many to many relationship between Project and DataSource
     project: Mapped["Project"] = relationship(back_populates="project_data")
     data_source: Mapped["DataSource"] = relationship(back_populates="project_data")
+
+    # one to one relationship with ProjectRepositoryChanges (when DataSource.scope_by_issues == TRUE and DataSource.type == REPOSITORY)
+    repository_changes: Mapped["ProjectRepositoryChanges | None"] = relationship(
+        back_populates="project_data",
+        uselist=False,
+    )

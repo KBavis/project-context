@@ -13,24 +13,24 @@ export function useIngestionJobs() {
 }
 
 export function IngestionJobProvider({ children }) {
-    const { selectedProject } = useProjects();
+    const { selectedProject, startPolling } = useProjects();
     const [ingestionJobs, setIngestionJobs] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
-    const fetchIngestionJobs = useCallback(async () => {
+    const fetchIngestionJobs = useCallback(async (silent = false) => {
         if (!selectedProject) {
             setIngestionJobs([]);
             return;
         }
-        setLoading(true);
+        if (!silent) setLoading(true);
         try {
             const data = await api.ingestion.list(selectedProject.id);
             setIngestionJobs(data);
         } catch (err) {
-            setError(err.message);
+            if (!silent) setError(err.message);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     }, [selectedProject]);
 
@@ -38,10 +38,24 @@ export function IngestionJobProvider({ children }) {
         fetchIngestionJobs();
     }, [fetchIngestionJobs]);
 
+    // Automatically poll if any jobs are currently running
+    useEffect(() => {
+        const isRunning = ingestionJobs.some(j => 
+            j.processing_status === 'IN_PROGRESS' || j.processing_status === 'PENDING'
+        );
+        if (!isRunning) return;
+
+        const interval = setInterval(() => fetchIngestionJobs(true), 5000);
+        return () => clearInterval(interval);
+    }, [ingestionJobs, fetchIngestionJobs]);
+
     const createIngestionJob = async (dataSourceId) => {
         try {
             const job = await api.ingestion.create(dataSourceId);
             setIngestionJobs(prev => [job, ...prev]);
+            if (selectedProject) {
+                startPolling(selectedProject.id);
+            }
             return job;
         } catch (err) {
             console.error('Failed to create ingestion job:', err);

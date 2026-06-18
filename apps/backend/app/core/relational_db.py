@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import asynccontextmanager
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import (
     AsyncSession, 
@@ -138,11 +139,36 @@ def get_sync_db_session() -> Generator[Session, None, None]:
         raise
     finally:
         db.close()
-    
+
+
+@asynccontextmanager
+async def get_async_db_session_context() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Create a transactional async DB session for use outside FastAPI's
+    request lifecycle (e.g. background tasks).
+
+    Wrapped in @asynccontextmanager so it can be driven via `async with`,
+    since plain async generators don't implement __aenter__/__aexit__ on
+    their own. The session logic here is identical to get_async_db_session;
+    use this version anywhere FastAPI's DI isn't managing the lifecycle.
+    """
+    session_maker = get_async_session_maker()
+    async with session_maker() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
 
 async def get_async_db_session() -> AsyncGenerator[AsyncSession, None]:
     """
-    Create transactional async DB session
+    Create a transactional async DB session for use as a FastAPI dependency
+    (via Depends()). FastAPI's DI system drives this generator directly:
+    it resumes past the `yield` to commit/rollback once the request
+    handler returns. Not usable with `async with` — see
+    get_async_db_session_context for that.
     """
     session_maker = get_async_session_maker()
     
@@ -160,4 +186,12 @@ def init_db() -> None:
     """
     Initalize necessary DB tables used through application
     """
-    Base.metadata.create_all(bind=sync_engine)
+
+    # prevent `data_chunks_docstore` table from being created 
+    # NOTE: This is because we wnat PostgresKVStore to create this for us in order to 
+    # prevent corrupted the internal strucutre of the table 
+    tables_to_create = [
+        table for table in Base.metadata.tables.values()
+        if table.name != 'data_chunks_docstore'
+    ]
+    Base.metadata.create_all(bind=sync_engine, tables=tables_to_create)

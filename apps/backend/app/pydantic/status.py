@@ -10,3 +10,4 @@ class ProcessingStatus(Enum):
     SUCCESS = "success"
     IN_PROGRESS = "in_progress"
     FAILED = "failed"
+    SKIPPED = "skipped"

@@ -11,13 +11,15 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType, ProjectData, Project
-from app.data_providers import DataProvider
 from app.core import settings, get_async_session_maker
 from app.services.record_lock import RecordLockService
 from app.services.file import FileService
 from app.services.chunk_insertion import ChunkInsertionService
+from typing import TYPE_CHECKING
+from app.data_providers.ingestible.base import IngestibleDataProvider
 
-
+if TYPE_CHECKING:
+    from app.services.data_source import DataSourceService
 logger = logging.getLogger(__name__)
 
 class IngestionJobService:
@@ -26,8 +28,9 @@ class IngestionJobService:
             self, 
             db: AsyncSession, 
             record_lock_svc: RecordLockService,
-            file_svc: FileService,
-            chunk_insertion_service: ChunkInsertionService
+            file_svc: "FileService",
+            chunk_insertion_service: "ChunkInsertionService",
+            data_source_svc: "DataSourceService"
     ):
         """
         Initialize IngestionJobService with necessary dependencies
@@ -37,13 +40,74 @@ class IngestionJobService:
             record_lock_svc (RecordLockService): Service for managing record locks
             file_svc (FileService): Service for file operations
             chunk_insertion_service (ChunkInsertionService): Service for chunking and storing data
+            data_source_svc (DataSourceService): Service for managing data sources
         """
         self.db: AsyncSession = db
         self.record_lock_svc: RecordLockService = record_lock_svc
-        self.file_svc: FileService = file_svc
-        self.chunk_insertion_service: ChunkInsertionService = chunk_insertion_service
+        self.file_svc: "FileService" = file_svc
+        self.chunk_insertion_service: "ChunkInsertionService" = chunk_insertion_service
+        self.data_source_svc: "DataSourceService" = data_source_svc
+
+    async def get_project_ingestion_state(self, project_id: UUID) -> tuple[str, list[str]]:
+        """
+        Determine whether every ingestible DataSource (REPOSITORY, DOCUMENTATION)
+        for this project has a successful IngestionJob.
+
+        Returns a tuple: (ProcessingStatus string value, list of detailed reasons for failure/in_progress).
+        """
+        ingestible = await self.data_source_svc.get_ingestible_data_sources(project_id, self.db)
+
+        if not ingestible:
+            logger.info(f"[IngestionState] project_id={project_id}: no ingestible sources → success")
+            return ProcessingStatus.SUCCESS.value, []
+
+        states = []
+        reasons = []
+        for ds in ingestible:
+            stmt = (
+                select(IngestionJob)
+                .where(IngestionJob.data_source_id == ds.id)
+                .order_by(IngestionJob.start_time.desc())
+                .limit(1)
+            )
+            res = await self.db.execute(stmt)
+            latest_job = res.scalar_one_or_none()
+
+            if not latest_job:
+                logger.info(
+                    f"[IngestionState] project_id={project_id}, ds={ds.id} ({ds.name}): "
+                    "no IngestionJob found → failed"
+                )
+                states.append(ProcessingStatus.FAILED.value)
+                reasons.append(f"Data source '{ds.name}' has not been ingested yet.")
+                continue
+
+            job_state = latest_job.processing_status.value
+            logger.info(
+                f"[IngestionState] project_id={project_id}, ds={ds.id} ({ds.name}): "
+                f"latest IngestionJob={latest_job.id}, status={job_state}"
+            )
+            states.append(ProcessingStatus.FAILED.value if job_state == ProcessingStatus.SKIPPED.value else job_state)
+            
+            if job_state == ProcessingStatus.FAILED.value:
+                reasons.append(f"Latest ingestion job failed for data source '{ds.name}'.")
+            elif job_state == ProcessingStatus.IN_PROGRESS.value:
+                reasons.append(f"Data source '{ds.name}' is currently being ingested.")
+            elif job_state == ProcessingStatus.SKIPPED.value:
+                reasons.append(f"Ingestion was skipped for data source '{ds.name}'.")
+
+        logger.info(f"[IngestionState] project_id={project_id}: states={states}")
+
+        if ProcessingStatus.IN_PROGRESS.value in states:
+            return ProcessingStatus.IN_PROGRESS.value, reasons
+        if ProcessingStatus.FAILED.value in states:
+            return ProcessingStatus.FAILED.value, reasons
+        return ProcessingStatus.SUCCESS.value, []
+
+
 
     
+
     async def init_ingestion_job(self, data_source_id: UUID, job_start_time: datetime): 
         """
         Validate Datasource & create inital ingestion job with IN_PROGRESS status 
@@ -52,13 +116,12 @@ class IngestionJobService:
             data_source_id (UUID): the data source this ingestion job corresponds to 
         """
         
-        # retrieve data source (EAGERLY load project_data, project, and chroma collections for future processing)
+        # retrieve data source (EAGERLY load project_data and project for future processing)
         stmt = (
             select(DataSource)
                 .options( 
                     selectinload(DataSource.project_data) 
                     .selectinload(ProjectData.project) 
-                    .selectinload(Project.chroma_collection)
                 ) 
                 .where(DataSource.id == data_source_id)
         )
@@ -92,27 +155,43 @@ class IngestionJobService:
             project_id: UUID | None = None
         ):
         """
-        Kick off ingestion job for specified data source and store relevant ingested data into ChromaDB
+        Run the ingestion job for the specified data source: download files, chunk them,
+        and persist nodes to both Chroma (vector store) and the PostgreSQL DocStore.
+
+        Since Chroma and DocStore are each 1-1 with a DataSource, all ingested nodes
+        belong exclusively to this data source's collection and namespace.
 
         Args:
-            data_source_id (UUID)
-                - specifici data source to retrieve data from
-            project_id (Optional(UUID))
-                - optional project ID to only retrieve data for specified project
-
-        TODO:
-            1. Consider adding multi-threading concurrency to this approach to speed up larger IngestionJobs 
-            2. Look into total amount of time processing takes when ONLY using CPU (any optimizations we can make?)
+            job_pk (UUID): unique ID of the current ingestion job
+            job_start_time (datetime): wall-clock time the job was initiated
+            data_source (DataSource): the data source being ingested
+            project_id (Optional[UUID]): unused; reserved for future project-scoped filtering
         """
 
-        # begin processing for current IngestionJob
         data_source_id = data_source.id
+
+        try:
+            provider = IngestibleDataProvider.from_provider(data_source)
+        except Exception as e:
+            logger.info(
+                f"Skipping ingestion for DataSource={data_source_id}: "
+                f"type={data_source.type} is not ingestible. Reason: {e}"
+            )
+            job_end_time = datetime.now(ZoneInfo("America/New_York"))
+            duration = job_end_time - job_start_time
+            await self.update_ingestion_job(
+                job_pk=job_pk,
+                status=ProcessingStatus.SKIPPED,
+                end_time=job_end_time,
+                duration=duration.seconds,
+                session=self.db
+            )
+            return
 
         try:
 
             # use data source information to fetch relevant data & store in temp directory
-            # TODO: Add configuration possibility to only retrieve data specific to the Jira Tickets provided in Project
-            code_path, docs_path = await self._retrieve_data(data_source, project_id, job_pk)
+            code_path, docs_path = await self._retrieve_data(provider, job_pk)
 
             # determine which data source types were downloaded
             has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(code_path)
@@ -129,15 +208,14 @@ class IngestionJobService:
 
                 # TODO: Consider thread pool based on available resources to user (CPU cores, GPU, etc)
                 # run Docling conversion, chunking, and ChromaDB persistence 
-                await self.chunk_insertion_service.docs_convert_chunk_and_store(data_source, project_id, job_pk)
+                await self.chunk_insertion_service.docs_convert_chunk_and_store(data_source, job_pk)
 
 
             # code files were ingested 
             if has_code:
                 logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
-                await self.chunk_insertion_service.code_chunk_and_store(data_source, project_id, job_pk)
-
-
+                await self.chunk_insertion_service.code_chunk_and_store(data_source, job_pk)
+            
             self._cleanup_tmp_dirs(job_pk)
 
             job_end_time = datetime.now(ZoneInfo("America/New_York"))
@@ -242,33 +320,23 @@ class IngestionJobService:
     
 
     async def _retrieve_data(
-        self, data_source: DataSource, project_id: UUID | None, job_pk: UUID,
+        self, provider: IngestibleDataProvider, job_pk: UUID,
     ) -> tuple[Path, Path]:
         """
         Retrieve relevant data from specified Data Source and store within temporary /data directory
         in order to be ingested into Chroma DB
 
         Args:
-            data_source (DataSource) - data source to ingest data from
+            provider - instantiated IngestibleDataProvider to ingest data from
             project_id (UUID) - optional specific project_id to only retrieve data for
 
         NOTE: In future, we should make some sort of "diff" calculation each time we retreive data from data source
         in order to quickly determine what's already been retireving before
-
-        TODO: Allow for providers such as GitHub & BitBucket to be parsed by commit messages containing the
-        Jira Ticket number
         """
 
         code_path, docs_path = self._create_tmp_dirs(job_pk) 
 
-        # retrieve data based on provider & store within temp directory
-        provider = DataProvider.from_provider(
-            data_source=data_source,
-            file_svc=self.file_svc,
-            job_pk=job_pk
-        )
-
-        await provider.ingest_data() 
+        await provider.ingest_data(job_pk=job_pk, file_svc=self.file_svc) 
         return code_path, docs_path
 
 

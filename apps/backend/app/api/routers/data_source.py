@@ -1,12 +1,17 @@
 from __future__ import annotations
-from fastapi import APIRouter, Depends, HTTPException, status
+import logging
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 
-from app.services import DataSourceService
+from app.services import DataSourceService, ProjectService
 from app.pydantic import DataSourceRequest
-from ..svc_deps import get_data_source_svc
+from app.models.data_source import DataSourceType
+from app.services.diff import DiffService
+from ..svc_deps import get_data_source_svc, get_async_diff_svc, get_project_svc
 
 from uuid import UUID
+from app.pydantic import DataSourceRequest, DataSourceUpdateRequest
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/data/sources")
 
@@ -27,20 +32,72 @@ def get_data_sources(
 
 
 @router.post("/", summary="Connect to external data source")
-def create_datasource(
+async def create_datasource(
     request: DataSourceRequest, 
-    svc: DataSourceService = Depends(get_data_source_svc)
+    background_tasks: BackgroundTasks,
+    svc: DataSourceService = Depends(get_data_source_svc),
+    diff_svc: DiffService = Depends(get_async_diff_svc),
+    project_svc: ProjectService = Depends(get_project_svc)
 ):
     """
-    Connect application to an external datasource in order to ingest data from
+    Connect application to an external datasource in order to ingest data from.
+    If the new data source is a REPOSITORY with scope_by_issues=True and is linked
+    to projects at creation time, a DiffSyncJob will be kicked off for each linked project.
     """
 
     try:
-        return svc.create_data_source(request)
+        # Validation: Cannot link an issue-scoped repo to projects missing an issue tracker or parent issues
+        if request.type == DataSourceType.REPOSITORY and request.scope_by_issues and request.project_ids:
+            for project_id in request.project_ids:
+                project = await project_svc.aget_project_by_id(project_id)
+                if not project.parent_issues:
+                    raise ValueError(f"Cannot link an issue-scoped repository to project {project_id} without parent issues configured.")
+                
+                all_project_ds = await svc.aget_project_data_sources(project_id)
+                has_issue_tracker = any(pds.type == DataSourceType.ISSUE_TRACKER for pds in all_project_ds)
+                if not has_issue_tracker:
+                    raise ValueError(f"Cannot link an issue-scoped repository to project {project_id} because it lacks an Issue Tracker data source.")
+
+        result = svc.create_data_source(request)
+
+        # Kick off DiffSyncJobs for linked projects if this is an issue-scoped repository
+        if request.type == DataSourceType.REPOSITORY and request.scope_by_issues and request.project_ids:
+            data_source_id = result["id"]
+            for project_id in request.project_ids:
+                logger.info(
+                    f"[CreateDataSource] DataSource={data_source_id} is REPOSITORY with scope_by_issues=True: "
+                    f"kicking off DiffSyncJob for Project={project_id}"
+                )
+                job = await diff_svc.init_diff_sync_job(project_id, data_source_id)
+                background_tasks.add_task(diff_svc.execute_repository_sync_job, job.id)
+
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
         )
+
+
+
+@router.patch("/{data_source_id}", summary="Update data source")
+def update_datasource(
+    data_source_id: UUID,
+    updates: DataSourceUpdateRequest,
+    svc: DataSourceService = Depends(get_data_source_svc)
+):
+    """
+    Patch/update a Data Source. Only permitted updates are `name`, `branch`, `scope_by_issues`, `url`, `provider`.
+    Returns 400 on validation errors (e.g. enabling `scope_by_issues` when linked projects lack parent_issues).
+    """
+    try:
+        # Only send fields that were provided
+        return svc.update_data_source(data_source_id, updates.dict(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 

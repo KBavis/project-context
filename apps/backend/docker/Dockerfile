@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
     tesseract-ocr \
+    git \
     curl \
     ca-certificates \
     gnupg \
@@ -39,6 +40,10 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /root/.local /root/.local 
 
 COPY . /app
+
+# Configure git identity required for cherry-pick and other write operations
+RUN git config --global user.email "contextualized@app.local" && \
+    git config --global user.name "Contextualized"
 
 EXPOSE 8000
 

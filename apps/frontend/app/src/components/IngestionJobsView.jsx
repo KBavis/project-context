@@ -2,17 +2,13 @@ import { useEffect } from 'react';
 import { useIngestionJobs, useDataSources } from '../contexts/index';
 import '../styles/IngestionJobsView.css';
 
-export default function IngestionJobsView({ projectId }) {
+export default function IngestionJobsView() {
     const { ingestionJobs: jobs, loading, fetchIngestionJobs } = useIngestionJobs();
     const { dataSources } = useDataSources();
 
     useEffect(() => {
-        if (projectId) {
-            fetchIngestionJobs();
-            const interval = setInterval(fetchIngestionJobs, 5000);
-            return () => clearInterval(interval);
-        }
-    }, [projectId, fetchIngestionJobs]);
+        fetchIngestionJobs();
+    }, [fetchIngestionJobs]);
 
     const mapStatus = (status) => {
         if (!status) return 'pending';
@@ -28,15 +24,6 @@ export default function IngestionJobsView({ projectId }) {
         return ds ? (ds.name || ds.url || dsId) : dsId;
     };
 
-    if (!projectId) {
-        return (
-            <div className="jobs-empty">
-                <div className="empty-icon">⚙️</div>
-                <h3>No Project Selected</h3>
-                <p>Select a project to view its ingestion jobs</p>
-            </div>
-        );
-    }
 
     return (
         <div className="jobs-container">

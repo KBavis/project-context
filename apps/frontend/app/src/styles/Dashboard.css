@@ -1,0 +1,137 @@
+.dashboard-layout {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-color);
+}
+
+.dashboard-header {
+    height: 70px;
+    background: var(--surface-color);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 40px;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.header-left h1 {
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.dashboard-nav {
+    display: flex;
+    gap: 8px;
+}
+
+.dashboard-nav button {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.dashboard-nav button:hover {
+    color: var(--text-color);
+    background: rgba(255,255,255,0.05);
+}
+
+.dashboard-nav button.active {
+    color: var(--text-color);
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.dashboard-main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 40px;
+}
+
+.projects-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.projects-header-actions {
+    margin-bottom: 32px;
+}
+
+.projects-header-actions h2 {
+    font-size: 28px;
+    font-weight: 600;
+}
+
+.projects-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 24px;
+}
+
+.project-card {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 24px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    flex-direction: column;
+}
+
+.project-card:hover {
+    transform: translateY(-4px);
+    border-color: #3b82f6;
+    box-shadow: 0 12px 24px -10px rgba(0,0,0,0.5);
+}
+
+.project-card-icon {
+    font-size: 32px;
+    margin-bottom: 16px;
+}
+
+.project-card h3 {
+    font-size: 18px;
+    margin-bottom: 8px;
+}
+
+.project-card-meta {
+    color: #94a3b8;
+    font-size: 14px;
+    margin-top: auto;
+    padding-top: 16px;
+}
+
+.create-card {
+    border: 2px dashed var(--border-color);
+    background: transparent;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.create-card:hover {
+    background: rgba(59, 130, 246, 0.05);
+}
+
+.create-icon {
+    font-size: 32px;
+    width: 48px;
+    height: 48px;
+    border-radius: 24px;
+    background: var(--primary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+}

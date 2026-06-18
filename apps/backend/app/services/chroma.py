@@ -10,8 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, update
 
-from app.models.file_collection import FileCollection
-from app.services.util import get_normalized_project_name
+from app.models.file import File
 from app.core import ChromaClientManager
 from app.pydantic import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse
 from app.models import ChromaCollection
@@ -37,34 +36,31 @@ class ChromaService:
         self.chroma_manager = chroma_manager
     
 
-    async def download_and_cache_collection_embeddings(self, project_id):
+    async def download_and_cache_collection_embeddings(self, data_source_id: UUID):
         """
-        Download and cache embeddings for a specified project.
+        Download and cache embeddings for a specified data source.
         
         This preloads embedding models into memory cache to improve 
-        response time for subsequent queries on this project.
+        response time for subsequent queries on this data source.
         
         Args:
-            project_id (UUID): The project ID to cache embeddings for
+            data_source_id (UUID): The data source ID to cache embeddings for
         """
 
         try:
-            # retreive relevant Chroma Collections corresponding to Project 
-            collection = self.get_collection_by_project(project_id)
+            # retreive relevant Chroma Collections corresponding to Data Source
+            collection = self.get_collection_by_data_source(data_source_id)
             if not collection:
-                logger.warning(f"No ingested data found for Project ID: {project_id}")
+                logger.warning(f"No ingested data found for Data Source ID: {data_source_id}")
                 return
             
-            # Create embedding manager with project_id for caching
-            embedding_manager = EmbeddingManager(collection, project_id=project_id)
-
             # Pre-load and cache both embedding models in parallel
-            logger.info(f"Pre-loading and caching embeddings for project {project_id}...")
-            await embedding_manager.aget_embedding_model_cached()
-            logger.info(f"Successfully cached embeddings for project {project_id}")
+            logger.info(f"Pre-loading and caching embeddings for data source {data_source_id}...")
+            await EmbeddingManager.aget_embedding_model_cached()
+            logger.info(f"Successfully cached embeddings for data source {data_source_id}")
             
         except Exception as e:
-            logger.error(f"Error caching embeddings for project {project_id}: {str(e)}")
+            logger.error(f"Error caching embeddings for data source {data_source_id}: {str(e)}")
             # Don't raise - caching is a performance optimization, not critical
 
 
@@ -83,44 +79,44 @@ class ChromaService:
             raise e
 
 
-    def get_collection_by_project(self, project_id: UUID) -> ChromaCollection:
+    def get_collection_by_data_source(self, data_source_id: UUID) -> ChromaCollection:
         """
-        Get the ChromaCollection corresponding to a particular Project 
+        Get the ChromaCollection corresponding to a particular DataSource 
 
         Args:
-            project_id (UUID): the project ID to fetch collections for 
+            data_source_id (UUID): the data source ID to fetch collections for 
         """
         stmt = (
             select(ChromaCollection)
-            .options(selectinload(ChromaCollection.project))
-            .where(ChromaCollection.project_id == project_id)
+            .options(selectinload(ChromaCollection.data_source))
+            .where(ChromaCollection.data_source_id == data_source_id)
         )
         
         res = self.db.execute(stmt)
         collection = res.scalars().one_or_none()
 
         if not collection:
-            raise Exception(f"No ChromaCollection found for Project ID: {project_id}")
+            raise Exception(f"No ChromaCollection found for Data Source ID: {data_source_id}")
 
         return collection
     
-    async def aget_collection_by_project(self, project_id: UUID) -> ChromaCollection:
+    async def aget_collection_by_data_source(self, data_source_id: UUID) -> ChromaCollection:
         """
-        Get ChromaCollection by Project 
+        Get ChromaCollection by DataSource 
 
         Args:
-            project_id (UUID): the project ID to fetch collections for 
+            data_source_id (UUID): the data source ID to fetch collections for 
         """
         stmt = (
             select(ChromaCollection)
-            .options(selectinload(ChromaCollection.project))
-            .where(ChromaCollection.project_id == project_id)
+            .options(selectinload(ChromaCollection.data_source))
+            .where(ChromaCollection.data_source_id == data_source_id)
         )
 
         result = await self.async_db.execute(stmt)
         collection = result.scalars().one_or_none()
         if not collection:
-            raise Exception(f"No ChromaCollection found for Project ID: {project_id}")
+            raise Exception(f"No ChromaCollection found for Data Source ID: {data_source_id}")
         return collection
 
     def update_collection_counts(self, collection: Collection):
@@ -165,8 +161,8 @@ class ChromaService:
             # retrieve ChromaCollections assocaited with the "stale" files
             stmt = (
                 select(ChromaCollection)
-                .join(FileCollection, ChromaCollection.id == FileCollection.chroma_collection_id)
-                .where(FileCollection.file_id.in_(file_ids))
+                .join(File, ChromaCollection.data_source_id == File.data_source_id)
+                .where(File.id.in_(file_ids))
             )
             result = await self.async_db.execute(stmt)
             chroma_collections = result.scalars().all()
@@ -196,35 +192,30 @@ class ChromaService:
 
     def create_collection(
         self, 
-        project_id: UUID, 
-        project_name: str, 
-        embedding_provider: str, 
-        embedding_model: str, 
+        data_source_id: UUID, 
+        data_source_name: str, 
     ):
         """
-        Create collection for a particular project
+        Create a Chroma collection for a particular data source.
+
+        The collection is named after the data source's UUID, ensuring a stable,
+        unique identifier that does not depend on the human-readable name.
 
         Args:
-            project_id (UUID): specific project id to create collections for 
-            project_name (str): project name 
-            embedding_provider (str): embedding provider for documents 
-            embedding_model (str): embedding model for documents 
+            data_source_id (UUID): data source ID — used as the collection name
+            data_source_name (str): data source name (used only for log messages)
         """
 
-        PROJECT = get_normalized_project_name(project_name)
-
-        self._verify_project_collections_dne(PROJECT, original_name=project_name)
+        collection_name = str(data_source_id)
 
         try:
-            # create collections in ChromaDB
-            _ = self.client.create_collection(name=PROJECT)
+            # create collection in ChromaDB
+            _ = self.client.create_collection(name=collection_name)
 
-            # create relational DB records 
+            # persist relational DB record
             collection = ChromaCollection(
-                project_id=project_id,
-                name=PROJECT,
-                embedding_provider=embedding_provider,
-                embedding_model=embedding_model
+                data_source_id=data_source_id,
+                name=collection_name
             )
 
             self.db.add(collection)
@@ -233,97 +224,62 @@ class ChromaService:
             return collection      
 
         except Exception as e:
-            logger.error(f"Failure occurred while attempting to create ChromaDB Collections for Project={project_name}: {str(e)}")
+            logger.error(f"Failure occurred while attempting to create ChromaDB collection for DataSource={data_source_name} (id={data_source_id}): {str(e)}")
             raise e
 
-    
-    def _verify_project_collections_dne(
-        self, project_name: str, original_name: str
-    ) -> None:
+
+    def delete_collection(self, data_source_id: UUID):
         """
-        Helper function for verifying relevant collections for specified project do not exist already
-
-        NOTE: ChromaDB will raise exception in the case the collction does not exist by name
-        """
-
-        project_dne = True
-
-        # attempt to retrieve docs chroma db collection
-        try:
-            _ = self.client.get_collection(f"{project_name}")
-            project_dne = False
-        except Exception as e:
-            pass
-
-        # error out if either one exists (as this indicates a project with this name is in use)
-        if project_dne == False:
-            raise Exception(f"Project with the name {original_name} already exists")
-
-
-    def delete_collection(self, project_id: UUID):
-        """
-        Delete collection(s) associated with particular project
+        Delete the Chroma collection associated with a particular data source.
 
         Args:
-            project_id (UUID): specific project id to retrieve files for 
+            data_source_id (UUID): data source whose collection should be removed
         """
 
-        # fetch all ChromaCollections corresponding to ProjectID 
-        collection = self.get_collection_by_project(project_id)
+        collection = self.get_collection_by_data_source(data_source_id)
         if not collection:
-            logger.warning(f"No ChromaCollections found corresponding to ProjectId={project_id}")
+            logger.warning(f"No ChromaCollection found for DataSource={data_source_id}")
             return
-    
-        project = collection.project
-        project_name = get_normalized_project_name(project_name=project.project_name)
 
-        self._delete_collection(project_name)
+        self._delete_collection(collection.name)
     
 
     def delete_collection_documents(
             self, 
             delete_collections: DeleteCollectionDocsRequest,
-            project_id: UUID 
+            data_source_id: UUID 
         ):
         """
-        Delete documents from a particular collection 
+        Delete documents from the Chroma collection tied to a particular data source.
 
         Args:
-            project_id (UUID): specific project id to retrieve files for 
-            document_ids (List): list of document ids to delete 
+            data_source_id (UUID): data source whose collection documents should be removed
+            delete_collections (DeleteCollectionDocsRequest): request body containing doc IDs
         """
 
-        # fetch all ChromaCollections corresponding to ProjectID 
-        collection = self.get_collection_by_project(project_id)
+        collection = self.get_collection_by_data_source(data_source_id)
         if not collection:
-            logger.warning(f"No ChromaCollection found corresponding to ProjectId={project_id}")
+            logger.warning(f"No ChromaCollection found for DataSource={data_source_id}")
             return
-    
-        project = collection.project
-        project_name = get_normalized_project_name(project_name=project.project_name)
 
-        self._delete_documents(project_name, delete_collections.doc_ids)
+        self._delete_documents(collection.name, delete_collections.doc_ids)
 
-        return {"message": f"Successfully deleted documents from collections for Project={project_id}"}
+        return {"message": f"Successfully deleted documents from collection for DataSource={data_source_id}"}
 
-    def get_all_files(self, project_id: UUID) -> CollectionFilesResponse | MessageResponse | dict[str, CollectionFilesResponse] | None:
+    def get_all_files(self, data_source_id: UUID) -> CollectionFilesResponse | MessageResponse | dict[str, CollectionFilesResponse] | None:
         """
-        Retrieve all files stored within collections corresponding to a particular Project
+        Retrieve all files stored within the Chroma collection for a particular data source.
 
         Args:
-            project_id (UUID): specific project id to retrieve files for 
+            data_source_id (UUID): data source to retrieve collection files for
         """
-        
-        # fetch all ChromaCollections corresponding to ProjectID 
-        collection = self.get_collection_by_project(project_id)
-        if not collection:
-            logger.warning(f"No ChromaCollection found corresponding to ProjectId={project_id}")
-            return
-    
-        project = collection.project
-        project_name = get_normalized_project_name(project_name=project.project_name)
 
-        return self._get_files_from_collection(project_name)
+        collection = self.get_collection_by_data_source(data_source_id)
+        if not collection:
+            logger.warning(f"No ChromaCollection found for DataSource={data_source_id}")
+            return
+
+        return self._get_files_from_collection(collection.name)
 
 
     def _delete_documents(self, project_name: str, doc_ids: list[str]):

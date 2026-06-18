@@ -14,4 +14,3 @@ class CreateConversationRequest(BaseModel):
     # default to use configured LL model (set in service layer)
     ll_model_name: str | None = None
     ll_model_provider: str | None = None
-    

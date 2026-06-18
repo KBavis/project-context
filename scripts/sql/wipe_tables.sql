@@ -1,12 +1,15 @@
 DELETE FROM file;
-DELETE FROM file_collection;
 DELETE FROM execution_token_usage;
+DELETE FROM file_diff;
+DELETE FROM git_commit;
+DELETE FROM project_repository_changes;
 DELETE FROM record_lock;
 DELETE FROM data_source_mcp_config;
 DELETE FROM data_chunks_docstore;
 DELETE FROM project_data;
 DELETE FROM message;
 DELETE FROM conversation;
+DELETE FROM diff_sync_job;
 DELETE FROM project;
 DELETE FROM chroma_collection;
 DELETE FROM ingestion_job;

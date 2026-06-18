@@ -1,11 +1,12 @@
 from __future__ import annotations
-from sqlalchemy import String
+from sqlalchemy import String, Integer
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
 
-from .base import Base
+class DocstoreChunkBase(DeclarativeBase):
+    pass
 
-class DocstoreChunk(Base):
+class DocstoreChunk(DocstoreChunkBase):
     """
     Model representing a record within the LlamaIndex Postgres DocStore table.
     """
@@ -13,6 +14,7 @@ class DocstoreChunk(Base):
     __tablename__ = 'data_chunks_docstore'
     __table_args__ = {'extend_existing': True}
 
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     key: Mapped[str] = mapped_column(String, primary_key=True)
     namespace: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[dict] = mapped_column(JSONB)
