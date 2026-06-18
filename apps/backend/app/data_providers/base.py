@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 class Provider(str, Enum):
     GITHUB = "GitHub"
     JIRA = "Jira"
+    BITBUCKET = "BitBucket"
 
 
 class DataProvider(ABC):

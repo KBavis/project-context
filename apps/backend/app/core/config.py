@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     HUGGING_FACE_API_KEY: str | None = None
     OPENAI_API_KEY: str | None = None
 
+    BITBUCKET_USERNAME: str | None = None
+    BITBUCKET_SECRET_TOKEN: str | None = None
+
     ###########################
     # File Paths 
     ###########################

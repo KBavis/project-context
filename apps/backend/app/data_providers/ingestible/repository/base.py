@@ -37,6 +37,9 @@ class RepositoryDataProvider(IngestibleDataProvider):
             case Provider.GITHUB:
                 from app.data_providers.ingestible.repository import GithubDataProvider
                 return GithubDataProvider(data_source=data_source)
+            case Provider.BITBUCKET:
+                from app.data_providers.ingestible.repository.bitbucket import BitbucketDataProvider
+                return BitbucketDataProvider(data_source=data_source)
             case _:
                 raise Exception(f"Data Source provider {data_source.provider} is not configured as a Repository Data Provider")
 
