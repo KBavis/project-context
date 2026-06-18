@@ -13,6 +13,7 @@ class Provider(str, Enum):
     GITHUB = "GitHub"
     JIRA = "Jira"
     BITBUCKET = "BitBucket"
+    CONFLUENCE = "Confluence"
 
 
 class DataProvider(ABC):

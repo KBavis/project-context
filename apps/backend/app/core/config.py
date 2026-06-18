@@ -73,6 +73,9 @@ class Settings(BaseSettings):
 
     BITBUCKET_USERNAME: str | None = None
     BITBUCKET_SECRET_TOKEN: str | None = None
+    
+    CONFLUENCE_EMAIL: str | None = None
+    CONFLUENCE_SECRET_TOKEN: str | None = None
 
     ###########################
     # File Paths 

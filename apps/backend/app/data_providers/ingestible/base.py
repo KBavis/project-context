@@ -28,9 +28,8 @@ class IngestibleDataProvider(DataProvider):
                 from app.data_providers.ingestible.repository.base import RepositoryDataProvider
                 return RepositoryDataProvider.from_provider(data_source)
             case DataSourceType.DOCUMENTATION:
-                raise Exception(
-                    f"Data Source type {data_source.type} is not configured as an Ingestible Data Provider"
-                )
+                from app.data_providers.ingestible.documentation.base import DocumentationDataProvider
+                return DocumentationDataProvider.from_provider(data_source)
             case _:
                 raise Exception(
                     f"Data Source type {data_source.type} is not configured as an Ingestible Data Provider"
