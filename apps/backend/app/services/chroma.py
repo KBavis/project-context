@@ -14,7 +14,7 @@ from app.models.file import File
 from app.core import ChromaClientManager
 from app.pydantic import DeleteCollectionDocsRequest, CollectionFilesResponse, MessageResponse
 from app.models import ChromaCollection
-from app.core import DOCS, CODE
+from app.core import DOCS, CODE, settings
 from app.embeddings import EmbeddingManager
 
 
@@ -130,9 +130,25 @@ class ChromaService:
             # determine Chunk (total embedded pieces of information) count
             total_chunks = collection.count()
 
-            # determine Document (File) count
-            docs = collection.get()
-            total_documents = len(docs['ids'])
+            # determine Document (File) count = distinct file_id across all chunk
+            # metadata. We must paginate: an unbounded collection.get() leads to issues if collection too large
+            file_ids: set[str] = set()
+            offset = 0
+            while True:
+                page = collection.get(
+                    limit=settings.CHROMA_GET_PAGE_SIZE,
+                    offset=offset,
+                    include=["metadatas"],
+                )
+                ids = page["ids"]
+                if not ids:
+                    break
+                for metadata in page["metadatas"] or []:
+                    file_id = metadata.get("file_id") if metadata else None
+                    if file_id is not None:
+                        file_ids.add(str(file_id))
+                offset += len(ids)
+            total_documents = len(file_ids)
 
             # update counts in ChromaCollection record
             stmt = (

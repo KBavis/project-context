@@ -1,10 +1,13 @@
 from __future__ import annotations
 from abc import abstractmethod
+from fnmatch import fnmatch
 from uuid import UUID
-from datetime import datetime
+from typing import TYPE_CHECKING
+import logging
 
 from app.data_providers.ingestible.base import IngestibleDataProvider
 from app.data_providers import Provider
+from app.core import settings
 from app.models.data_source import DataSource
 from app.services.file import FileService
 from app.pydantic.pull_request import PullRequestDetail
@@ -23,9 +26,6 @@ class RepositoryDataProvider(IngestibleDataProvider):
 
     def __init__(self, data_source: DataSource):
         super().__init__(data_source=data_source)
-
-        # validate URL is in expected format for Repository 
-        self._validate_url()
 
         # extract relevant from URL & data source
         repository_owner, repository_name = self._parse_repository_ref()
@@ -78,6 +78,40 @@ class RepositoryDataProvider(IngestibleDataProvider):
         """
         return f"{self._repository_owner}/{self._repository_name}"
     
+
+    def _is_excluded_path(self, path: str) -> bool:
+        """
+        Return True if a repo file path matches any configured ingestion exclude glob
+        (company-agnostic INGESTION_EXCLUDE_PATTERNS plus repo-specific
+        INGESTION_EXCLUDE_PATTERNS_EXTRA). Used to skip vendored/build/generated/fixture files.
+
+        Args:
+            path (str): repository file path to test
+        """
+        patterns = settings.INGESTION_EXCLUDE_PATTERNS + settings.INGESTION_EXCLUDE_PATTERNS_EXTRA
+        return any(fnmatch(path, pattern) for pattern in patterns)
+
+
+    def _filter_excluded_paths(self, paths: list[str]) -> list[str]:
+        """
+        Drop repo file paths matching the configured exclude globs so they are never downloaded,
+        embedded, or stored. Combines the company-agnostic INGESTION_EXCLUDE_PATTERNS defaults with
+        any repo-specific INGESTION_EXCLUDE_PATTERNS_EXTRA supplied via .env.
+
+        Args:
+            paths (list[str]): all file paths enumerated from the repository
+        """
+        kept = [p for p in paths if not self._is_excluded_path(p)]
+
+        excluded = len(paths) - len(kept)
+        if excluded:
+            logger.info(
+                f"Excluded {excluded} of {len(paths)} file(s) from ingestion via "
+                f"exclude patterns; {len(kept)} remain"
+            )
+
+        return kept
+
 
     @abstractmethod
     def _parse_repository_ref(self) -> tuple[str, str]:
