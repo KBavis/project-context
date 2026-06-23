@@ -1,9 +1,9 @@
 # builder stage
 FROM python:3.12-slim AS builder
 
-ENV PYTHONDONTWRITEBYTECODE=1  
+ENV PYTHONDONTWRITEBYTECODE=1
 
-WORKDIR /build 
+WORKDIR /build
 
 # copy relevant corporate certs so pip can fetch dependencies over TLS-intercepting corporate networks
 COPY docker/certs/ /usr/local/share/ca-certificates/
@@ -19,7 +19,7 @@ ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
-COPY requirements.txt . 
+COPY requirements.txt .
 
 # use docker buildkit to cache deps locally and reduce build times
 RUN --mount=type=cache,target=/root/.cache/pip \
@@ -40,7 +40,6 @@ RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
     tesseract-ocr \
-    git \
     curl \
     ca-certificates \
     gnupg \
@@ -61,10 +60,6 @@ ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
 COPY --from=builder /root/.local /root/.local 
 
 COPY . /app
-
-# Configure git identity required for cherry-pick and other write operations
-RUN git config --global user.email "contextualized@app.local" && \
-    git config --global user.name "Contextualized"
 
 EXPOSE 8000
 

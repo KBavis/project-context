@@ -47,6 +47,9 @@ class ConfluenceDataProvider(DocumentationDataProvider):
             auth_str = f"{settings.CONFLUENCE_EMAIL}:{settings.CONFLUENCE_SECRET_TOKEN}"
             b64_auth_str = base64.b64encode(auth_str.encode()).decode()
             return {"Authorization": f"Basic {b64_auth_str}"}
+        elif settings.CONFLUENCE_SECRET_TOKEN:
+            # Atlassian Server/DC Personal Access Tokens authenticate via Bearer.
+            return {"Authorization": f"Bearer {settings.CONFLUENCE_SECRET_TOKEN}"}
         return None
 
     def _validate_url(self):

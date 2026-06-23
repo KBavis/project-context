@@ -288,7 +288,11 @@ class Tools:
             async_fn=self._get_file_diff_wrapper,
             function_name="get_file_diff",
             description=(
-                "Retrieve the unified diff for a specific file as introduced by this project.\n"
+                "Retrieve the chronological list of per-pull-request diff slices for a specific file "
+                "as introduced by this project.\n"
+                "Each slice is one merged PR's change to the file, ordered oldest first. The latest "
+                "slice is NOT the composite of all changes — reason across every slice to determine the "
+                "file's net change over time.\n"
                 "IMPORTANT: This tool is ONLY valid for the following data sources:\n"
                 f"{ds_lines}\n"
                 "Do NOT call this with any other data_source_id — it will return no results.\n"

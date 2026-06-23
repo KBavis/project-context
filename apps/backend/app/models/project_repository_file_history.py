@@ -1,54 +1,34 @@
 from __future__ import annotations
 
-from enum import Enum
 from typing import TYPE_CHECKING, List
 from uuid import UUID
 
 from sqlalchemy import (
-    ARRAY,
-    Boolean,
     ForeignKey,
     ForeignKeyConstraint,
     String,
-    Text,
     UniqueConstraint,
     text,
     Enum as SQLAlchemyEnum,
-    Table,
-    Column,
-    UUID as SQLAlchemyUUID,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
+from app.pydantic.change_type import ChangeType
 
 if TYPE_CHECKING:
     from .diff_sync_job import DiffSyncJob
     from .project_repository_changes import ProjectRepositoryChanges
-    from .git_commit import GitCommit
+    from .project_repository_file_pr_diff import ProjectRepositoryFilePrDiff
 
 
-class ChangeType(Enum):
-    ADDED = "added"
-    MODIFIED = "modified"
-    DELETED = "deleted"
-    UNKNOWN = "unknown"
-
-
-file_diff_commit = Table(
-    "file_diff_commit",
-    Base.metadata,
-    Column("file_diff_id", SQLAlchemyUUID(as_uuid=True), ForeignKey("file_diff.id", ondelete="CASCADE"), primary_key=True),
-    Column("commit_hash", String, ForeignKey("git_commit.commit_hash", ondelete="CASCADE"), primary_key=True),
-)
-
-
-class FileDiff(Base):
+class ProjectRepositoryFileHistory(Base):
     """
-    Per-file net composition diff for a project on one repository DataSource.
+    A single file's change history produced by one project on one repository
+    DataSource.
     """
 
-    __tablename__ = "file_diff"
+    __tablename__ = "project_repository_file_history"
 
     __table_args__ = (
         ForeignKeyConstraint(
@@ -64,7 +44,7 @@ class FileDiff(Base):
             "project_id",
             "data_source_id",
             "file_path",
-            name="uq_file_diff_project_repository_path",
+            name="uq_project_repository_file_history_path",
         ),
     )
 
@@ -95,36 +75,9 @@ class FileDiff(Base):
     change_type: Mapped[ChangeType] = mapped_column(
         SQLAlchemyEnum(ChangeType, name="change_type_enum"),
         nullable=False,
-        comment="added | modified | deleted — deleted rows are kept until net-zero reconcile",
-    )
-
-    unified_diff: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-        comment="Git unified diff for this path only (headers + all hunks); not a single hunk or full file",
-    )
-    diff_hash: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-        comment="sha256 hex of bytes stored in unified_diff (after cap); used to skip re-embed",
-    )
-    diff_truncated: Mapped[bool] = mapped_column(
-        default=False,
-        nullable=False,
-        comment="True if unified_diff was capped)",
-    )
-
-    conflict_detected: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
-        nullable=False,
-        comment="True if at least one cherry-pick SHA could not be applied cleanly; unified_diff may be partial or None",
-    )
-    failed_commit_shas: Mapped[list[str]] = mapped_column(
-        ARRAY(String),
-        nullable=False,
-        insert_default=list,
-        comment="SHAs that could not be cherry-picked for this file; populated when conflict_detected=True",
+        comment="Roll-up of the project's net effect on this path: ADDED if the project "
+                "created the file, MODIFIED if it pre-existed, DELETED only when the project "
+                "removed a pre-existing file. Seeded by the first per-PR diff.",
     )
 
     diff_sync_job_id: Mapped[UUID | None] = mapped_column(
@@ -135,11 +88,12 @@ class FileDiff(Base):
     )
 
     project_repository_changes: Mapped["ProjectRepositoryChanges"] = relationship(
-        back_populates="file_diffs",
+        back_populates="file_histories",
     )
     diff_sync_job: Mapped["DiffSyncJob"] = relationship()
 
-    commits: Mapped[List["GitCommit"]] = relationship(
-        secondary="file_diff_commit",
-        back_populates="file_diffs",
+    pr_diffs: Mapped[List["ProjectRepositoryFilePrDiff"]] = relationship(
+        back_populates="file_history",
+        cascade="all, delete-orphan",
+        order_by="ProjectRepositoryFilePrDiff.ordinal",
     )

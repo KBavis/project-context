@@ -6,7 +6,9 @@ from .diff_sync_job import DiffSyncJob
 from .project import Project
 from .project_data import ProjectData
 from .project_repository_changes import ProjectRepositoryChanges
-from .file_diff import FileDiff
+from .project_repository_file_history import ProjectRepositoryFileHistory
+from .project_repository_file_pr_diff import ProjectRepositoryFilePrDiff
+from .pull_request import PullRequest
 from .git_commit import GitCommit
 from .conversation import Conversation
 from .message import Message, Sender
@@ -25,7 +27,9 @@ __all__ = [
     "Project",
     "ProjectData",
     "ProjectRepositoryChanges",
-    "FileDiff",
+    "ProjectRepositoryFileHistory",
+    "ProjectRepositoryFilePrDiff",
+    "PullRequest",
     "GitCommit",
     "Conversation",
     "Message",

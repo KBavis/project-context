@@ -7,7 +7,13 @@ from app.data_providers.ingestible.base import IngestibleDataProvider
 from app.data_providers import Provider
 from app.models.data_source import DataSource
 from app.services.file import FileService
-from app.pydantic.git_commit import GitCommitDetail
+from app.pydantic.pull_request import PullRequestDetail
+from app.pydantic.file_diff_patch import FileDiffPatch
+
+if TYPE_CHECKING:
+    from app.data_providers.fetchable.issue_tracker.base import IssueTrackerDataProvider
+
+logger = logging.getLogger(__name__)
 
 class RepositoryDataProvider(IngestibleDataProvider):
     """
@@ -103,26 +109,32 @@ class RepositoryDataProvider(IngestibleDataProvider):
     
 
     @abstractmethod
-    async def get_all_commits_info(self, child_issues: list[str], latest_commit_date: datetime | None = None) -> list[GitCommitDetail]:
+    async def resolve_prs(
+        self,
+        issue_keys: list[str],
+        issue_provider: IssueTrackerDataProvider,
+    ) -> list[PullRequestDetail]:
         """
-        Get all commit details. Optionally provide the `latest_commit_date` to retrieve any 
-        commits found since the last commit that we ingested.
+        Resolve the merged pull requests linked to a set of issue keys.
+
+        ``issue_provider`` is the project's issue tracker. Providers that resolve
+        the issue<->pull-request linkage natively use it (e.g. Bitbucket resolves
+        PRs through Jira's dev-status API rather than scanning Bitbucket); other
+        providers may match locally and ignore it. Only MERGED pull requests
+        targeting this data source's branch are returned. The returned commit
+        metadata excludes merge commits (parents > 1).
         """
         raise NotImplementedError()
 
-
     @abstractmethod
-    async def get_commit_detail(self, sha: str) -> GitCommitDetail:
+    async def get_pr_diff(self, pr_number: int) -> list[FileDiffPatch]:
         """
-        Get details for a specific commit.
-        """
-        raise NotImplementedError()
+        Return the per-file diffs introduced by a single pull request.
 
-
-    @abstractmethod
-    async def get_latest_commit_sha(self, child_issues: list[str]) -> str | None:
-        """
-        Get the latest commit SHA for the repository.
+        Each entry is one file's unified diff for this pull request (the
+        provider-native three-dot diff: merge-base(target, source)..source).
+        Renames are reported with ``previous_path`` set so the caller can treat
+        them as a delete at the old path + add at the new path.
         """
         raise NotImplementedError()
         

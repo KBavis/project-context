@@ -1,41 +1,48 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 from uuid import UUID
 from datetime import datetime
 
-from sqlalchemy import ForeignKeyConstraint, String, DateTime, Text, ARRAY
+from sqlalchemy import ForeignKey, String, DateTime, Text, ARRAY, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
 
 if TYPE_CHECKING:
-    from .project_repository_changes import ProjectRepositoryChanges
-    from .file_diff import FileDiff
+    from .pull_request import PullRequest
 
 
 class GitCommit(Base):
     """
-    Represents a specific Git commit retrieved from a repository DataSource
-    associated with a Project.
+    Descriptive metadata for a single non-merge commit that belongs to a merged
+    pull request.
+
+    Commits are persisted purely as descriptive context for a PullRequest; the
+    actual per-file diffs are derived from the pull request diff, not from
+    individual commits. Merge commits (parents > 1) are excluded.
     """
 
     __tablename__ = "git_commit"
 
-    commit_hash: Mapped[str] = mapped_column(
-        String,
+    id: Mapped[UUID] = mapped_column(
         primary_key=True,
-        comment="Commit SHA-1 hash",
+        index=True,
+        server_default=text("gen_random_uuid()"),
     )
 
-    # Scoped FK back to ProjectRepositoryChanges
-    project_id: Mapped[UUID] = mapped_column(
+    pull_request_id: Mapped[UUID] = mapped_column(
+        ForeignKey("pull_request.id", ondelete="CASCADE"),
+        index=True,
         nullable=False,
-        comment="Associated project ID",
+        comment="The pull request this commit belongs to",
     )
-    data_source_id: Mapped[UUID] = mapped_column(
+
+    commit_hash: Mapped[str] = mapped_column(
+        String,
+        index=True,
         nullable=False,
-        comment="Associated repository data source ID",
+        comment="Commit SHA-1 hash",
     )
 
     author_name: Mapped[str] = mapped_column(
@@ -65,23 +72,7 @@ class GitCommit(Base):
         comment="Paths modified in this specific commit",
     )
 
-    # Composite foreign key constraint to link to ProjectRepositoryChanges
-    __table_args__ = (
-        ForeignKeyConstraint(
-            ["project_id", "data_source_id"],
-            ["project_repository_changes.project_id", "project_repository_changes.data_source_id"],
-            ondelete="CASCADE",
-            deferrable=True, # only enforce the constraint at transaction commit
-            initially="DEFERRED", 
-        ),
-    )
-
     # Relationships
-    project_repository_changes: Mapped["ProjectRepositoryChanges"] = relationship(
-        back_populates="commits",
-    )
-
-    file_diffs: Mapped[List["FileDiff"]] = relationship(
-        secondary="file_diff_commit",
+    pull_request: Mapped["PullRequest"] = relationship(
         back_populates="commits",
     )

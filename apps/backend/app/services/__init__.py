@@ -12,7 +12,6 @@ from .chunk_insertion import ChunkInsertionService
 from .mcp import MCPService
 from .agent import AgentService
 from .diff import DiffService
-from .git_ops import GitOperationsService
 from .execution_token_usage import ExecutionTokenUsageService
 
 __all__ = [
@@ -30,5 +29,4 @@ __all__ = [
     "AgentService",
     "DiffService",
     "ExecutionTokenUsageService",
-    "GitOperationsService"
 ]

@@ -13,6 +13,7 @@ from app.models import DataSource, Project, ProjectData
 from app.models.data_source import DataSourceType
 from app.services.chroma import ChromaService
 from app.core import settings
+from app.data_providers.base import DataProvider, Provider
 from app.data_providers.ingestible.base import IngestibleDataProvider
 from app.models.data_source_mcp import DataSourceMCPConfig
 
@@ -99,6 +100,12 @@ class DataSourceService:
             scope_by_issues=data_source_request.scope_by_issues
         )
 
+        # Construct the concrete provider and validate the URL is in the
+        # provider's expected format (raises if malformed). Validation is done
+        # here at creation time rather than on every provider construction.
+        data_provider = DataProvider.from_provider(data_source)
+        data_provider._validate_url()
+
         # persist & flush new record
         self.db.add(data_source)
         self.db.flush()
@@ -134,6 +141,10 @@ class DataSourceService:
                     f"Cannot link Projects to Data Source with scope_by_issues=True unless they have parent_issues configured. "
                     f"Projects without parent_issues: {project_ids_str}"
                 )
+
+            # Bitbucket repositories resolve commits through Jira, so each
+            # linked project must have an associated Jira issue tracker.
+            self._validate_bitbucket_requires_jira(data_source_request.provider, list(projects))
 
         # create associations
         for project in projects:
@@ -373,14 +384,54 @@ class DataSourceService:
             "linked_projects": [str(pd.project_id) for pd in ds.project_data]
         }
 
+    def _project_has_jira_issue_tracker(self, project_id: UUID) -> bool:
+        """
+        Return True if the given project has an associated Jira ISSUE_TRACKER
+        data source. Used to enforce the Bitbucket<->Jira coupling required
+        for issue-scoped Bitbucket repositories.
+        """
+        stmt = (
+            select(DataSource)
+            .join(ProjectData, ProjectData.data_source_id == DataSource.id)
+            .where(
+                ProjectData.project_id == project_id,
+                DataSource.type == DataSourceType.ISSUE_TRACKER,
+                DataSource.provider == Provider.JIRA.value,
+            )
+        )
+        return self.db.execute(stmt).scalars().first() is not None
+
+    def _validate_bitbucket_requires_jira(self, provider: str, projects: list[Project]) -> None:
+        """
+        Enforce the Bitbucket<->Jira coupling for issue-scoped repositories:
+        Bitbucket resolves commits through Jira's dev-status API, so every
+        linked project must have an associated Jira issue tracker.
+
+        No-op for non-Bitbucket providers.
+        """
+        if provider != Provider.BITBUCKET.value:
+            return
+
+        projects_without_jira = [p for p in projects if not self._project_has_jira_issue_tracker(p.id)]
+        if projects_without_jira:
+            names = ", ".join(f"{p.project_name} ({p.id})" for p in projects_without_jira)
+            raise ValueError(
+                "Cannot enable issue scoping on this Bitbucket Data Source unless each linked "
+                "project has an associated Jira issue tracker configured (Bitbucket resolves commits "
+                f"through Jira). Projects without a Jira issue tracker: {names}"
+            )
+
     def _validate_data_source_request(self, request: DataSourceRequest):
         """
         Ensure the specified request is valid
         """
 
-        if request.provider not in settings.VALID_DATA_PROVIDERS:
+        try:
+            Provider(request.provider)
+        except ValueError:
+            valid_providers = [p.value for p in Provider]
             raise Exception(
-                f"Invalid provider specified when attempting to create Data Source. Valid Providers: {settings.VALID_DATA_PROVIDERS}"
+                f"Invalid provider specified when attempting to create Data Source. Valid Providers: {valid_providers}"
             )
 
     def _validate_scope_by_issues_update(self, ds: DataSource, target_type: DataSourceType, val: bool | None):
@@ -410,6 +461,10 @@ class DataSourceService:
                     f"do not have parent_issues configured: {names}. Please update those projects to include parent_issues "
                     "(issue numbers) before enabling scoping, or unlink them from this Data Source."
                 )
+
+            # Bitbucket repositories resolve commits through Jira, so each
+            # linked project must have an associated Jira issue tracker.
+            self._validate_bitbucket_requires_jira(ds.provider, linked_projects)
 
         # Disabling
         if val is False:

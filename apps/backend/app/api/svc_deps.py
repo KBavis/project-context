@@ -14,7 +14,6 @@ from app.services import (
     MCPService,
     AgentService,
     DiffService,
-    GitOperationsService
 )
 
 from app.core import (
@@ -92,12 +91,6 @@ def get_mcp_svc(
     
     return MCPService(db=db, async_db=async_db)
 
-def get_git_ops_svc() -> GitOperationsService:
-    """
-    Setup GitOperationsService dependency
-    """
-    return GitOperationsService()
-
 ##########################
 # Async Service Dependencies 
 ###########################
@@ -117,7 +110,6 @@ def get_async_record_lock_svc():
 def get_async_diff_svc(
     db: AsyncSession = Depends(get_async_db_session),
     data_source_svc: DataSourceService = Depends(get_data_source_svc),
-    git_ops_svc: GitOperationsService = Depends(get_git_ops_svc),
     record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc)
 ):
     """
@@ -126,7 +118,6 @@ def get_async_diff_svc(
     return DiffService(
         async_db=db, 
         data_source_svc=data_source_svc, 
-        git_ops_svc=git_ops_svc,
         record_lock_svc=record_lock_svc
     )
 
