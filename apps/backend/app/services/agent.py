@@ -1,6 +1,7 @@
 from uuid import UUID
 from contextlib import AsyncExitStack
 from typing import AsyncGenerator
+import asyncio
 import logging
 import json
 
@@ -81,6 +82,9 @@ class AgentService:
                     f"Unable to retrieve context for the provided question — "
                     f"no DataSources are associated with Project: {project_id}"
                 )
+
+            # 1b. Kick off the BM25 index build in the background so its ready by ChunkRetrieval time
+            asyncio.create_task(self._warm_bm25_cache(project_id))
 
             # 2. Get MCP tools keyed by data_source_id
             mcp_tools: dict[str, list[FunctionTool]] = await self.mcp_svc.get_mcp_tools(data_sources, async_exit_stack)
@@ -223,6 +227,22 @@ class AgentService:
                     # Combined total
                     "total_tokens": token_counter.total_llm_token_count,
                 }
+
+
+    async def _warm_bm25_cache(self, project_id: UUID) -> None:
+        """
+        Resolve the project's searchable data sources and pre-build the BM25 index for them.
+
+        Runs as a fire-and-forget background task. We resolve the ids the same way the
+        semantic_search tool does for an unscoped search (all ingestible data sources) so
+        the warmed cache key matches what the first broad search will look up. Failures are
+        swallowed by warm_bm25_cache itself, so this never disrupts the agent run.
+        """
+        try:
+            data_source_ids = await self.data_source_svc.aget_data_source_ids_by_type(project_id, None)
+            await self.chunk_retrieval_svc.warm_bm25_cache(data_source_ids)
+        except Exception as e:
+            logger.warning("BM25 warmup task failed for Project %s: %s", project_id, e)
 
 
     # ─────────────────────────────────────────────

@@ -1,13 +1,22 @@
 from __future__ import annotations
 from abc import abstractmethod
+from fnmatch import fnmatch
 from uuid import UUID
-from datetime import datetime
+from typing import TYPE_CHECKING
+import logging
 
 from app.data_providers.ingestible.base import IngestibleDataProvider
 from app.data_providers import Provider
+from app.core import settings
 from app.models.data_source import DataSource
 from app.services.file import FileService
-from app.pydantic.git_commit import GitCommitDetail
+from app.pydantic.pull_request import PullRequestDetail
+from app.pydantic.file_diff_patch import FileDiffPatch
+
+if TYPE_CHECKING:
+    from app.data_providers.fetchable.issue_tracker.base import IssueTrackerDataProvider
+
+logger = logging.getLogger(__name__)
 
 class RepositoryDataProvider(IngestibleDataProvider):
     """
@@ -17,9 +26,6 @@ class RepositoryDataProvider(IngestibleDataProvider):
 
     def __init__(self, data_source: DataSource):
         super().__init__(data_source=data_source)
-
-        # validate URL is in expected format for Repository 
-        self._validate_url()
 
         # extract relevant from URL & data source
         repository_owner, repository_name = self._parse_repository_ref()
@@ -73,6 +79,40 @@ class RepositoryDataProvider(IngestibleDataProvider):
         return f"{self._repository_owner}/{self._repository_name}"
     
 
+    def _is_excluded_path(self, path: str) -> bool:
+        """
+        Return True if a repo file path matches any configured ingestion exclude glob
+        (company-agnostic INGESTION_EXCLUDE_PATTERNS plus repo-specific
+        INGESTION_EXCLUDE_PATTERNS_EXTRA). Used to skip vendored/build/generated/fixture files.
+
+        Args:
+            path (str): repository file path to test
+        """
+        patterns = settings.INGESTION_EXCLUDE_PATTERNS + settings.INGESTION_EXCLUDE_PATTERNS_EXTRA
+        return any(fnmatch(path, pattern) for pattern in patterns)
+
+
+    def _filter_excluded_paths(self, paths: list[str]) -> list[str]:
+        """
+        Drop repo file paths matching the configured exclude globs so they are never downloaded,
+        embedded, or stored. Combines the company-agnostic INGESTION_EXCLUDE_PATTERNS defaults with
+        any repo-specific INGESTION_EXCLUDE_PATTERNS_EXTRA supplied via .env.
+
+        Args:
+            paths (list[str]): all file paths enumerated from the repository
+        """
+        kept = [p for p in paths if not self._is_excluded_path(p)]
+
+        excluded = len(paths) - len(kept)
+        if excluded:
+            logger.info(
+                f"Excluded {excluded} of {len(paths)} file(s) from ingestion via "
+                f"exclude patterns; {len(kept)} remain"
+            )
+
+        return kept
+
+
     @abstractmethod
     def _parse_repository_ref(self) -> tuple[str, str]:
         """
@@ -103,26 +143,32 @@ class RepositoryDataProvider(IngestibleDataProvider):
     
 
     @abstractmethod
-    async def get_all_commits_info(self, child_issues: list[str], latest_commit_date: datetime | None = None) -> list[GitCommitDetail]:
+    async def resolve_prs(
+        self,
+        issue_keys: list[str],
+        issue_provider: IssueTrackerDataProvider,
+    ) -> list[PullRequestDetail]:
         """
-        Get all commit details. Optionally provide the `latest_commit_date` to retrieve any 
-        commits found since the last commit that we ingested.
+        Resolve the merged pull requests linked to a set of issue keys.
+
+        ``issue_provider`` is the project's issue tracker. Providers that resolve
+        the issue<->pull-request linkage natively use it (e.g. Bitbucket resolves
+        PRs through Jira's dev-status API rather than scanning Bitbucket); other
+        providers may match locally and ignore it. Only MERGED pull requests
+        targeting this data source's branch are returned. The returned commit
+        metadata excludes merge commits (parents > 1).
         """
         raise NotImplementedError()
 
-
     @abstractmethod
-    async def get_commit_detail(self, sha: str) -> GitCommitDetail:
+    async def get_pr_diff(self, pr_number: int) -> list[FileDiffPatch]:
         """
-        Get details for a specific commit.
-        """
-        raise NotImplementedError()
+        Return the per-file diffs introduced by a single pull request.
 
-
-    @abstractmethod
-    async def get_latest_commit_sha(self, child_issues: list[str]) -> str | None:
-        """
-        Get the latest commit SHA for the repository.
+        Each entry is one file's unified diff for this pull request (the
+        provider-native three-dot diff: merge-base(target, source)..source).
+        Renames are reported with ``previous_path`` set so the caller can treat
+        them as a delete at the old path + add at the new path.
         """
         raise NotImplementedError()
         

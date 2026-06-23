@@ -235,7 +235,11 @@ class IngestionJobService:
             )
 
         except Exception as e:
-            logger.error(f"Failure occurred while performing IngestionJob={job_pk}: {str(e)}")
+            logger.error(
+                f"Failure occurred while performing IngestionJob={job_pk}: "
+                f"{type(e).__name__}: {str(e)}",
+                exc_info=True,
+            )
 
             job_fail_time = datetime.now(ZoneInfo("America/New_York"))
             duration=(job_fail_time - job_start_time).seconds

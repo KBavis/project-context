@@ -2,6 +2,9 @@ services:
 
   backend:
     image: backend-app
+    build:
+      context: ./apps/backend
+      dockerfile: docker/Dockerfile
     container_name: backend 
     env_file:
       - ./apps/backend/.env
@@ -10,9 +13,7 @@ services:
     depends_on:
       - db
       - chromadb
-    runtime: nvidia
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - ANONYMIZED_TELEMETRY=FALSE
     extra_hosts:
@@ -22,6 +23,9 @@ services:
   
   frontend:
     image: frontend-app
+    build:
+      context: ./apps/frontend
+      dockerfile: docker/Dockerfile
     container_name: frontend
     ports:
       - "3000:3000"
@@ -29,7 +33,7 @@ services:
       - backend
 
   chromadb:
-    image: chromadb/chroma:latest 
+    image: chromadb/chroma:1.5.9
     container_name: chroma_db
     ports:
       - "8001:8000"

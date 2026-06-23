@@ -10,13 +10,12 @@ from fastapi import HTTPException
 from sqlalchemy.orm import selectinload
 
 from app.services.data_source import DataSourceService
-from app.services.git_ops import GitOperationsService
-from app.pydantic.file_diff_result import FileDiffResult
-from app.services.project import ProjectService
 from app.models.data_source import DataSourceType, DataSource
 from app.models.project import Project
 from app.models.project_repository_changes import ProjectRepositoryChanges
-from app.models.file_diff import FileDiff, ChangeType
+from app.models.project_repository_file_history import ProjectRepositoryFileHistory
+from app.models.project_repository_file_pr_diff import ProjectRepositoryFilePrDiff
+from app.models.pull_request import PullRequest
 from app.models.git_commit import GitCommit
 from app.models.diff_sync_job import DiffSyncJob
 from app.models.ingestion_job import ProcessingStatus
@@ -25,12 +24,18 @@ from app.services.record_lock import RecordLockService
 from app.models.project_data import ProjectData
 from app.data_providers.fetchable.issue_tracker import IssueTrackerDataProvider
 from app.data_providers.ingestible.repository import RepositoryDataProvider
-from app.pydantic.git_commit import GitCommitDetail
-from app.models.project_data import ProjectData
+from app.pydantic.pull_request import PullRequestDetail
+from app.pydantic.file_diff_patch import FileDiffPatch
+from app.pydantic.change_type import ChangeType
 from app.core import get_async_db_session_context, get_async_session_maker
+import hashlib
 import uuid
 
 logger = logging.getLogger(__name__)
+
+# Maximum number of bytes of unified-diff text stored per file PR diff; larger
+# diffs are capped and flagged via ProjectRepositoryFilePrDiff.diff_truncated.
+MAX_DIFF_BYTES = 256 * 1024
 
 
 class DiffService:
@@ -43,12 +48,10 @@ class DiffService:
         self, 
         async_db: AsyncSession, 
         data_source_svc: DataSourceService,
-        git_ops_svc: GitOperationsService,
         record_lock_svc: RecordLockService,
     ):
         self.async_db: AsyncSession = async_db
         self.data_source_svc = data_source_svc
-        self.git_ops_svc = git_ops_svc
         self.record_lock_svc = record_lock_svc
     
 
@@ -303,70 +306,16 @@ class DiffService:
                     async_session=async_session
                 )
 
-                # grab new commits since last sync
-                new_commits = await self.get_new_repository_commits(
-                    issue_tracker_ds,
-                    repository_ds,
-                    project,
-                    async_session
+                # resolve the merged pull requests linked to this project's issues, then
+                # persist any that have not been processed yet (merged PRs are immutable,
+                # so previously-processed PRs never need recomputing).
+                metrics = await self.sync_project_pull_requests(
+                    project=project,
+                    repository_ds=repository_ds,
+                    issue_tracker_ds=issue_tracker_ds,
+                    diff_sync_job_id=job_id,
+                    async_session=async_session,
                 )
-
-                if new_commits:
-                    # new commits found (persist commits, sync with remote repository state, and persist diff results)
-                    persisted_commits = await self._persist_git_commits(
-                        project_id=job.project_id,
-                        repository_data_source_id=job.data_source_id,
-                        commits=new_commits,
-                        async_session=async_session
-                    )
-
-                    project_repo_changes = await self.get_project_repository_changes(
-                        job.project_id, 
-                        job.data_source_id,
-                        async_session=async_session
-                    )
-                    base_sha = project_repo_changes.base_commit_sha if project_repo_changes else None
-
-                    all_commits = await self.get_project_git_commits(
-                        job.project_id,
-                        job.data_source_id,
-                        async_session=async_session
-                    )
-
-                    file_diff_results, resolved_base_sha = await self.sync_repository_branch_git(
-                        repository_ds=repository_ds,
-                        all_commits=all_commits,
-                        base_sha=base_sha
-                    )
-
-                    await self.persist_repository_diff_changes(
-                        project_id=job.project_id,
-                        repository_data_source_id=job.data_source_id,
-                        diff_sync_job_id=job_id,
-                        persisted_commits=persisted_commits,
-                        file_diff_results=file_diff_results,
-                        resolved_base_sha=resolved_base_sha,
-                        async_session=async_session
-                    )
-                else:
-                    logger.info(f"No new GitCommits found for DataSource={job.data_source_id} and Project={job.project_id}. Marking DiffSyncJob as successful and updating the ProjectRepositoryChanges object to reflect succesful completion")
-
-                    project_repo_changes = await self.get_project_repository_changes(job.project_id, job.data_source_id, async_session)
-                    if not project_repo_changes:
-                        # create blank ProjectRepositoryChanges record in the case that this is first sync AND no commits found
-                        project_repo_changes = ProjectRepositoryChanges(
-                            project_id=job.project_id,
-                            data_source_id=job.data_source_id,
-                            diff_sync_job_id=job_id,
-                            files_touched=[],
-                            file_count=0
-                        )
-                        async_session.add(project_repo_changes)
-                    else:
-                        # update existing ProjectReposiotryChanges record to indicate last processed by this DiffSyncJob
-                        project_repo_changes.diff_sync_job_id = job_id
-                        project_repo_changes.last_synced_time = datetime.now(timezone.utc)
-                    await async_session.flush()
 
                 # update DiffSyncJob status as successful
                 end_time = datetime.now(timezone.utc)
@@ -378,6 +327,14 @@ class DiffService:
                     duration=duration,
                     session=async_session,
                     commit=True
+                )
+
+                logger.info(
+                    f"DiffSyncJob {job_id} completed successfully in {duration}s for "
+                    f"Project={project.id} (Repository DataSource={repository_ds.id}): "
+                    f"{metrics['new_prs']} new pull request(s) processed of "
+                    f"{metrics['resolved_prs']} linked, {metrics['files_touched']} file(s) "
+                    f"now tracked in the repository change history."
                 )
 
             except Exception as e:
@@ -406,320 +363,389 @@ class DiffService:
                 await self.record_lock_svc.unlock(lock_uuid, record_type=RecordType.PROJECT_DATA)
 
 
-    async def persist_repository_diff_changes(
+    async def sync_project_pull_requests(
+        self,
+        project: Project,
+        repository_ds: DataSource,
+        issue_tracker_ds: DataSource,
+        diff_sync_job_id: UUID,
+        async_session: AsyncSession,
+    ) -> dict[str, int]:
+        """
+        Resolve and persist the merged pull requests linked to a project's issues
+        for a single repository.
+
+        Merged pull requests are immutable, so previously-processed PRs are
+        skipped and their stored diff slices are never recomputed. For each new
+        PR (oldest first), its metadata + non-merge commits are persisted and its
+        per-file diff is appended as an ordered ProjectRepositoryFilePrDiff on each file.
+        """
+        # derive the project's issue keys from the issue tracker (Jira: epic -> stories)
+        issue_provider = IssueTrackerDataProvider.from_provider(issue_tracker_ds)
+        child_issues = await issue_provider.get_issues(project.parent_issues)
+
+        # ensure the aggregate record exists before persisting PRs (composite FK target)
+        repo_changes = await self._ensure_project_repository_changes(
+            project.id, repository_ds.id, diff_sync_job_id, async_session
+        )
+
+        if not child_issues:
+            logger.warning(
+                f"No child issues found for Project={project.id} and IssueTracker={issue_tracker_ds.id} "
+                f"-- nothing to sync for DataSource={repository_ds.id}"
+            )
+            await self._update_repository_changes_summary(
+                repo_changes, project.id, repository_ds.id, diff_sync_job_id, async_session
+            )
+            return {"resolved_prs": 0, "new_prs": 0, "files_touched": repo_changes.file_count}
+
+        repository_provider = RepositoryDataProvider.from_provider(repository_ds)
+        resolved_prs = await repository_provider.resolve_prs(child_issues, issue_provider)
+
+        processed_numbers = await self._get_processed_pr_numbers(
+            project.id, repository_ds.id, async_session
+        )
+        new_prs = sorted(
+            (pr for pr in resolved_prs if pr.pr_number not in processed_numbers),
+            key=lambda pr: pr.merged_at,
+        )
+
+        if not new_prs:
+            logger.info(
+                f"All {len(resolved_prs)} linked pull request(s) already processed for "
+                f"Project={project.id} and DataSource={repository_ds.id} -- up to date"
+            )
+            await self._update_repository_changes_summary(
+                repo_changes, project.id, repository_ds.id, diff_sync_job_id, async_session
+            )
+            return {
+                "resolved_prs": len(resolved_prs),
+                "new_prs": 0,
+                "files_touched": repo_changes.file_count,
+            }
+
+        logger.info(
+            f"Processing {len(new_prs)} new pull request(s) for Project={project.id} "
+            f"and DataSource={repository_ds.id}"
+        )
+        for pr_detail in new_prs:
+            pr_record = await self._persist_pull_request(
+                pr_detail, project.id, repository_ds.id, async_session
+            )
+            patches = await repository_provider.get_pr_diff(pr_detail.pr_number)
+            await self._apply_pr_file_diffs(
+                pr_record=pr_record,
+                patches=patches,
+                project_id=project.id,
+                repository_data_source_id=repository_ds.id,
+                diff_sync_job_id=diff_sync_job_id,
+                async_session=async_session,
+            )
+
+        await self._update_repository_changes_summary(
+            repo_changes, project.id, repository_ds.id, diff_sync_job_id, async_session
+        )
+
+        return {
+            "resolved_prs": len(resolved_prs),
+            "new_prs": len(new_prs),
+            "files_touched": repo_changes.file_count,
+        }
+
+
+    async def _get_processed_pr_numbers(
+        self, project_id: UUID, repository_data_source_id: UUID, async_session: AsyncSession
+    ) -> set[int]:
+        """Return the PR numbers already persisted for this project + data source."""
+        stmt = select(PullRequest.pr_number).where(
+            PullRequest.project_id == project_id,
+            PullRequest.data_source_id == repository_data_source_id,
+        )
+        res = await async_session.execute(stmt)
+        return set(res.scalars().all())
+
+
+    async def _ensure_project_repository_changes(
         self,
         project_id: UUID,
         repository_data_source_id: UUID,
         diff_sync_job_id: UUID,
-        persisted_commits: list[GitCommit],
-        file_diff_results: list[FileDiffResult],
-        resolved_base_sha: str,
-        async_session: AsyncSession
-    ):
-        """
-        Orchestrate the persistence of all repository diff changes across FileDiff, 
-        and ProjectRepositoryChanges models.
-
-        Args:
-            project_id (UUID): The ID of the Project for which to retrieve the changes.
-            repository_data_source_id (UUID): The ID of the Data Source to filter the changes by.
-            diff_sync_job_id (UUID): The ID of the DiffSyncJob to use when persisting changes.
-            persisted_commits (list[GitCommit]): The list of GitCommits that have been persisted.
-            file_diff_results (list[FileDiffResult]): The list of FileDiffResults to persist.
-            resolved_base_sha (str): The resolved base SHA for the diffs.
-            async_session (AsyncSession): the AsyncSession to use when persisting changes.
-        """
-        logger.info(f"Persisting changes for Project={project_id} and DataSource={repository_data_source_id}")
-
-        # 1. persist the FileDiff records associated with those commits
-        await self._persist_file_diffs(
+        async_session: AsyncSession,
+    ) -> ProjectRepositoryChanges:
+        """Get the ProjectRepositoryChanges row, creating an empty one on first sync."""
+        repo_changes = await self.get_project_repository_changes(
             project_id=project_id,
-            repository_data_source_id=repository_data_source_id,
-            diff_sync_job_id=diff_sync_job_id,
-            commits=persisted_commits,
-            file_diff_results=file_diff_results,
-            async_session=async_session
+            data_source_id=repository_data_source_id,
+            async_session=async_session,
         )
-
-        # 2. update the ProjectRepositoryChanges metadata
-        await self._persist_project_repository_changes(
-            project_id=project_id,
-            repository_data_source_id=repository_data_source_id,
-            diff_sync_job_id=diff_sync_job_id,
-            resolved_base_sha=resolved_base_sha,
-            async_session=async_session
-        )
-
-        logger.info(f"Successful persisted FileDiff and ProjectRepositoryChanges records for Project={project_id} and DataSource={repository_data_source_id}")
-
-
-    async def _persist_git_commits(
-        self,
-        project_id: UUID,
-        repository_data_source_id: UUID,
-        commits: list[GitCommitDetail],
-        async_session: AsyncSession
-    ) -> list[GitCommit]:
-        """
-        Save the new GitCommit records. Raise exception if we see a commit we thought was new
-        but it already exists in the database (corrupt state).
-        """
-        persisted_commits = []
-        for commit in commits:
-            # check if commit already exists
-            stmt = select(GitCommit).where(GitCommit.commit_hash == commit.sha)
-            res = await async_session.execute(stmt)
-            existing_commit = res.scalar_one_or_none()
-
-            if existing_commit:
-                raise Exception(
-                    f"Corrupt state detected: Commit {commit.sha} is reported as a new commit "
-                    f"to sync, but it already exists in the database."
-                )
-
-            commit_record = GitCommit(
-                commit_hash=commit.sha,
+        if not repo_changes:
+            repo_changes = ProjectRepositoryChanges(
                 project_id=project_id,
                 data_source_id=repository_data_source_id,
+                diff_sync_job_id=diff_sync_job_id,
+                files_touched=[],
+                file_count=0,
+            )
+            async_session.add(repo_changes)
+            await async_session.flush()
+        return repo_changes
+
+
+    async def _persist_pull_request(
+        self,
+        pr_detail: PullRequestDetail,
+        project_id: UUID,
+        repository_data_source_id: UUID,
+        async_session: AsyncSession,
+    ) -> PullRequest:
+        """Persist a pull request and its non-merge commit metadata."""
+        pr_record = PullRequest(
+            project_id=project_id,
+            data_source_id=repository_data_source_id,
+            pr_number=pr_detail.pr_number,
+            title=pr_detail.title,
+            description=pr_detail.description,
+            author_name=pr_detail.author_name,
+            author_email=pr_detail.author_email,
+            source_branch=pr_detail.source_branch,
+            target_branch=pr_detail.target_branch,
+            merged_at=pr_detail.merged_at,
+            issue_key=pr_detail.issue_key,
+            url=pr_detail.url,
+        )
+        async_session.add(pr_record)
+        await async_session.flush()
+
+        for commit in pr_detail.commits:
+            async_session.add(GitCommit(
+                pull_request_id=pr_record.id,
+                commit_hash=commit.sha,
                 author_name=commit.author_name,
                 author_email=commit.author_email,
                 commit_datetime=commit.commit_datetime,
                 message=commit.message,
-                files_modified=commit.files_modified
-            )
-            async_session.add(commit_record)
-            persisted_commits.append(commit_record)
-
+                files_modified=commit.files_modified,
+            ))
         await async_session.flush()
-        return persisted_commits
+        return pr_record
 
 
-    async def _persist_file_diffs(
+    async def _apply_pr_file_diffs(
         self,
+        pr_record: PullRequest,
+        patches: list[FileDiffPatch],
         project_id: UUID,
         repository_data_source_id: UUID,
         diff_sync_job_id: UUID,
-        commits: list[GitCommit],
-        file_diff_results: list[FileDiffResult],
-        async_session: AsyncSession
+        async_session: AsyncSession,
     ):
         """
-        Update/create FileDiff records from the composite diff results produced
-        by GitOperationsService, then link them to the relevant GitCommit records.
+        Persist a pull request's file changes as ONE net effect per path.
 
-        The FileDiffResult objects are keyed by file_path. For each file:
-          - If no existing FileDiff row exists, a new one is created with the
-            full composite diff data (unified_diff, diff_hash, change_type, etc.).
-          - If a row already exists (i.e. this is a subsequent sync for the same
-            file), the diff content and conflict metadata are updated in place.
-
-        Change type is inferred from the unified diff header:
-          - Lines starting with "new file mode" → ADDED
-          - Lines starting with "deleted file mode" → DELETED
-          - All other diffs → MODIFIED
+        A PR has a single net effect on each path it touches (added, modified, or
+        deleted). We first consolidate all raw patches into a path -> net-effect
+        map, then persist exactly one ProjectRepositoryFilePrDiff per path
         """
-        # build a lookup from file_path → FileDiffResult for O(1) access
-        diff_by_path: dict[str, FileDiffResult] = {
-            r.file_path: r for r in file_diff_results
-        }
-
-        # build a lookup from file_path → list[GitCommit] so we can link commits
-        # that touched a given path regardless of whether we have a diff for it
-        commits_by_path: dict[str, list[GitCommit]] = {}
-        for commit in commits:
-            for file_path in commit.files_modified:
-                commits_by_path.setdefault(file_path, []).append(commit)
-
-        # union of all paths: those with diff results + any touched by commits
-        all_paths = set(diff_by_path) | set(commits_by_path)
-
-        for file_path in all_paths:
-            diff_result = diff_by_path.get(file_path)
-
-            # determine change type from the diff header when available
-            change_type = self._infer_change_type(diff_result)
-
-            stmt = select(FileDiff).options(
-                selectinload(FileDiff.commits)
-            ).where(
-                FileDiff.project_id == project_id,
-                FileDiff.data_source_id == repository_data_source_id,
-                FileDiff.file_path == file_path,
+        for file_path, effect in self._consolidate_pr_patches(patches).items():
+            await self._apply_file_net_effect(
+                file_path=file_path,
+                change_type=effect.change_type,
+                unified_diff=effect.unified_diff,
+                provider_truncated=effect.truncated,
+                pr_record=pr_record,
+                project_id=project_id,
+                repository_data_source_id=repository_data_source_id,
+                diff_sync_job_id=diff_sync_job_id,
+                async_session=async_session,
             )
-            res = await async_session.execute(stmt)
-            file_diff_record = res.scalar_one_or_none()
-
-            if not file_diff_record:
-                file_diff_record = FileDiff(
-                    project_id=project_id,
-                    data_source_id=repository_data_source_id,
-                    file_path=file_path,
-                    change_type=change_type,
-                    unified_diff=diff_result.unified_diff if diff_result else None,
-                    diff_hash=diff_result.diff_hash if diff_result else "",
-                    diff_truncated=diff_result.diff_truncated if diff_result else False,
-                    conflict_detected=diff_result.conflict_detected if diff_result else False,
-                    failed_commit_shas=diff_result.failed_commit_shas if diff_result else [],
-                    diff_sync_job_id=diff_sync_job_id,
-                    commits=[]
-                )
-                async_session.add(file_diff_record)
-                await async_session.flush()
-            else:
-                # update composite diff to reflect newly cherry-picked commits
-                if diff_result:
-                    file_diff_record.unified_diff = diff_result.unified_diff
-                    file_diff_record.diff_hash = diff_result.diff_hash
-                    file_diff_record.diff_truncated = diff_result.diff_truncated
-                    file_diff_record.conflict_detected = diff_result.conflict_detected
-                    file_diff_record.failed_commit_shas = diff_result.failed_commit_shas
-                    file_diff_record.change_type = change_type
-                file_diff_record.diff_sync_job_id = diff_sync_job_id
-
-            # link commits that touched this file
-            for commit in commits_by_path.get(file_path, []):
-                if commit not in file_diff_record.commits:
-                    file_diff_record.commits.append(commit)
-
-        # Delete any stale FileDiff records that are no longer part of the project's net changes
-        # (e.g. if a file's changes were completely reverted by a new commit)
-        if all_paths:
-            stmt = delete(FileDiff).where(
-                FileDiff.project_id == project_id,
-                FileDiff.data_source_id == repository_data_source_id,
-                FileDiff.file_path.notin_(all_paths)
-            )
-        else:
-            stmt = delete(FileDiff).where(
-                FileDiff.project_id == project_id,
-                FileDiff.data_source_id == repository_data_source_id
-            )
-        await async_session.execute(stmt)
-
-        await async_session.flush()
 
 
-    def _infer_change_type(self, diff_result: FileDiffResult | None) -> ChangeType:
+    def _get_deletion_unified_diff(self, file_path: str) -> str:
         """
-        Determine the net ChangeType from the unified diff header lines.
+        Build a header-only git deletion diff for a path (no hunks).
 
-        Git diff headers contain:
-          "new file mode ..."      → file was created by the project
-          "deleted file mode ..."  → file was removed by the project
-          anything else            → file was modified
-
-        Falls back to UNKNOWN when no diff result is available (e.g. a file
-        appeared in files_modified but the cherry-pick failed entirely).
+        Used for the "delete at the old path" half of a rename: the provider only
+        gives the changed hunks (which belong to the new path), so the old path
+        gets an accurate "removed from here" marker without fabricating content.
         """
-        if not diff_result or not diff_result.unified_diff:
-            return ChangeType.UNKNOWN
-        header = diff_result.unified_diff[:500]  # only need the first few lines
-        if "new file mode" in header:
-            return ChangeType.ADDED
-        if "deleted file mode" in header:
-            return ChangeType.DELETED
-        return ChangeType.MODIFIED
-
-
-    async def _persist_project_repository_changes(
-        self,
-        project_id: UUID,
-        repository_data_source_id: UUID,
-        diff_sync_job_id: UUID,
-        resolved_base_sha: str,
-        async_session: AsyncSession
-    ):
-        """
-        Update or create the ProjectRepositoryChanges record and update its files_touched list.
-        """
-        project_repository_changes = await self.get_project_repository_changes(
-            project_id=project_id, 
-            data_source_id=repository_data_source_id,
-            async_session=async_session
+        return (
+            f"diff --git a/{file_path} b/{file_path}\n"
+            f"--- a/{file_path}\n"
+            f"+++ /dev/null\n"
         )
 
-        if not project_repository_changes:
-            project_repository_changes = ProjectRepositoryChanges(
+
+    def _consolidate_pr_patches(self, patches: list[FileDiffPatch]) -> dict[str, FileDiffPatch]:
+        """
+        Reduce a PR's raw per-file patches to a single net effect per path.
+
+        NOTE: 
+            - for handling renames, this is a "DELETE" at old path, and a "ADDED" at new path 
+            - to account for this in FileDiffPatch, we manually specify unified diff to be DELETED
+        """
+        net: dict[str, FileDiffPatch] = {}
+        for patch in patches:
+            if patch.previous_path and patch.previous_path != patch.file_path:
+                # a move/rename is a delete at the old path + an add at the new path
+                net[patch.previous_path] = FileDiffPatch(
+                    file_path=patch.previous_path,
+                    change_type=ChangeType.DELETED,
+                    unified_diff=self._get_deletion_unified_diff(patch.previous_path),
+                    truncated=patch.truncated,
+                )
+                net[patch.file_path] = FileDiffPatch(
+                    file_path=patch.file_path,
+                    change_type=ChangeType.ADDED,
+                    unified_diff=patch.unified_diff,
+                    truncated=patch.truncated,
+                )
+            else:
+                net[patch.file_path] = FileDiffPatch(
+                    file_path=patch.file_path,
+                    change_type=patch.change_type,
+                    unified_diff=patch.unified_diff,
+                    truncated=patch.truncated,
+                )
+        return net
+
+
+    async def _apply_file_net_effect(
+        self,
+        file_path: str,
+        change_type: ChangeType,
+        unified_diff: str,
+        provider_truncated: bool,
+        pr_record: PullRequest,
+        project_id: UUID,
+        repository_data_source_id: UUID,
+        diff_sync_job_id: UUID,
+        async_session: AsyncSession,
+    ):
+        """
+        Persist one file's net effect from a pull request onto its change history.
+
+        Called exactly once per path per PR (patches are consolidated upstream),
+        so each PR contributes at most one ProjectRepositoryFilePrDiff per path.
+        Applies the change-type reconciliation rule:
+
+          - A file the project ADDED that is later deleted is net-zero: the whole
+            file history (and its per-PR diffs) is removed rather than left as a
+            phantom "deleted" entry. This also covers a project-added file that is
+            later renamed/moved (the delete-old half of the move).
+          - A pre-existing file the project deletes keeps its history and its
+            roll-up change_type becomes DELETED.
+        """
+        stmt = select(ProjectRepositoryFileHistory).options(
+            selectinload(ProjectRepositoryFileHistory.pr_diffs)
+        ).where(
+            ProjectRepositoryFileHistory.project_id == project_id,
+            ProjectRepositoryFileHistory.data_source_id == repository_data_source_id,
+            ProjectRepositoryFileHistory.file_path == file_path,
+        )
+        res = await async_session.execute(stmt)
+        file_history = res.scalar_one_or_none()
+
+        if file_history is None:
+            # first time the project touches this path -> seed the roll-up change_type
+            file_history = ProjectRepositoryFileHistory(
                 project_id=project_id,
                 data_source_id=repository_data_source_id,
+                file_path=file_path,
+                change_type=change_type,
                 diff_sync_job_id=diff_sync_job_id,
-                base_commit_sha=resolved_base_sha,
-                files_touched=[],
-                file_count=0
             )
-            async_session.add(project_repository_changes)
+            async_session.add(file_history)
             await async_session.flush()
-        else:
-            project_repository_changes.diff_sync_job_id = diff_sync_job_id
+            await self._add_pr_diff(
+                file_history, pr_record, ordinal=0, change_type=change_type,
+                unified_diff=unified_diff, provider_truncated=provider_truncated,
+                async_session=async_session,
+            )
+            await async_session.flush()
+            return
 
+        if change_type == ChangeType.DELETED and file_history.change_type == ChangeType.ADDED:
+            # the project created then removed this file -> net-zero, drop entirely
+            await async_session.delete(file_history)
+            await async_session.flush()
+            return
 
-        # Update files_touched
-        stmt = select(FileDiff.file_path).where(
-            FileDiff.project_id == project_id,
-            FileDiff.data_source_id == repository_data_source_id
+        next_ordinal = len(file_history.pr_diffs)
+        await self._add_pr_diff(
+            file_history, pr_record, ordinal=next_ordinal, change_type=change_type,
+            unified_diff=unified_diff, provider_truncated=provider_truncated,
+            async_session=async_session,
         )
-        res = await async_session.execute(stmt)
-        touched_paths = res.scalars().all()
 
-        project_repository_changes.files_touched = list(set(touched_paths))
-        project_repository_changes.file_count = len(project_repository_changes.files_touched)
-        project_repository_changes.last_synced_time = datetime.now(timezone.utc)
-
-        async_session.add(project_repository_changes)
+        if change_type == ChangeType.DELETED:
+            # pre-existing file removed by the project -> roll-up becomes DELETED
+            file_history.change_type = ChangeType.DELETED
+        elif file_history.change_type == ChangeType.DELETED:
+            # a path the project had deleted is back -> it was modified over time
+            file_history.change_type = ChangeType.MODIFIED
+        file_history.diff_sync_job_id = diff_sync_job_id
         await async_session.flush()
 
 
-    async def get_new_repository_commits(
-            self, 
-            issue_tracker_ds: DataSource, 
-            repository_ds: DataSource,
-            project: Project,
-            async_session: AsyncSession
-    ) -> list[GitCommitDetail]:
-        """
-        Process new repository commits that have been added as a result of specified Project.
-        """
-        # determine the latest commit datetime dynamically
-        stmt = (
-            select(GitCommit)
-            .where(GitCommit.project_id == project.id, GitCommit.data_source_id == repository_ds.id)
-            .order_by(GitCommit.commit_datetime.desc())
-            .limit(1)
+    def _prepare_diff_payload(
+        self, unified_diff: str, provider_truncated: bool
+    ) -> tuple[str, str, bool]:
+        """Cap the diff to MAX_DIFF_BYTES and return (stored_text, sha256_hash, truncated)."""
+        raw_bytes = unified_diff.encode("utf-8")
+        capped = raw_bytes[:MAX_DIFF_BYTES]
+        truncated = provider_truncated or len(capped) < len(raw_bytes)
+        stored = capped.decode("utf-8", errors="ignore")
+        return stored, hashlib.sha256(stored.encode("utf-8")).hexdigest(), truncated
+
+
+    async def _add_pr_diff(
+        self,
+        file_history: ProjectRepositoryFileHistory,
+        pr_record: PullRequest,
+        ordinal: int,
+        change_type: ChangeType,
+        unified_diff: str,
+        provider_truncated: bool,
+        async_session: AsyncSession,
+    ):
+        """Create and stage a ProjectRepositoryFilePrDiff for a file under a pull request."""
+        stored, diff_hash, truncated = self._prepare_diff_payload(
+            unified_diff, provider_truncated
+        )
+        async_session.add(ProjectRepositoryFilePrDiff(
+            file_history_id=file_history.id,
+            pull_request_id=pr_record.id,
+            ordinal=ordinal,
+            change_type=change_type,
+            unified_diff=stored,
+            diff_hash=diff_hash,
+            diff_truncated=truncated,
+        ))
+
+
+    async def _update_repository_changes_summary(
+        self,
+        repo_changes: ProjectRepositoryChanges,
+        project_id: UUID,
+        repository_data_source_id: UUID,
+        diff_sync_job_id: UUID,
+        async_session: AsyncSession,
+    ):
+        """Refresh the denormalized files_touched / counts / sync metadata."""
+        stmt = select(ProjectRepositoryFileHistory.file_path).where(
+            ProjectRepositoryFileHistory.project_id == project_id,
+            ProjectRepositoryFileHistory.data_source_id == repository_data_source_id,
         )
         res = await async_session.execute(stmt)
-        latest_commit = res.scalar_one_or_none()
-        last_sync_time = latest_commit.commit_datetime if latest_commit else None
+        touched_paths = list(res.scalars().all())
 
-        # get the child issues from Project.parent_issues 
-        issue_data_provider = IssueTrackerDataProvider.from_provider(issue_tracker_ds)
-        child_issues = await issue_data_provider.get_issues(project.parent_issues)
-        if not child_issues:
-            logger.warning(f"No child issues found for Project={project.id} and IssueTracker={issue_tracker_ds.id} -- skipping processing repository changes")
-            return []
+        repo_changes.files_touched = touched_paths
+        repo_changes.file_count = len(touched_paths)
+        repo_changes.diff_sync_job_id = diff_sync_job_id
+        repo_changes.last_synced_time = datetime.now(timezone.utc)
+        async_session.add(repo_changes)
+        await async_session.flush()
 
-        repository_data_provider = RepositoryDataProvider.from_provider(repository_ds)
-        
-        # determine if latest commit persisted to DB is up-to-date with state in remote Repository (skip if first time sync)
-        if latest_commit:
-            logger.info(f"Existing GitCommits found for Project={project.id} and DataSource={repository_ds.id}. Checking for new commits since last sync.")
-            latest_repository_hash = await repository_data_provider.get_latest_commit_sha(child_issues)
-            if not latest_repository_hash:
-                raise Exception(
-                    f"Inconsistent state detected: Local DB has active commits for Project {project.id}, "
-                    f"but remote repository search returned no matching commits. This may be caused by a "
-                    f"change in configured parent issues or a remote history change."
-                )
-
-            # determine if the repository is synced or not based on commit retrieved
-            if latest_commit.commit_hash == latest_repository_hash:
-                logger.info(f"The previously sycned state of Repository with DataSource={repository_ds.id} and Project={project.id} is up-to-date -- skipping re-syncing")
-                return []
-
-        # At this point, new commits have been made regarding this Project/DataSource -- resyncing is necessary
-        logger.warning(f"Repository DataSource={repository_ds.id} code changes from Project={project.id} aren't synced: accounting for new commits")
-        new_commits = await repository_data_provider.get_all_commits_info(child_issues, last_sync_time)
-        logger.info(f"Found {len(new_commits)} new commits for Project={project.id} and DataSource={repository_ds.id}")
-        return new_commits
 
 
     async def get_total_repository_code_changes(self, project_id: UUID, data_source_id: UUID | None = None) -> list[dict]:
@@ -753,20 +779,22 @@ class DiffService:
         return result.scalar_one_or_none()
 
 
-    async def get_file_diffs(self, project_id: UUID, data_source_id: UUID) -> list[FileDiff]:
+    async def get_file_diffs(self, project_id: UUID, data_source_id: UUID) -> list[ProjectRepositoryFileHistory]:
         """
-        Get the `file_diff` records that are associated with a given Project and DataSource
+        Get the `project_repository_file_history` records that are associated with a given Project and DataSource
         """
-        stmt = select(FileDiff).where(FileDiff.project_id == project_id, FileDiff.data_source_id == data_source_id)
+        stmt = select(ProjectRepositoryFileHistory).where(ProjectRepositoryFileHistory.project_id == project_id, ProjectRepositoryFileHistory.data_source_id == data_source_id)
         result = await self.async_db.execute(stmt)
         return list(result.scalars().all())
 
     async def get_file_diff_string(self, project_id: UUID, data_source_id: UUID, file_path: str) -> str:
         """
-        Retrieve the resulting unfiied Diff for a specific File in a Repository Data Source as a
-        result of the changes introduced by the specified Project. Format the diff with relevant 
-        context including a) if there were conflicts in processing diff due to commit failures, b)
-        the diff was truncated, and c) what change type correspnd to the file 
+        Retrieve the chronological list of per-pull-request diff slices for a file
+        introduced by the specified Project.
+
+        Each slice is one merged pull request's change to the file, ordered oldest
+        first. The latest slice is NOT a netted composite of all changes — callers
+        must reason across the slices to understand the file's net change over time.
 
         Args:
             project_id (UUID): The ID of the Project for which to retrieve the changes.
@@ -774,95 +802,45 @@ class DiffService:
             file_path (str): The path to the file for which to retrieve the changes.
         """
         try:
-            stmt = select(FileDiff).where(
-                FileDiff.project_id == project_id,
-                FileDiff.data_source_id == data_source_id,
-                FileDiff.file_path == file_path,
+            stmt = select(ProjectRepositoryFileHistory).options(
+                selectinload(ProjectRepositoryFileHistory.pr_diffs).selectinload(ProjectRepositoryFilePrDiff.pull_request)
+            ).where(
+                ProjectRepositoryFileHistory.project_id == project_id,
+                ProjectRepositoryFileHistory.data_source_id == data_source_id,
+                ProjectRepositoryFileHistory.file_path == file_path,
             )
             result = await self.async_db.execute(stmt)
-            file_diff = result.scalar_one_or_none()
+            file_history = result.scalar_one_or_none()
 
-            if not file_diff or not file_diff.unified_diff:
+            if not file_history or not file_history.pr_diffs:
                 return f"No project-scoped changes recorded for the file={file_path} in dataSource={data_source_id} for project_id={project_id}."
 
-            header = f"## Diff for `{file_path}` (change_type: {file_diff.change_type.value})\n"
-            if file_diff.conflict_detected:
-                header += f"WARNING: Conflict detected — some commits could not be cleanly applied: {file_diff.failed_commit_shas}\n"
-            if file_diff.diff_truncated:
-                header += "WARNING: Diff was truncated due to size limits.\n"
+            lines: list[str] = [
+                f"## Per-PR diff history for `{file_path}` (net change_type: {file_history.change_type.value})",
+                "",
+                "These are chronological per-pull-request diff slices (oldest first). The latest "
+                "entry is NOT the composite of all changes — reason across every slice to determine "
+                "the file's net state.",
+            ]
 
-            return header + "\n```diff\n" + file_diff.unified_diff + "\n```"
+            for revision in file_history.pr_diffs:
+                pr = revision.pull_request
+                issue_key = pr.issue_key if pr and pr.issue_key else "no linked issue"
+                merged = pr.merged_at.isoformat() if pr and pr.merged_at else "unknown date"
+                pr_number = pr.pr_number if pr else "?"
+                lines.append("")
+                lines.append(
+                    f"### PR #{pr_number} ({issue_key}) merged {merged} — {revision.change_type.value}"
+                )
+                if revision.diff_truncated:
+                    lines.append("WARNING: This diff slice was truncated due to size limits.")
+                lines.append("```diff")
+                lines.append(revision.unified_diff or "")
+                lines.append("```")
+
+            return "\n".join(lines)
 
         except Exception as e:
             logger.error(f"Error retrieving file diff for file_path={file_path}, data_source_id={data_source_id}", exc_info=True)
             return f"Error retrieving file diff: {str(e)}"
 
-
-    async def get_project_git_commits(
-        self,
-        project_id: UUID,
-        data_source_id: UUID,
-        async_session: AsyncSession | None = None
-    ) -> list[GitCommit]:
-        """
-        Get all GitCommits persisted in the database for a specific Project and DataSource in chronological order
-
-        Args:
-            project_id (UUID): The ID of the Project for which to retrieve the changes.
-            data_source_id (UUID): The ID of the Data Source to filter the changes by.
-            async_session (AsyncSession?): optional AsyncSession to leverage if this is a background job (default to use this if present)
-        """
-        stmt = (
-            select(GitCommit)
-            .where(
-                GitCommit.project_id == project_id, 
-                GitCommit.data_source_id == data_source_id
-            )
-            .order_by(GitCommit.commit_datetime.asc())
-        )
-        result = await async_session.execute(stmt) if async_session else await self.async_db.execute(stmt)
-        return list(result.scalars().all())
-
-
-    async def sync_repository_branch_git(
-        self,
-        repository_ds: DataSource,
-        all_commits: list[GitCommit],
-        base_sha: str | None = None
-    ) -> tuple[list[FileDiffResult], str]:
-        """
-        Perform an ephemeral blobless shallow clone of the repository, cherry-pick
-        the project's commits onto an isolated temp branch, extract the composite
-        per-file unified diffs, and clean up.  Nothing is ever pushed to origin.
-
-        Args:
-            repository_ds:  The repository DataSource (provides the clone URL).
-            all_commits:    List of GitCommitDetail or GitCommit in **chronological (ascending)
-                            order** — all project commits to be cherry picked.
-            base_sha:       Optional base SHA to root the temp branch on.
-
-        Returns:
-            A tuple of (file_diff_results, resolved_base_sha).
-        """
-        if not all_commits:
-            return [], ""
-
-        commit_shas = [c.commit_hash for c in all_commits]
-        logger.info(
-            f"Starting ephemeral git ops for DataSource={repository_ds.id}: "
-            f"{len(commit_shas)} commit(s) to cherry-pick"
-        )
-
-        file_diff_results, resolved_base_sha = await self.git_ops_svc.build_composite_diffs(
-            clone_url=repository_ds.url,
-            commit_shas=commit_shas,
-            base_sha=base_sha
-        )
-
-        failed_count = sum(1 for r in file_diff_results if r.conflict_detected)
-        logger.info(
-            f"Git ops complete for DataSource={repository_ds.id}: "
-            f"{len(file_diff_results)} file(s) diffed, "
-            f"{failed_count} with unresolved conflict(s)"
-        )
-        return file_diff_results, resolved_base_sha

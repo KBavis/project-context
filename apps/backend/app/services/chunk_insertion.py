@@ -241,6 +241,10 @@ class ChunkInsertionService:
             raise_on_error=True
         )
 
+        # pre-fetch File records for this DataSource for O(1) lookups 
+        files = await self.file_svc.get_files_by_data_source_id(data_source.id)
+        files_by_path = {file.path: file for file in files}
+
         # split files based on language support
         try:
             all_docs = defaultdict(list)
@@ -250,8 +254,8 @@ class ChunkInsertionService:
                     # clean file path to remove the temporary directory path
                     file_path = self._clean_file_path(doc.metadata["file_path"])
 
-                    # get file by data source and path 
-                    file = await self.file_svc.get_file_by_path_and_data_source(file_path, data_source.id)
+                    # look up the prefetched File record by path 
+                    file = files_by_path.get(file_path)
                     if not file:
                         raise Exception(f"Unable to find File for the DataSource={data_source.id} and Path={file_path}")
 
@@ -277,16 +281,31 @@ class ChunkInsertionService:
             raise e
 
 
-        # chunk files based on language 
+        # tree-sitter chunking is CPU-bound; run it off the event loop
+        return await asyncio.to_thread(self._split_docs_into_nodes, all_docs)
+
+    def _split_docs_into_nodes(self, all_docs: dict[str, list]) -> list["TextNode"]:
+        """
+        Synchronously chunk grouped documents into TextNodes via CodeSplitter (tree-sitter).
+        Runs in a worker thread via asyncio.to_thread, so it must not touch the async DB session.
+
+        Args:
+            all_docs (dict): documents grouped by language/file type
+        """
+
+        # chunk files based on language
         nodes = []
         for file_type, docs in all_docs.items():
-            
+
             # configure splitter to be used for grouped file types
             splitter = CodeSplitter(language=file_type) # TODO: Consider tweaking max_chars or other attributes here
-            nodes.extend(splitter.get_nodes_from_documents(docs)) #TODO: Consider if using async get nodes from docs provides any benefits in performance
+            lang_nodes = splitter.get_nodes_from_documents(docs)
+            nodes.extend(lang_nodes)
 
-            logger.debug(f"Successfully chunked ingested code files for language={file_type} into {len(nodes)} nodes")
-        
+            logger.debug(f"Successfully chunked ingested code files for language={file_type} into {len(lang_nodes)} nodes")
+
+        # hard-cap oversized chunks so a single giant chunk can't exceed the embedding gateways request size limit
+        nodes = self._enforce_max_chunk_size(nodes)
 
         # manually update ID of nodes to be unique (ensuring no duplication)
         file_chunk_counters = defaultdict(int)
@@ -297,9 +316,42 @@ class ChunkInsertionService:
             node.id_ = f"{file_id}_{chunk_hash}_{curr_idx}"
             file_chunk_counters[file_id] += 1
 
-
-
         return nodes
+
+
+    def _enforce_max_chunk_size(self, nodes: list["TextNode"]) -> list["TextNode"]:
+        """
+        Re-split any chunk whose content exceeds EMBEDDING_MAX_CHARS_PER_CHUNK into smaller
+        pieces so no single chunk can trip the embedding gateway's request size limit.
+        Content is preserved (split, not dropped); metadata is copied onto each piece.
+
+        Args:
+            nodes (list[TextNode]): chunked nodes to size-check
+        """
+        max_chars = settings.EMBEDDING_MAX_CHARS_PER_CHUNK
+
+        bounded: list["TextNode"] = []
+        oversized_count = 0
+        for node in nodes:
+            content = node.get_content()
+            if len(content) <= max_chars:
+                bounded.append(node)
+                continue
+
+            oversized_count += 1
+            # split the oversized chunk into consecutive max_chars-sized pieces
+            for start in range(0, len(content), max_chars):
+                piece = content[start:start + max_chars]
+                bounded.append(TextNode(text=piece, metadata=dict(node.metadata)))
+
+        if oversized_count:
+            logger.warning(
+                f"Re-split {oversized_count} oversized chunk(s) exceeding {max_chars} chars "
+                f"into smaller pieces before embedding ({len(nodes)} -> {len(bounded)} nodes)"
+            )
+
+        return bounded
+
 
         
 
@@ -418,6 +470,12 @@ class ChunkInsertionService:
             data_source (DataSource): data source we are ingesting docs for 
         """
 
+        # diagnostic logging 
+        logger.info(f"Starting Chroma save (embedding {len(nodes)} nodes) for DataSource={data_source.id}")
+        if nodes:
+            largest = max(len(node.get_content()) for node in nodes)
+            logger.info(f"Largest chunk to embed is {largest} characters for DataSource={data_source.id}")
+
         # retrieve Chroma DB collection by data source ID
         collection = self.chroma_svc.get_real_chroma_collection(str(data_source.id))
 
@@ -433,11 +491,15 @@ class ChunkInsertionService:
         _ = VectorStoreIndex(
             nodes=nodes, # NOTE: Instead of using LlamaIndex's Document object, we will use our manually generated nodes
             storage_context=storage_context,
-            embed_model=EmbeddingManager.get_embedding_model() # use configured embedding model
+            embed_model=EmbeddingManager.get_embedding_model(), # use configured embedding model
+            insert_batch_size=settings.CHROMA_INSERT_BATCH_SIZE, # keep Chroma POST bodies under the server's size limit
+            use_async=True, # embed batches concurrently (num_workers) to approach the gateway rate limit
         )
 
         # update ChromaCollection record 
         self.chroma_svc.update_collection_counts(collection)
+
+        logger.info(f"Successfully saved {len(nodes)} nodes to Chroma for DataSource={data_source.id}")
     
 
     async def _add_nodes_to_docstore(self, nodes: list["TextNode"], data_source: DataSource) -> None:
@@ -472,10 +534,17 @@ class ChunkInsertionService:
                 namespace=str(data_source.id)
             )
 
-            # use async_add_documents — commits via asyncpg on the live event loop
-            await doc_store.async_add_documents(nodes)
+            # use async_add_documents — commits via asyncpg on the live event loop.
+            await doc_store.async_add_documents(
+                nodes, batch_size=settings.DOCSTORE_INSERT_BATCH_SIZE
+            )
 
             logger.info(f"Successfully persisted {len(nodes)} nodes to DocStore for DataSource={data_source.id}")
+
+            # the BM25 search retriever caches a prebuilt index over docstore nodes;
+            # evict it so subsequent searches rebuild against the updated corpus
+            from app.cache import BM25RetrieverCache
+            BM25RetrieverCache.invalidate(data_source.id)
 
         except Exception as e:
             logger.error(f"Failed to add nodes to DocStore for DataSource={data_source.id}", exc_info=True)

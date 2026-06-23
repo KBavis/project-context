@@ -7,7 +7,7 @@ import '../styles/DiffSyncView.css';
 
 export default function DiffSyncView({ projectId }) {
     const { dataSources } = useDataSources();
-    const { syncingProjects } = useProjects();
+    const { syncingProjects, startPolling } = useProjects();
     const { showAlert } = useAlert();
 
     const [diffSyncJobs, setDiffSyncJobs] = useState({});

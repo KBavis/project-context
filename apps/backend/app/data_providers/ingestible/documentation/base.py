@@ -16,9 +16,6 @@ class DocumentationDataProvider(IngestibleDataProvider):
     def __init__(self, data_source: DataSource):
         super().__init__(data_source=data_source)
 
-        # validate URL is in expected format for Documentation
-        self._validate_url()
-
         # construct required URLs
         self._construct_base_urls()
 

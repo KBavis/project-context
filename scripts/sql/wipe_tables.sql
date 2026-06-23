@@ -1,7 +1,9 @@
 DELETE FROM file;
 DELETE FROM execution_token_usage;
-DELETE FROM file_diff;
+DELETE FROM project_repository_file_pr_diff;
 DELETE FROM git_commit;
+DELETE FROM project_repository_file_history;
+DELETE FROM pull_request;
 DELETE FROM project_repository_changes;
 DELETE FROM record_lock;
 DELETE FROM data_source_mcp_config;

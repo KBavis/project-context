@@ -1,0 +1,11 @@
+# Keep host-only artifacts out of the build context so they don't overlay
+# files installed inside the image (e.g. /app/node_modules from `npm ci`).
+node_modules
+dist
+dist-ssr
+.env
+.env.*
+.git
+.vscode
+.idea
+*.log

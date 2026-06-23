@@ -7,12 +7,19 @@ from pathlib import Path
 import httpx
 from io import BytesIO
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from .base import RepositoryDataProvider
 from app.core import settings
 from app.pydantic import File, FileProcesingStatus, GitCommitDetail
+from app.pydantic.pull_request import PullRequestDetail
+from app.pydantic.file_diff_patch import FileDiffPatch
+from app.pydantic.change_type import ChangeType
 from app.models.data_source import DataSource
 from app.services.file import FileService
+
+if TYPE_CHECKING:
+    from app.data_providers.fetchable.issue_tracker.base import IssueTrackerDataProvider
 
 
 logger = logging.getLogger(__name__)
@@ -124,6 +131,10 @@ class GithubDataProvider(RepositoryDataProvider):
 
             # download file and put into temp directory
             if node["type"] == "file":
+                # skip vendored/build/generated/fixture files before downloading them
+                if self._is_excluded_path(node["path"]):
+                    logger.debug(f"Skipping excluded file: {node['path']}")
+                    continue
                 await self._download_file(node["download_url"], node["name"], node["path"], node["size"])
             else:
                 # recursively download files in specificied directory
@@ -216,8 +227,9 @@ class GithubDataProvider(RepositoryDataProvider):
         """
 
         try:
-            # build url to retrieve data
-            url = f"{self.file_download_base_url}/{file_path}"
+            # Tolerate agent-supplied leading slashes; file_download_base_url has
+            # no trailing slash, so a leading slash here yields a `//` 404.
+            url = f"{self.file_download_base_url}/{file_path.lstrip('/')}"
 
             # make async request to retrieve data
             async with httpx.AsyncClient() as client:
@@ -247,8 +259,11 @@ class GithubDataProvider(RepositoryDataProvider):
         content = None 
 
         try:
-            # build url to retrieve data
-            url = f"{self.base_api_url}{path}{self.branch_reference}"
+            # base_api_url ends in `/contents` with no separator, so normalize the
+            # path to exactly one leading slash (and none for the repo root).
+            clean_path = path.strip("/")
+            path_segment = f"/{clean_path}" if clean_path else ""
+            url = f"{self.base_api_url}{path_segment}{self.branch_reference}"
 
             # retrieve file from specific URL asynchronously
             async with httpx.AsyncClient() as client:
@@ -289,7 +304,9 @@ class GithubDataProvider(RepositoryDataProvider):
         """
 
         try:
-            return f"[{path}]({self.base_url}{path})"
+            # base_url ends in a trailing slash, so strip any leading slash off the
+            # path to avoid a `//` in the citation link.
+            return f"[{path}]({self.base_url}{path.lstrip('/')})"
         except Exception as e:
             logger.error(f"Failure generating citation for path={path} with exception={str(e)}")
             raise Exception(
@@ -297,138 +314,215 @@ class GithubDataProvider(RepositoryDataProvider):
             )
     
 
-    async def get_latest_commit_sha(self, child_issues: list[str]) -> str | None:
+    async def resolve_prs(
+        self,
+        issue_keys: list[str],
+        issue_provider: IssueTrackerDataProvider,
+    ) -> list[PullRequestDetail]:
         """
-        Get the latest commit SHA and datetime for the repository that has one of the specified 
-        issue numbers in its commit message 
+        Resolve merged pull requests targeting this data source's branch whose
+        source branch name (or title/body) references one of the supplied issue
+        keys.
 
-        Args:
-            issue_numbers (list[str]): The list of issue numbers to filter commits by
+        ``issue_provider`` is accepted for interface parity with providers that
+        delegate the issue<->pull-request lookup to the issue tracker (e.g.
+        Bitbucket -> Jira); GitHub resolves the linkage itself and ignores it.
+
+        TODO: This currently enumerates every closed pull request targeting the
+        branch and matches client-side, which does not scale to large
+        repositories. It should be updated to avoid iterating over every pull
+        request ever opened (GitHub's ``head:`` search qualifier only does a
+        prefix match on branch names, so it cannot match an issue key embedded
+        mid-path in the branch — a different linkage strategy is needed).
         """
+        if not issue_keys:
+            return []
 
-        # ensure issue numbers provided
-        if not child_issues:
-            raise Exception("Issue numbers must be provided to filter commits by")
+        needles = [key.lower() for key in issue_keys]
+        repo_api = f"https://api.github.com/repos/{self.repository_owner}/{self.repository_name}"
+        matched: list[PullRequestDetail] = []
 
         try:
-            
-            # construct URL 
-            issues = "+OR+".join(child_issues)
-            query = f"repo:{self.repository_owner}/{self.repository_name}+{issues}"
-            url = f"https://api.github.com/search/commits?q={query}&sort=committer-date&order=desc&per_page=1"
-
-            # make async request to retrieve data
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=self.request_headers)
-                response.raise_for_status()
+                page = 1
+                while True:
+                    url = (
+                        f"{repo_api}/pulls?state=closed&base={self.branch_name}"
+                        f"&sort=updated&direction=desc&per_page=100&page={page}"
+                    )
+                    resp = await client.get(url, headers=self.request_headers)
+                    resp.raise_for_status()
+                    prs = resp.json()
+                    if not prs:
+                        break
 
-                # validate response
-                commits = response.json()
-                if not commits:
-                    logger.warning(f"No commits found for repository {self.full_name} with issue numbers {child_issues}")
-                    return None 
-                
+                    for pr in prs:
+                        if not pr.get("merged_at"):
+                            continue  # closed but not merged
+                        key = self._match_issue_key(pr, issue_keys, needles)
+                        if not key:
+                            continue
+                        matched.append(await self._to_pull_request_detail(client, repo_api, pr, key))
 
-                items = commits.get("items", [])
-                if not items:
-                    logger.warning(f"No commits found for repository {self.full_name} with issue numbers {child_issues}")
-                    return None
+                    if len(prs) < 100:
+                        break
+                    page += 1
 
-                # extract and return latest commit SHA and associated date/time
-                sha = items[0]['sha']
-                return sha
-
-        except Exception as e:
-            logger.error(f"Failure getting latest commit SHA with exception={str(e)}")
-            raise Exception(
-                f"Failure occurred while attempt to get latest commit SHA for repository: {self.full_name}", e
+            logger.info(
+                "Resolved %d linked pull requests for %s matching issues %s",
+                len(matched), self.full_name, issue_keys,
             )
-    
+            return matched
+        except Exception as e:
+            logger.error(f"Failure resolving pull requests with exception={str(e)}")
+            raise Exception(
+                f"Failure occurred while attempting to resolve pull requests for repository: {self.full_name}", e
+            )
 
+    def _match_issue_key(self, pr: dict, issue_keys: list[str], needles: list[str]) -> str | None:
+        """
+        Return the single child issue key this pull request references via its
+        source branch name (primary signal) or title/body (safety net), or
+        ``None`` when nothing matches. A pull request maps one-to-one to a child
+        issue, so the first match wins.
+        """
+        head_ref = (pr.get("head") or {}).get("ref", "") or ""
+        haystack = " ".join([
+            head_ref,
+            pr.get("title", "") or "",
+            pr.get("body", "") or "",
+        ]).lower()
+        for key, needle in zip(issue_keys, needles):
+            if needle in haystack:
+                return key
+        return None
 
+    async def _to_pull_request_detail(
+        self, client: httpx.AsyncClient, repo_api: str, pr: dict, issue_key: str
+    ) -> PullRequestDetail:
+        user = pr.get("user") or {}
+        source_branch = (pr.get("head") or {}).get("ref", "") or ""
+        target_branch = (pr.get("base") or {}).get("ref", "") or self.branch_name
+        merged_at = datetime.fromisoformat(pr["merged_at"].replace("Z", "+00:00"))
 
-    async def get_all_commits_info(
-        self, child_issues: list[str], latest_commit_date: datetime | None = None
+        return PullRequestDetail(
+            pr_number=pr["number"],
+            title=pr.get("title", "") or "",
+            description=pr.get("body"),
+            author_name=user.get("login") or "Unknown",
+            author_email=None,
+            source_branch=source_branch,
+            target_branch=target_branch,
+            merged_at=merged_at,
+            issue_key=issue_key,
+            url=pr.get("html_url"),
+            commits=await self._fetch_pr_commits(client, repo_api, pr["number"]),
+        )
+
+    async def _fetch_pr_commits(
+        self, client: httpx.AsyncClient, repo_api: str, pr_number: int
     ) -> list[GitCommitDetail]:
         """
-        Get all commit details for the repository since the last commit that have commit messages 
-        containing one of the specified issue numbers.
+        Fetch the non-merge commits contained in a pull request (descriptive
+        metadata). Merge commits (parents > 1) are excluded.
         """
-        # Ensure issue numbers provided
-        if not child_issues:
-            raise Exception("Issue numbers must be provided to filter commits by")
+        commits: list[GitCommitDetail] = []
+        page = 1
+        while True:
+            url = f"{repo_api}/pulls/{pr_number}/commits?per_page=100&page={page}"
+            resp = await client.get(url, headers=self.request_headers)
+            resp.raise_for_status()
+            items = resp.json()
+            if not items:
+                break
 
-        try:
-            # 1. Base query setup
-            issues = "+OR+".join(child_issues)
-            query = f"repo:{self.repository_owner}/{self.repository_name}+{issues}"
-            
-            # 2. Conditionally append the date cutoff if provided
-            if latest_commit_date:
-                # Convert datetime object to ISO 8601 string expected by GitHub
-                iso_date = latest_commit_date.isoformat()
-                query += f"+committer-date:>{iso_date}"
-                
-            # 3. Assemble URL, sorting by committer-date ascending to maintain chronological order
-            url = f"https://api.github.com/search/commits?q={query}&sort=committer-date&order=asc&per_page=100"
+            for item in items:
+                if len(item.get("parents", [])) > 1:
+                    continue  # skip merge commits
+                commit_data = item.get("commit", {}) or {}
+                author = commit_data.get("author", {}) or {}
+                date_str = (author.get("date") or "").replace("Z", "+00:00")
+                commit_dt = datetime.fromisoformat(date_str) if date_str else datetime.now()
+                commits.append(GitCommitDetail(
+                    sha=item["sha"],
+                    author_name=author.get("name") or "Unknown",
+                    author_email=author.get("email", "") or "",
+                    commit_datetime=commit_dt,
+                    message=commit_data.get("message", "") or "",
+                    files_modified=[],
+                ))
 
-            # 4. Make async request to retrieve data
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=self.request_headers)
-                response.raise_for_status()
+            if len(items) < 100:
+                break
+            page += 1
 
-                commits = response.json()
-                items = commits.get("items", [])
-                
-                if not items:
-                    logger.info(f"No new commits found for repository {self.full_name} matching criteria.")
-                    return []
+        return commits
 
-                # 5. Retrieve details for each commit (to get files modified, etc.)
-                commit_details = []
-                for item in items:
-                    sha = item['sha']
-                    detail = await self.get_commit_detail(sha)
-                    commit_details.append(detail)
-                return commit_details
-
-        except Exception as e:
-            logger.error(f"Failure getting all commits info with exception={str(e)}")
-            raise Exception(
-                f"Failure occurred while attempting to get all commits info for repository: {self.full_name}", e
-            )
-
-    async def get_commit_detail(self, sha: str) -> GitCommitDetail:
+    async def get_pr_diff(self, pr_number: int) -> list[FileDiffPatch]:
         """
-        Get details for a specific commit, including modified files.
+        Return the per-file diffs introduced by a pull request, using GitHub's
+        per-file ``/pulls/{n}/files`` patches.
         """
-        url = f"https://api.github.com/repos/{self.repository_owner}/{self.repository_name}/commits/{sha}"
+        repo_api = f"https://api.github.com/repos/{self.repository_owner}/{self.repository_name}"
+        patches: list[FileDiffPatch] = []
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=self.request_headers)
-                response.raise_for_status()
-                data = response.json()
-                
-                # Extract files modified
-                files_modified = [f["filename"] for f in data.get("files", [])]
-                
-                commit_data = data["commit"]
-                author_data = commit_data["author"]
-                
-                # Parse date
-                date_str = author_data["date"].replace("Z", "+00:00")
-                commit_date = datetime.fromisoformat(date_str)
-                
-                return GitCommitDetail(
-                    sha=sha,
-                    author_name=author_data["name"],
-                    author_email=author_data["email"],
-                    commit_datetime=commit_date,
-                    message=commit_data["message"],
-                    files_modified=files_modified
-                )
+                page = 1
+                while True:
+                    url = f"{repo_api}/pulls/{pr_number}/files?per_page=100&page={page}"
+                    resp = await client.get(url, headers=self.request_headers)
+                    resp.raise_for_status()
+                    files = resp.json()
+                    if not files:
+                        break
+
+                    for file in files:
+                        patches.append(self._to_file_patch(file))
+
+                    if len(files) < 100:
+                        break
+                    page += 1
+            return patches
         except Exception as e:
-            logger.error(f"Failure getting commit details for SHA={sha} with exception={str(e)}")
+            logger.error(f"Failure getting PR diff for PR={pr_number} with exception={str(e)}")
             raise Exception(
-                f"Failure occurred while attempting to get commit details for SHA {sha} in repository: {self.full_name}", e
+                f"Failure occurred while attempting to get diff for PR {pr_number} in repository: {self.full_name}", e
             )
+
+    def _to_file_patch(self, file: dict) -> FileDiffPatch:
+        """
+        Map a GitHub PR file entry onto a FileDiffPatch, wrapping the patch body
+        (which starts at ``@@``) with git-style headers.
+        """
+        filename = file.get("filename", "")
+        previous_filename = file.get("previous_filename")
+        status = file.get("status", "modified")
+        patch_body = file.get("patch")  # absent for binary / very large files
+
+        if status == "added":
+            change_type, previous_path = ChangeType.ADDED, None
+            src_path, dst_path = None, filename
+        elif status == "removed":
+            change_type, previous_path = ChangeType.DELETED, None
+            src_path, dst_path = filename, None
+        else:  # modified | changed | renamed
+            change_type = ChangeType.MODIFIED
+            previous_path = previous_filename if status == "renamed" else None
+            src_path = previous_filename or filename
+            dst_path = filename
+
+        a = src_path or dst_path
+        b = dst_path or src_path
+        lines = [f"diff --git a/{a} b/{b}"]
+        lines.append("--- /dev/null" if src_path is None else f"--- a/{src_path}")
+        lines.append("+++ /dev/null" if dst_path is None else f"+++ b/{dst_path}")
+        body = patch_body if patch_body else ""
+        unified = "\n".join(lines) + ("\n" + body if body else "") + "\n"
+
+        return FileDiffPatch(
+            file_path=dst_path or src_path or filename,
+            previous_path=previous_path,
+            change_type=change_type,
+            unified_diff=unified,
+            truncated=patch_body is None,
+        )

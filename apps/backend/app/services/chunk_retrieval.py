@@ -13,6 +13,7 @@ from llama_index.core.vector_stores import MetadataFilter, MetadataFilters, Filt
 
 from app.llm import LLMBase
 from app.services.chroma import ChromaService
+from app.cache import BM25RetrieverCache
 from app.services.data_source import DataSourceService
 from app.core import settings
 from app.models.collection import ChromaCollection
@@ -22,6 +23,7 @@ from app.models.docstore_chunk import DocstoreChunk
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import asyncio
 import logging
 from typing import Optional
 from uuid import UUID
@@ -29,12 +31,15 @@ from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
+# default chunk count for semantic search
+DEFAULT_SEARCH_K = 10
+
 class ChunkRetrievalService:
     """
     Service dedicated to the retrieval of chunks from Chroma based on a 
     users query
     """
-    
+
     def __init__(self, db: AsyncSession, chroma_svc: ChromaService, data_source_svc: DataSourceService):
         self.db: AsyncSession = db
         self.chroma_svc: ChromaService = chroma_svc
@@ -151,7 +156,7 @@ class ChunkRetrievalService:
         query: str,
         llm: LLMBase,
         data_source_ids: list[str],
-        k: int = 10
+        k: int = DEFAULT_SEARCH_K
     ):
         """
         Functionality to retrieve ingested Documentation / Code based on a) semantic reasoning (from vector's stored
@@ -269,6 +274,30 @@ class ChunkRetrievalService:
             data_source_ids (list): list of data source's to filter search by 
         """
 
+        # serve from cache when the same data sources were already indexed at this k
+        cache_key = BM25RetrieverCache.build_key(data_source_ids, k)
+        cached = BM25RetrieverCache.get(cache_key)
+        if cached is not None:
+            logger.info(f"Reusing cached BM25 retriever for Data Sources={data_source_ids}, k={k}")
+            return cached
+
+        return self._build_and_cache_bm25(k, data_source_ids)
+
+
+    def _build_and_cache_bm25(
+        self,
+        k: int,
+        data_source_ids: list[str]
+    ) -> BaseRetriever:
+        """
+        Synchronously load every docstore node and build + cache the BM25 retriever.
+
+        This body is intentionally synchronous and blocking (Postgres node loading +
+        in-memory tokenization). Callers on the event loop should offload it to a
+        worker thread (see warm_bm25_cache) so the build doesn't stall the loop.
+        """
+        cache_key = BM25RetrieverCache.build_key(data_source_ids, k)
+
         # configure Postgres KV Store
         from app.core.relational_db import sync_engine, async_engine
         kv_store = PostgresKVStore(
@@ -281,7 +310,7 @@ class ChunkRetrievalService:
 
         # retrieve all nodes associated with filtered Data Source IDs
         all_nodes = []
-        logger.info(f"Filtering BM25 Retreiver based on Data Source IDs: {data_source_ids}")
+        logger.info(f"Building BM25 Retreiver based on Data Source IDs: {data_source_ids}")
 
         for id in data_source_ids:
             doc_store = PostgresDocumentStore(
@@ -291,11 +320,48 @@ class ChunkRetrievalService:
 
             all_nodes.extend(doc_store.docs.values())
         
-        # configure BM25 retreiver based on all nodes 
-        return BM25Retriever.from_defaults(
+        # configure BM25 retreiver based on all nodes, then cache it for reuse
+        retriever = BM25Retriever.from_defaults(
             nodes=all_nodes,
             similarity_top_k=k
         )
+        BM25RetrieverCache.put(cache_key, retriever)
+        logger.info(f"Cached BM25 retriever ({len(all_nodes)} nodes) for Data Sources={data_source_ids}, k={k}")
+        return retriever
+
+
+    async def warm_bm25_cache(
+        self,
+        data_source_ids: list[str],
+        k: int = DEFAULT_SEARCH_K
+    ) -> None:
+        """
+        Pre-build and cache the BM25 retriever so the first semantic_search of a
+        conversation doesn't pay the full index-build cost inline.
+
+        Intended to be fired off as a background task at the start of an agent run.
+        The build is offloaded to a worker thread so it overlaps (rather than blocks)
+        the rest of the run, and any failure is logged and swallowed — a warmup miss
+        must never break the conversation (the inline search path will simply rebuild).
+
+        Args:
+            data_source_ids (list[str]): data sources to index — must match the set the
+                first search resolves to, since the cache key is (data_source_ids, k).
+            k (int): chunk count baked into the retriever; defaults to DEFAULT_SEARCH_K
+                to match semantic_search's default so the warmed key is reused.
+        """
+        if not data_source_ids:
+            return
+
+        # already warm — nothing to do
+        if BM25RetrieverCache.get(BM25RetrieverCache.build_key(data_source_ids, k)) is not None:
+            return
+
+        try:
+            logger.info(f"Warming BM25 cache in background for Data Sources={data_source_ids}, k={k}")
+            await asyncio.to_thread(self._build_and_cache_bm25, k, data_source_ids)
+        except Exception as e:
+            logger.warning(f"Background BM25 cache warmup failed for Data Sources={data_source_ids}, k={k}: {e}")
         
 
     async def _get_chroma_retreiver(self, collection: ChromaCollection, embedding: BaseEmbedding, k: int) -> BaseRetriever:

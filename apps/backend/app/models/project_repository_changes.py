@@ -10,10 +10,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
 if TYPE_CHECKING:
-    from .file_diff import FileDiff
+    from .project_repository_file_history import ProjectRepositoryFileHistory
     from .diff_sync_job import DiffSyncJob
     from .project_data import ProjectData
-    from .git_commit import GitCommit
+    from .pull_request import PullRequest
 
 
 class ProjectRepositoryChanges(Base):
@@ -31,13 +31,6 @@ class ProjectRepositoryChanges(Base):
             ["project_id", "data_source_id"],
             ["project_data.project_id", "project_data.data_source_id"],
         ),
-    )
-
-    base_commit_sha: Mapped[str | None] = mapped_column(
-        String(40),
-        nullable=True,
-        comment="SHA of the commit immediately before the project's first commit; "
-                "computed once on first sync and reused on subsequent syncs",
     )
 
 
@@ -81,14 +74,14 @@ class ProjectRepositoryChanges(Base):
     # many to one with DiffSyncJob (no reverse collection on DiffSyncJob)
     diff_sync_job: Mapped["DiffSyncJob"] = relationship()
 
-    # one to many relationship with FileDiff
-    file_diffs: Mapped[List["FileDiff"]] = relationship(
+    # one to many relationship with ProjectRepositoryFileHistory
+    file_histories: Mapped[List["ProjectRepositoryFileHistory"]] = relationship(
         back_populates="project_repository_changes",
         cascade="all, delete-orphan",
     )
 
-    # one to many relationship with GitCommit
-    commits: Mapped[List["GitCommit"]] = relationship(
+    # one to many relationship with PullRequest
+    pull_requests: Mapped[List["PullRequest"]] = relationship(
         back_populates="project_repository_changes",
         cascade="all, delete-orphan",
     )

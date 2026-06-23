@@ -1,2 +1,13 @@
 .env 
 .vscode
+
+*secret*.env
+*.secret.env
+
+# corporate specific info
+corp/
+
+# corporate CA roots staged into the build context. They are not secrets, but
+# we keep them out of git so the repo stays portable and refreshes locally.
+apps/backend/docker/certs/*.crt
+apps/frontend/docker/certs/*.crt
