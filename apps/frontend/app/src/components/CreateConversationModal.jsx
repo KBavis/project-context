@@ -5,6 +5,15 @@ import { useProjects, useConversations } from '../contexts/index';
 import '../styles/CreateConversationModal.css';
 
 const PROVIDERS = {
+    azureopenai: {
+        label: 'Azure OpenAI',
+        apiValue: 'AzureOpenAI',
+        models: [
+            { id: 'gpt-5.1', label: 'GPT-5.1 (Most Capable)', value: 'gpt-5.1' },
+            { id: 'gpt-4o', label: 'GPT-4o (Balanced)', value: 'gpt-4o' }
+        ],
+        defaultModel: 'gpt-5.1'
+    },
     openai: {
         label: 'OpenAI',
         apiValue: 'OpenAI',
@@ -29,8 +38,8 @@ export default function CreateConversationModal({ isOpen, onClose }) {
     const { projects, selectedProject } = useProjects();
     const { createConversation } = useConversations();
     const [selectedProjectId, setSelectedProjectId] = useState('');
-    const [provider, setProvider] = useState('openai');
-    const [model, setModel] = useState(PROVIDERS.openai.defaultModel);
+    const [provider, setProvider] = useState('azureopenai');
+    const [model, setModel] = useState(PROVIDERS.azureopenai.defaultModel);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
@@ -147,6 +156,11 @@ export default function CreateConversationModal({ isOpen, onClose }) {
                             </option>
                         ))}
                     </select>
+                    {provider === 'azureopenai' && (
+                        <p className="field-hint">
+                            Choose <strong>gpt-5.1</strong> for the most capable model, or <strong>gpt-4o</strong> for a faster, lower-cost option.
+                        </p>
+                    )}
                     {provider === 'openai' && (
                         <p className="field-hint">
                             Choose <strong>gpt-4.1-mini</strong> for a stronger balanced model, or <strong>gpt-4.1</strong> for highest quality at higher cost.

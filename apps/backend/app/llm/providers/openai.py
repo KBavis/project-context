@@ -33,8 +33,7 @@ class OpenAIProvider(LLMBase):
         """
         Returns the tokenizer to be used for the LLM.
         """
-        tokenizer = self.get_llama_idx_instance()._tokenizer
-        return tokenizer.encode if tokenizer else lambda x: []
+        return self._resolve_tiktoken_encoder(self.model_name)
 
     
     def is_available(self) -> bool:

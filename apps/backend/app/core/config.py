@@ -47,6 +47,18 @@ class Settings(BaseSettings):
     LL_MODEL_PROVIDER: str = "Ollama"
     LL_MODEL: str = "gpt-oss:latest"
     LLM_EXPECTED_RESPONSE_SIZE: int = 500 
+
+    # Encoding to fall back to when tiktoken doesn't recognize the configured model.
+    OPENAI_FALLBACK_TIKTOKEN_ENCODING: str = "o200k_base"
+
+    # Maps a model name to the Azure deployment name when they differ (e.g gpt-5.1 --> gpt-51)
+    LLM_AZURE_DEPLOYMENT_MAP: dict[str, str] = {}
+
+    # Base URL and API version for hosted OpenAI-compatible gateways (e.g. an
+    # Azure-native gateway). The base URL should stop before the `/openai`
+    # segment; the Azure client appends `/openai/deployments/<model>/...`.
+    LLM_API_BASE: str | None = None
+    LLM_API_VERSION: str = "2024-10-21"
     LL_MODEL_CHAT_SUMMARY_SYSTEM_PROMPT: str = """
     Your goal is to take the following prompt from the user, along with some basic context such as the Project Name, and construct a high 
     quality, concise, and informative summary of the user's intent. These summary should be no more than 8 words and should clearly convery 
@@ -60,6 +72,15 @@ class Settings(BaseSettings):
     EMBEDDING_PROVIDER: str = "HuggingFace"
     EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
 
+    # Base URL and API version for hosted OpenAI-compatible embedding gateways.
+    # Same convention as LLM_API_BASE (stops before `/openai`).
+    EMBEDDING_API_BASE: str | None = None
+    EMBEDDING_API_VERSION: str = "2024-10-21"
+    # Maximum tokens the embedding model accepts; used by the Docling chunker.
+    EMBEDDING_MAX_TOKENS: int = 8191
+    EMBEDDING_BATCH_SIZE: int = 64 # chunks per embedding request (reduce total requests to handle 429's)
+    EMBEDDING_NUM_WORKERS: int = 2
+    EMBEDDING_MAX_CHARS_PER_CHUNK: int = 8192
     CROSS_ENCODING_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
     EMBEDDING_CACHE_CAPACITY: int = 5
@@ -100,9 +121,7 @@ class Settings(BaseSettings):
     ###########################
     # Validation Constants 
     ###########################
-    VALID_DATA_PROVIDERS: set[str] = {"GitHub", "BitBucket", "Confluence"}
-
-    VALID_LL_MODEL_PROVIDERS: set[str] = {"OpenAI", "Ollama"} # TODO: Add additional providers for configured LLM's 
+    VALID_LL_MODEL_PROVIDERS: set[str] = {"OpenAI", "Ollama", "AzureOpenAI"} # TODO: Add additional providers for configured LLM's 
 
 
     ###########################

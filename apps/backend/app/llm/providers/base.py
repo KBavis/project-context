@@ -2,9 +2,15 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Callable
 import json
+import logging
 
+import tiktoken
 from llama_index.core.llms.function_calling import FunctionCallingLLM
 from llama_index.core.callbacks import CallbackManager
+
+from app.core import settings
+
+logger = logging.getLogger(__name__)
 
 
 class LLMBase(ABC):
@@ -12,6 +18,27 @@ class LLMBase(ABC):
     ###############
     # Generic functionality that can be used by all LLM providers
     ###############
+
+    def _resolve_tiktoken_encoder(self, model_name: str) -> Callable[[str], list[int]]:
+        """
+        Return a tiktoken `.encode` callable for the given OpenAI model name.
+
+        Fall back to a known encoding when tiktoken doesn't recognize the
+        specified model.
+
+        Args:
+            model_name (str): The OpenAI model name to resolve an encoder for.
+        """
+        try:
+            encoding = tiktoken.encoding_for_model(model_name)
+        except KeyError:
+            encoding = tiktoken.get_encoding(settings.OPENAI_FALLBACK_TIKTOKEN_ENCODING)
+            logger.debug(
+                "tiktoken has no mapping for model '%s'; falling back to encoding '%s'",
+                model_name,
+                settings.OPENAI_FALLBACK_TIKTOKEN_ENCODING,
+            )
+        return encoding.encode
 
     async def send_message(self, prompt: str):
         """

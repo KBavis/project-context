@@ -59,6 +59,20 @@ class EmbeddingManager:
                         return self
 
                 return CachedHuggingFaceEmbedding(model_name=settings.EMBEDDING_MODEL)
+
+            # Hosted Azure-native OpenAI-compatible Embedding Providers
+            case "AzureOpenAI":
+                from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
+
+                return AzureOpenAIEmbedding(
+                    model=settings.EMBEDDING_MODEL,
+                    deployment_name=settings.EMBEDDING_MODEL,  # deployment name is treated as equal to the model name
+                    azure_endpoint=settings.EMBEDDING_API_BASE,
+                    api_version=settings.EMBEDDING_API_VERSION,
+                    api_key=settings.OPENAI_API_KEY,
+                    embed_batch_size=settings.EMBEDDING_BATCH_SIZE,
+                    num_workers=settings.EMBEDDING_NUM_WORKERS,  # concurrent embedding requests (with use_async index build)
+                )
             case _:
                 logging.error(
                     f"The embedidng provider specified, '{settings.EMBEDDING_PROVIDER}', is not curretly set up for this application"
@@ -83,6 +97,13 @@ class EmbeddingManager:
                 from transformers import AutoTokenizer
                 return HuggingFaceTokenizer(
                     tokenizer=AutoTokenizer.from_pretrained(settings.EMBEDDING_MODEL)
+                )
+            case "AzureOpenAI":
+                import tiktoken
+                from docling_core.transforms.chunker.tokenizer.openai import OpenAITokenizer
+                return OpenAITokenizer(
+                    tokenizer=tiktoken.encoding_for_model(settings.EMBEDDING_MODEL),
+                    max_tokens=settings.EMBEDDING_MAX_TOKENS,
                 )
             case _:
                 logging.error(
