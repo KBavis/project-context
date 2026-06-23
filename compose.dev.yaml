@@ -25,14 +25,16 @@ services:
       - "host.docker.internal:host-gateway"
 
   chromadb:
-    image: chromadb/chroma:latest
+    image: chromadb/chroma:1.5.9
     container_name: chroma_db
     ports:
       - "8001:8000"
     volumes:
-      - chroma_data:/chroma/chroma
+      - chroma_data:/data
     environment:
       - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/data
+      - ANONYMIZED_TELEMETRY=FALSE
 
   db:
     image: postgres:15
