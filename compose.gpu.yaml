@@ -1,0 +1,7 @@
+# override backend service to use GPU runtime if applicable 
+# i.e `docker compose -f compose.yaml -f compose.gpu.yaml up`
+services:
+  backend:
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all

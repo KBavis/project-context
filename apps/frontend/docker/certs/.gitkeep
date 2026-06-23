@@ -1,0 +1,3 @@
+# Keep this directory in git so the Docker build's `COPY docker/certs/`
+# always has a target. The certificate files themselves are gitignored — see
+# the repo root .gitignore.
