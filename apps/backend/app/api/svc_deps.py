@@ -63,10 +63,14 @@ def get_chroma_svc(
     )
 
 
+def get_record_lock_svc():
+    return RecordLockService()
+
 def get_data_source_svc(
         db: Session = Depends(get_sync_db_session),
         async_db: AsyncSession = Depends(get_async_db_session),
-        chroma_svc: ChromaService = Depends(get_chroma_svc)
+        chroma_svc: ChromaService = Depends(get_chroma_svc),
+        record_lock_svc: RecordLockService = Depends(get_record_lock_svc)
 ):
     """
     Setup DataSourceService dependency
@@ -75,7 +79,7 @@ def get_data_source_svc(
         db (Session): current DB session
     """
     
-    return DataSourceService(db=db, async_db=async_db, chroma_svc=chroma_svc)
+    return DataSourceService(db=db, async_db=async_db, chroma_svc=chroma_svc, record_lock_svc=record_lock_svc)
 
 
 def get_mcp_svc(

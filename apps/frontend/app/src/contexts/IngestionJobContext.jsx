@@ -51,7 +51,14 @@ export function IngestionJobProvider({ children }) {
 
     const createIngestionJob = async (dataSourceId) => {
         try {
-            const job = await api.ingestion.create(dataSourceId);
+            const raw = await api.ingestion.create(dataSourceId);
+            // Normalize response shape to match list endpoint format
+            const job = {
+                ...raw,
+                id: raw.ingestion_job_id || raw.id,
+                data_source_id: raw.data_source_id || dataSourceId,
+                processing_status: raw.status?.value || raw.status || 'IN_PROGRESS',
+            };
             setIngestionJobs(prev => [job, ...prev]);
             if (selectedProject) {
                 startPolling(selectedProject.id);

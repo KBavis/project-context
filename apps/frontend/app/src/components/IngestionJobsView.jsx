@@ -39,7 +39,11 @@ export default function IngestionJobsView() {
                 </div>
             ) : (
                 <div className="jobs-list">
-                    {[...jobs].reverse().map((job) => {
+                    {[...jobs].sort((a, b) => {
+                        const aTime = a.end_time || a.start_time || a.created_at;
+                        const bTime = b.end_time || b.start_time || b.created_at;
+                        return new Date(bTime) - new Date(aTime);
+                    }).map((job) => {
                         const status = mapStatus(job.processing_status);
                         return (
                             <div key={job.id} className="job-card fade-in">

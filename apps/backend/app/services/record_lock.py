@@ -3,6 +3,7 @@ from app.models import RecordLock, RecordType
 from app.core import get_async_session_maker
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy import select
 from uuid import UUID
 import logging
 
@@ -21,6 +22,17 @@ class RecordLockService:
 
     def __init__(self):
         pass
+
+    def is_locked_sync(self, db_session, record_id: UUID, record_type: RecordType) -> bool:
+        """
+        Synchronously check if a record is locked.
+        """
+        stmt = select(RecordLock).where(
+            RecordLock.record_id == record_id,
+            RecordLock.record_type == record_type,
+            RecordLock.is_locked == "Y"
+        )
+        return db_session.execute(stmt).scalar_one_or_none() is not None
 
     
     async def lock(self, record_id: UUID, record_type: RecordType):

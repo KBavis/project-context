@@ -100,6 +100,25 @@ def update_datasource(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
+@router.delete("/{data_source_id}", summary="Delete a data source")
+def delete_datasource(
+    data_source_id: UUID,
+    svc: DataSourceService = Depends(get_data_source_svc)
+):
+    """
+    Delete a Data Source and all associated data (files, ingestion jobs, Chroma collection).
+    Returns 400 if the data source cannot be deleted due to dependency constraints
+    (e.g. it is an Issue Tracker required by scoped repositories, or has active ingestion jobs).
+    """
+    try:
+        svc.delete_data_source(data_source_id)
+        return {"message": "Data source deleted successfully", "id": str(data_source_id)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
 
 # TODO: Add logic to associate existing DataSource to new Project
 

@@ -49,6 +49,7 @@ async def create_ingestion_job(
 
     return {
         "ingestion_job_id": job_pk,
+        "data_source_id": str(data_source_id),
         "status": ProcessingStatus.IN_PROGRESS,
         "start_time": job_start_time
     }
