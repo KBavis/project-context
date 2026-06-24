@@ -28,7 +28,7 @@ class FileService:
         self.chroma_svc = chroma_svc
 
 
-    async def process_file(self, file: FilePydantic, data_source: DataSource, job_pk: UUID) -> FileProcesingStatus:
+    async def process_file(self, file: FilePydantic, data_source: DataSource, job_pk: UUID, new_or_modified_file_ids: list[UUID]) -> FileProcesingStatus:
         """
         Main function for processing a particular file that we are looking to download from a particular DataSource,
         by determining what status a particular file has & then performing the relevant actions based on that status 
@@ -37,6 +37,7 @@ class FileService:
             file (File): in-memory model of the File we are attemptign to process
             data_source_id (UUID): the ID of the DataSource this file belongs to 
             job_pk (UUID): the ingestion job PK
+            new_or_modified_file_ids (list): list to append NEW or MODIFIED file IDs to (to later remove stale chunks)
         """
 
         # Step 1. Determine if this File has been previously ingested based on file_path, hashed file content, and relevant data source 
@@ -46,10 +47,8 @@ class FileService:
         # Step 2: Insert file into relational DB if needed
         if status == FileProcesingStatus.NEW:
             persisted_file = await self.add_new_file(file=file, data_source=data_source, job_pk=job_pk)
-            
-            # self-healing: clean up any orphaned chunks in chroma/docstore from prior failed ingestion runs due to determinstic ID
-            await self.chroma_svc.adelete_nodes_associated_with_files([persisted_file.id])
-            await self.remove_chunks_from_docstore([persisted_file.id])
+            # NOTE: if this file_id is in chroma/docstore, it's a stale insertion from a prior failed ingestion job
+            new_or_modified_file_ids.append(persisted_file.id)
         
         if not persisted_file:
             # NOTE: This should never happen given above logic
@@ -61,33 +60,68 @@ class FileService:
         if status != FileProcesingStatus.NEW:
             await self.update_last_seen_job_pk(job_pk, data_source.id, [persisted_file])
         
-        # Step 5. If the file has changed since last ingestion, a) update corresponding file record hash, b) remove "stale" chunks from Chroma , c) remove stale chunks from Docstore
+        # Step 5. If the file has changed since last ingestion, a) update corresponding file record hash, b) queue up stale chunk removal
         if status == FileProcesingStatus.CHANGED:
-            logger.debug(f"File with path={file.path} has changed since last ingestion, updating file record with relevant hash & remove stale chunks from VectorDB")
+            logger.debug(f"File with path={file.path} has changed since last ingestion, updating file record with relevant hash & queueing chunk removal")
             await self.update_existing_file(file=file, data_source=data_source)
-            await self.chroma_svc.adelete_nodes_associated_with_files([persisted_file.id])
-            await self.remove_chunks_from_docstore([persisted_file.id])
+            new_or_modified_file_ids.append(persisted_file.id)
 
 
         # Step 6. Return status back to calling function
         return status
 
     
+    async def bulk_remove_stale_chunks(self, new_or_modified_file_ids: list[UUID]):
+        """
+        Executes a bulk deletion of any stale/orphaned chunks in Chroma and Docstore 
+        for all files that were queued up during process_file.
+
+        Args:
+            new_or_modified_file_ids (list): list of new or modified file IDs to remove stale Chroma/Docstore chunks for
+        """
+        if not new_or_modified_file_ids:
+            return
+
+        batch_size = 1000
+        # Chunk file_ids into batches to prevent enormous IN clauses that could impact Postgres performance
+        for i in range(0, len(new_or_modified_file_ids), batch_size):
+
+            # NOTE: python slice safety means we don't have to worry about this going out of bounds
+            batch_ids = new_or_modified_file_ids[i : i + batch_size]
+            
+            # remove stale Nodes from Chroma
+            await self.chroma_svc.adelete_nodes_associated_with_files(batch_ids)
+            
+            # remove stale chunks from DocStore
+            await self.remove_chunks_from_docstore(batch_ids)
+
+        logger.info(f"Successfully removed stale chunks for {len(new_or_modified_file_ids)} files")
+
+
     async def remove_chunks_from_docstore(self, file_ids: list[UUID]):
         """
         Remove chunks from DocStore that are associated with the specified file_id 
+
+        NOTE: This removal is ran in a seperate DB session in order to avoid 
+        Deadlocking. This happens when we attempt to remove a node from 
+        our Docstore via this function (but don't commit) and then later down 
+        the line specify an INSERT statement due to determistic file 
+        ID that contradicts that deletion
 
         Args:
             file_ids (list[UUID]): the list of file IDs to remove chunks for 
         """
 
-        stmt = (
-            delete(DocstoreChunk)
-            .where(DocstoreChunk.value['__data__']['metadata']['file_id'].astext.in_([str(file_id) for file_id in file_ids]))
-        )
-
-        await self.session.execute(stmt)
-        await self.session.flush()
+        from app.core import get_async_session_maker
+        session_maker = get_async_session_maker()
+        
+        async with session_maker() as session:
+            stmt = (
+                delete(DocstoreChunk)
+                .where(DocstoreChunk.value['__data__']['metadata']['file_id'].astext.in_([str(file_id) for file_id in file_ids]))
+            )
+            await session.execute(stmt)
+            await session.commit()
 
     async def get_file_status(self, hashed_content: str, file_path: str, data_source_id: UUID) -> tuple[FileProcesingStatus, File | None]:
         """
@@ -141,28 +175,38 @@ class FileService:
         return FileProcesingStatus.NOT_FOUND, None
             
 
-    async def cleanup(self, data_source_id: UUID, job_pk: UUID):
+    async def cleanup(self, data_source_id: UUID, job_pk: UUID, new_or_modified_file_ids: list[UUID]):
         """
         Functionaltiy to go through and remove any stale files assocaited with a particular DataSource 
 
         Args:
             data_source_id (UUID): the ID corresponding to the data source these files belong to 
             job_pk (UUID): the ID corresponding to current IngestionJob
+            new_or_modified_file_ids (list[UUID]): A queue of file IDs that were discovered to be either entirely new
+                                                   or modified during the current ingestion job run. We use this queue 
+                                                   to bulk remove their stale chunks from previous runs before chunking 
+                                                   and inserting their latest content.
         """
 
         stale_file_ids = await self.get_stale_files(data_source_id, job_pk)
-        if not stale_file_ids:
+        if not stale_file_ids and not new_or_modified_file_ids:
             logger.info(f"No stale files found in DB for DataSource={data_source_id} & IngestionJob={job_pk}")
             return
 
-        # remove stale Nodes from Chroma 
-        await self.chroma_svc.adelete_nodes_associated_with_files(stale_file_ids)
+        # remove stale chunks for files modified/created this run
+        if new_or_modified_file_ids:
+            await self.bulk_remove_stale_chunks(new_or_modified_file_ids)
 
-        # remove stale chunks from DocStore 
-        await self.remove_chunks_from_docstore(stale_file_ids)
+        # remove stale files & chunks if we didn't see this 
+        if stale_file_ids:
+            # remove stale Nodes from Chroma 
+            await self.chroma_svc.adelete_nodes_associated_with_files(stale_file_ids)
 
-        # remove stale File's from DB 
-        await self.delete_stale_files_from_db(stale_file_ids)
+            # remove stale chunks from DocStore 
+            await self.remove_chunks_from_docstore(stale_file_ids)
+
+            # remove stale File's from DB 
+            await self.delete_stale_files_from_db(stale_file_ids)
     
 
     def get_file_extension(self, file_extension: str) -> CodeFileExtension | DocsFileExtension:

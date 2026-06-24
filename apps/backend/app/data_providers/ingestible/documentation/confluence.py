@@ -61,6 +61,7 @@ class ConfluenceDataProvider(DocumentationDataProvider):
     async def ingest_data(self, file_svc: FileService, job_pk: UUID):
         self.file_svc = file_svc
         self.job_pk = job_pk
+        self.new_or_modified_file_ids = []
 
         if not self.file_svc or not self.job_pk:
             raise Exception("FileService and JobPK not provided when attempting to ingest data")
@@ -69,7 +70,7 @@ class ConfluenceDataProvider(DocumentationDataProvider):
         await self._get_page_tree(self.root_page_id)
 
         # Cleanup
-        await self.file_svc.cleanup(self.data_source.id, self.job_pk)
+        await self.file_svc.cleanup(self.data_source.id, self.job_pk, self.new_or_modified_file_ids)
 
     async def _get_page_tree(self, page_id: str):
         # 1. Download current page
@@ -150,7 +151,7 @@ class ConfluenceDataProvider(DocumentationDataProvider):
                 hash=hashed_content,
                 file_url=url
             )
-            file_status = await self.file_svc.process_file(file, self.data_source, self.job_pk)
+            file_status = await self.file_svc.process_file(file, self.data_source, self.job_pk, self.new_or_modified_file_ids)
 
             if file_status == FileProcesingStatus.UNCHANGED:
                 return 
