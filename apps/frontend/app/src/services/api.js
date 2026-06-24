@@ -111,6 +111,13 @@ export const api = {
             });
             return handleResponse(response);
         },
+
+        unlinkDataSource: async (projectId, dataSourceId) => {
+            const response = await fetch(`${API_BASE_URL}/projects/${projectId}/data-sources/${dataSourceId}`, {
+                method: 'DELETE',
+            });
+            return handleResponse(response);
+        },
     },
 
     // Data Source endpoints

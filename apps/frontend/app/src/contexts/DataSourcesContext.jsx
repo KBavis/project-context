@@ -90,6 +90,16 @@ export const DataSourcesProvider = ({ children }) => {
         }
     };
 
+    const unlinkProjectFromDataSource = async (projectId, dataSourceId) => {
+        try {
+            await api.projects.unlinkDataSource(projectId, dataSourceId);
+            await fetchData();
+            startPolling(projectId);
+        } catch (err) {
+            throw err;
+        }
+    };
+
     const linkMcpToDataSource = async (dataSourceId, mcpConfigId) => {
         try {
             await api.dataSources.linkMcp(dataSourceId, mcpConfigId);
@@ -122,6 +132,7 @@ export const DataSourcesProvider = ({ children }) => {
             createMcpConfig,
             deleteMcpConfig,
             linkProjectToDataSource,
+            unlinkProjectFromDataSource,
             linkMcpToDataSource
         }}>
             {children}

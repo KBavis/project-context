@@ -48,9 +48,9 @@ async def create_ingestion_job(
     background_tasks.add_task(svc.run_ingestion_job, job_pk, job_start_time, data_source)
 
     return {
-        "ingestion_job_id": job_pk,
-        "data_source_id": str(data_source_id),
-        "status": ProcessingStatus.IN_PROGRESS,
+        "id": job_pk,
+        "processing_status": ProcessingStatus.IN_PROGRESS,
+        "data_source_id": data_source_id,
         "start_time": job_start_time
     }
 

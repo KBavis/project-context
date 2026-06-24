@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from app.pydantic import ProjectRequest
 from app.pydantic.status import ProcessingStatus
-from app.models import Project, ProjectData, DataSource, IngestionJob
+from app.models import Project, ProjectData, DataSource, IngestionJob, ProjectRepositoryChanges
 from app.models.data_source import DataSourceType
 from app.data_providers.ingestible.base import IngestibleDataProvider
 from uuid import UUID
@@ -256,3 +256,65 @@ class ProjectService:
         except Exception as e:
             logger.exception(f"Failure occurred while linking data source to project: {str(e)}")
             raise e
+
+    def unlink_data_source_from_project(self, project_id: UUID, data_source_id: UUID) -> dict:
+        """
+        Unlink a DataSource from a Project.
+        Includes validations to prevent removing Issue Tracker if issue-scoped repos rely on it.
+        Also explicitly handles removal of associated project repository changes.
+        """
+        try:
+            # check if relationship exists
+            stmt = select(ProjectData).where(
+                ProjectData.project_id == project_id,
+                ProjectData.data_source_id == data_source_id
+            )
+            association = self.db.execute(stmt).scalar_one_or_none()
+            
+            if not association:
+                return {"message": "Data source is not linked to this project", "status": "not_linked"}
+
+            # retrieve the data source
+            ds_stmt = select(DataSource).where(DataSource.id == data_source_id)
+            data_source = self.db.execute(ds_stmt).scalar_one_or_none()
+            if not data_source:
+                raise Exception(f"Data Source with ID {data_source_id} not found")
+
+            # Validation: If it's an ISSUE_TRACKER, check if any remaining linked repositories rely on it
+            if data_source.type == DataSourceType.ISSUE_TRACKER:
+                stmt_project_ds = select(ProjectData).where(ProjectData.project_id == project_id)
+                linked_ds = self.db.execute(stmt_project_ds).scalars().all()
+                for lds in linked_ds:
+                    if lds.data_source_id == data_source_id:
+                        continue
+                    ds_check = self.db.execute(select(DataSource).where(DataSource.id == lds.data_source_id)).scalar_one_or_none()
+                    if ds_check and ds_check.type == DataSourceType.REPOSITORY and ds_check.scope_by_issues:
+                        raise ValueError(
+                            "Cannot unlink Issue Tracker because the project has one or more issue-scoped repositories linked. "
+                            "Unlink those repositories first."
+                        )
+
+            # Delete the ProjectRepositoryChanges explicitly to cascade its children
+            stmt_repo_changes = select(ProjectRepositoryChanges).where(
+                ProjectRepositoryChanges.project_id == project_id,
+                ProjectRepositoryChanges.data_source_id == data_source_id
+            )
+            repo_changes = self.db.execute(stmt_repo_changes).scalar_one_or_none()
+            if repo_changes:
+                self.db.delete(repo_changes)
+
+            # Finally, delete the association
+            self.db.delete(association)
+            self.db.commit()
+            
+            return {
+                "message": f"Successfully unlinked data source {data_source_id} from project {project_id}",
+                "status": "success",
+                "project_id": project_id,
+                "data_source_id": data_source_id
+            }
+        except Exception as e:
+            self.db.rollback()
+            logger.exception(f"Failure occurred while unlinking data source from project: {str(e)}")
+            raise e
+
