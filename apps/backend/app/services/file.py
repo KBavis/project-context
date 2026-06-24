@@ -11,7 +11,7 @@ from app.models.docstore_chunk import DocstoreChunk
 from app.pydantic import CodeFileExtension, DocsFileExtension
 
 from typing import List
-from uuid import UUID
+from uuid import UUID, uuid5
 import logging
 from hashlib import sha256
 from io import BytesIO
@@ -45,7 +45,11 @@ class FileService:
 
         # Step 2: Insert file into relational DB if needed
         if status == FileProcesingStatus.NEW:
-                persisted_file = await self.add_new_file(file=file, data_source=data_source, job_pk=job_pk)
+            persisted_file = await self.add_new_file(file=file, data_source=data_source, job_pk=job_pk)
+            
+            # self-healing: clean up any orphaned chunks in chroma/docstore from prior failed ingestion runs due to determinstic ID
+            await self.chroma_svc.adelete_nodes_associated_with_files([persisted_file.id])
+            await self.remove_chunks_from_docstore([persisted_file.id])
         
         if not persisted_file:
             # NOTE: This should never happen given above logic
@@ -396,6 +400,7 @@ class FileService:
         
         # create the File record 
         new_file = File(
+            id=uuid5(data_source.id, file.path), # generate UUID using SHA-1 hash data source / file path
             hash=file.hash,
             size=file.size,
             file_extension=file.file_type,

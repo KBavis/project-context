@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType, ProjectData, Project
-from app.core import settings, get_async_session_maker
+from app.core import settings, get_async_session_maker, get_async_db_session_context
 from app.services.record_lock import RecordLockService
 from app.services.file import FileService
 from app.services.chunk_insertion import ChunkInsertionService
@@ -161,6 +161,10 @@ class IngestionJobService:
         Since Chroma and DocStore are each 1-1 with a DataSource, all ingested nodes
         belong exclusively to this data source's collection and namespace.
 
+        TODO: Fairly wasteful to completly roll back 100000 files just because the 
+        99999 file failed ingestion; consider looking into batching this job or doing 
+        per-file download, chunk, and store logic: https://github.com/KBavis/contextualized/issues/40
+
         Args:
             job_pk (UUID): unique ID of the current ingestion job
             job_start_time (datetime): wall-clock time the job was initiated
@@ -171,91 +175,109 @@ class IngestionJobService:
         data_source_id = data_source.id
 
         try:
-            provider = IngestibleDataProvider.from_provider(data_source)
-        except Exception as e:
-            logger.info(
-                f"Skipping ingestion for DataSource={data_source_id}: "
-                f"type={data_source.type} is not ingestible. Reason: {e}"
-            )
-            job_end_time = datetime.now(ZoneInfo("America/New_York"))
-            duration = job_end_time - job_start_time
-            await self.update_ingestion_job(
-                job_pk=job_pk,
-                status=ProcessingStatus.SKIPPED,
-                end_time=job_end_time,
-                duration=duration.seconds,
-                session=self.db
-            )
-            return
+            # NOTE: Need to leverage new Async DB Session outside of FastAPI request lifecycle 
+            # in order to prevent deadlocks and ensure that the database connection is not 
+            # prematurely closed when the HTTP response is returned.
+            async with get_async_db_session_context() as async_session:
 
-        try:
-
-            # use data source information to fetch relevant data & store in temp directory
-            code_path, docs_path = await self._retrieve_data(provider, job_pk)
-
-            # determine which data source types were downloaded
-            has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(code_path)
-
-            # validate retrieval resulted in some data being processed
-            if not has_docs and not has_code:
-                logger.warning("No new files ingested, skipping ingestion")
-            
-            # documentation files were ingested
-            if has_docs:
-                logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant docs files; chunking & saving to ChromaDB")
-
-                #  TODO: How can we update this logic to intelligently use images/graphs/tables/charts that may be on documents? 
-
-                # TODO: Consider thread pool based on available resources to user (CPU cores, GPU, etc)
-                # run Docling conversion, chunking, and ChromaDB persistence 
-                await self.chunk_insertion_service.docs_convert_chunk_and_store(data_source, job_pk)
-
-
-            # code files were ingested 
-            if has_code:
-                logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
-                await self.chunk_insertion_service.code_chunk_and_store(data_source, job_pk)
-            
-            self._cleanup_tmp_dirs(job_pk)
-
-            job_end_time = datetime.now(ZoneInfo("America/New_York"))
-            duration = job_end_time - job_start_time
-
-            # update IngestionJob status to be SUCCESS
-            await self.update_ingestion_job(
-                job_pk=job_pk, 
-                status=ProcessingStatus.SUCCESS,
-                end_time=job_end_time,
-                duration=duration.seconds,
-                session=self.db # use main DB session
-            )
-
-            logger.info(
-                f"Ingestion Job for DataSource={data_source_id} completed successfully in {duration.seconds} seconds"
-            )
-
-        except Exception as e:
-            logger.error(
-                f"Failure occurred while performing IngestionJob={job_pk}: "
-                f"{type(e).__name__}: {str(e)}",
-                exc_info=True,
-            )
-
-            job_fail_time = datetime.now(ZoneInfo("America/New_York"))
-            duration=(job_fail_time - job_start_time).seconds
-
-            # NOTE: seperate session required in order to ensure status update is not rolled back
-            session_maker = get_async_session_maker()
-            async with session_maker() as session:
-
-                # update IngestionJob with status/duration
-                await self.update_ingestion_job(
-                    job_pk=job_pk,
-                    status=ProcessingStatus.FAILED,
-                    end_time=job_fail_time,
-                    duration=duration,
-                    session=session
+                # instantiate services bound to this background task's session
+                file_svc = FileService(db_session=async_session, chroma_svc=self.file_svc.chroma_svc)
+                chunk_insertion_svc = ChunkInsertionService(
+                    db=async_session, 
+                    chroma_svc=self.chunk_insertion_service.chroma_svc,
+                    file_svc=file_svc
                 )
+
+                try:
+                    provider = IngestibleDataProvider.from_provider(data_source)
+                except Exception as e:
+                    logger.info(
+                        f"Skipping ingestion for DataSource={data_source_id}: "
+                        f"type={data_source.type} is not ingestible. Reason: {e}"
+                    )
+                    job_end_time = datetime.now(ZoneInfo("America/New_York"))
+                    duration = job_end_time - job_start_time
+                    await self.update_ingestion_job(
+                        job_pk=job_pk,
+                        status=ProcessingStatus.SKIPPED,
+                        end_time=job_end_time,
+                        duration=duration.seconds,
+                        session=async_session
+                    )
+                    return
+
+                try:
+
+                    # use data source information to fetch relevant data & store in temp directory
+                    code_path, docs_path = await self._retrieve_data(provider, job_pk, file_svc)
+
+                    # determine which data source types were downloaded
+                    has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(code_path)
+
+                    # validate retrieval resulted in some data being processed
+                    if not has_docs and not has_code:
+                        logger.warning("No new files ingested, skipping ingestion")
+                    
+                    # documentation files were ingested
+                    if has_docs:
+                        logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant docs files; chunking & saving to ChromaDB")
+
+                        #  TODO: How can we update this logic to intelligently use images/graphs/tables/charts that may be on documents? 
+
+                        # TODO: Consider thread pool based on available resources to user (CPU cores, GPU, etc)
+                        # run Docling conversion, chunking, and ChromaDB persistence 
+                        await chunk_insertion_svc.docs_convert_chunk_and_store(data_source, job_pk)
+
+
+                    # code files were ingested 
+                    if has_code:
+                        logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
+                        await chunk_insertion_svc.code_chunk_and_store(data_source, job_pk)
+                    
+                    self._cleanup_tmp_dirs(job_pk)
+
+                    job_end_time = datetime.now(ZoneInfo("America/New_York"))
+                    duration = job_end_time - job_start_time
+
+                    # update IngestionJob status to be SUCCESS
+                    await self.update_ingestion_job(
+                        job_pk=job_pk, 
+                        status=ProcessingStatus.SUCCESS,
+                        end_time=job_end_time,
+                        duration=duration.seconds,
+                        session=async_session # use background task's session
+                    )
+
+                    logger.info(
+                        f"Ingestion Job for DataSource={data_source_id} completed successfully in {duration.seconds} seconds"
+                    )
+
+                except Exception as e:
+                    logger.error(
+                        f"Failure occurred while performing IngestionJob={job_pk}: "
+                        f"{type(e).__name__}: {str(e)}",
+                        exc_info=True,
+                    )
+
+                    job_fail_time = datetime.now(ZoneInfo("America/New_York"))
+                    duration=(job_fail_time - job_start_time).seconds
+
+                    # NOTE: seperate session required in order to ensure status update is not rolled back
+                    session_maker = get_async_session_maker()
+                    async with session_maker() as session:
+
+                        # update IngestionJob with status/duration
+                        await self.update_ingestion_job(
+                            job_pk=job_pk,
+                            status=ProcessingStatus.FAILED,
+                            end_time=job_fail_time,
+                            duration=duration,
+                            session=session
+                        )
+                    
+                    # Re-raise so that `get_async_db_session_context` knows to rollback the transaction
+                    raise
+
         finally:
             # unlock DataSource after processing 
             await self.record_lock_svc.unlock(data_source_id, record_type=RecordType.DATA_SOURCE)
@@ -324,7 +346,7 @@ class IngestionJobService:
     
 
     async def _retrieve_data(
-        self, provider: IngestibleDataProvider, job_pk: UUID,
+        self, provider: IngestibleDataProvider, job_pk: UUID, file_svc: "FileService"
     ) -> tuple[Path, Path]:
         """
         Retrieve relevant data from specified Data Source and store within temporary /data directory
@@ -332,7 +354,8 @@ class IngestionJobService:
 
         Args:
             provider - instantiated IngestibleDataProvider to ingest data from
-            project_id (UUID) - optional specific project_id to only retrieve data for
+            job_pk (UUID) - unique job id
+            file_svc (FileService) - instantiated FileService to use for file state persistence
 
         NOTE: In future, we should make some sort of "diff" calculation each time we retreive data from data source
         in order to quickly determine what's already been retireving before
@@ -340,7 +363,7 @@ class IngestionJobService:
 
         code_path, docs_path = self._create_tmp_dirs(job_pk) 
 
-        await provider.ingest_data(job_pk=job_pk, file_svc=self.file_svc) 
+        await provider.ingest_data(job_pk=job_pk, file_svc=file_svc) 
         return code_path, docs_path
 
 
