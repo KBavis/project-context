@@ -11,9 +11,10 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType, ProjectData, Project
-from app.core import settings, get_async_session_maker, get_async_db_session_context
+from app.core import settings, get_async_session_maker, get_async_db_session_context, ChromaClientManager
 from app.services.record_lock import RecordLockService
 from app.services.file import FileService
+from app.services.chroma import ChromaService
 from app.services.chunk_insertion import ChunkInsertionService
 from typing import TYPE_CHECKING
 from app.data_providers.ingestible.base import IngestibleDataProvider
@@ -28,8 +29,6 @@ class IngestionJobService:
             self, 
             db: AsyncSession, 
             record_lock_svc: RecordLockService,
-            file_svc: "FileService",
-            chunk_insertion_service: "ChunkInsertionService",
             data_source_svc: "DataSourceService"
     ):
         """
@@ -38,15 +37,37 @@ class IngestionJobService:
         Args:
             db (AsyncSession): Database session for ORM operations
             record_lock_svc (RecordLockService): Service for managing record locks
-            file_svc (FileService): Service for file operations
-            chunk_insertion_service (ChunkInsertionService): Service for chunking and storing data
             data_source_svc (DataSourceService): Service for managing data sources
         """
         self.db: AsyncSession = db
         self.record_lock_svc: RecordLockService = record_lock_svc
-        self.file_svc: "FileService" = file_svc
-        self.chunk_insertion_service: "ChunkInsertionService" = chunk_insertion_service
         self.data_source_svc: "DataSourceService" = data_source_svc
+
+    @staticmethod
+    def _build_ingestion_services(
+        async_session: AsyncSession,
+    ) -> tuple["FileService", "ChunkInsertionService"]:
+        """
+        Build the ingestion service graph scoped to a background task's async session.
+
+        ChromaService, FileService, and ChunkInsertionService are NOT FastAPI
+        dependencies — they are created here with a session that outlives the
+        original HTTP request.
+
+        Args:
+            async_session (AsyncSession): background-task-scoped async DB session
+        """
+        chroma_svc = ChromaService(
+            async_db=async_session,
+            chroma_manager=ChromaClientManager(),
+        )
+        file_svc = FileService(db_session=async_session, chroma_svc=chroma_svc)
+        chunk_insertion_svc = ChunkInsertionService(
+            db=async_session,
+            chroma_svc=chroma_svc,
+            file_svc=file_svc,
+        )
+        return file_svc, chunk_insertion_svc
 
     async def get_project_ingestion_state(self, project_id: UUID) -> tuple[str, list[str]]:
         """
@@ -180,13 +201,7 @@ class IngestionJobService:
             # prematurely closed when the HTTP response is returned.
             async with get_async_db_session_context() as async_session:
 
-                # instantiate services bound to this background task's session
-                file_svc = FileService(db_session=async_session, chroma_svc=self.file_svc.chroma_svc)
-                chunk_insertion_svc = ChunkInsertionService(
-                    db=async_session, 
-                    chroma_svc=self.chunk_insertion_service.chroma_svc,
-                    file_svc=file_svc
-                )
+                file_svc, chunk_insertion_svc = self._build_ingestion_services(async_session)
 
                 try:
                     provider = IngestibleDataProvider.from_provider(data_source)
