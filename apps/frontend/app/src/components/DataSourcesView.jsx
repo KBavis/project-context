@@ -49,7 +49,6 @@ export default function DataSourcesView({ projectId }) {
     const [isDragOver, setIsDragOver] = useState(false);
 
     const closeConfirmModal = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
-    const [isDragOver, setIsDragOver] = useState(false);
     const [isUnlinkDragOver, setIsUnlinkDragOver] = useState(false);
 
     const getLatestJobsForDataSource = (dsId) => {
