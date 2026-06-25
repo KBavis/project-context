@@ -82,6 +82,8 @@ class FileService:
         if not new_or_modified_file_ids:
             return
 
+        logger.info(f"Initiating bulk removal of stale chunks for {len(new_or_modified_file_ids)} files...")
+
         batch_size = 1000
         # Chunk file_ids into batches to prevent enormous IN clauses that could impact Postgres performance
         for i in range(0, len(new_or_modified_file_ids), batch_size):

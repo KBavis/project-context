@@ -84,6 +84,9 @@ class BitbucketDataProvider(RepositoryDataProvider):
     async def _get_repository_data(self, curr_url: str):
         assert self.file_svc and self.job_pk
 
+        # TODO: Refactor this function to be more generic for re-use across BitBucket & GitHub  
+        # (https://github.com/KBavis/contextualized/issues/42)
+
         # Bitbucket Server /files endpoint to get all files
         # E.g. /rest/api/1.0/projects/{proj}/repos/{repo}/files?at={branch}
         files_url = f"{self.base_api_url}/files?at={self.branch_name}&limit=10000"
