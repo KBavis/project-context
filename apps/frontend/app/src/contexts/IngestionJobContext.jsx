@@ -40,9 +40,10 @@ export function IngestionJobProvider({ children }) {
 
     // Automatically poll if any jobs are currently running
     useEffect(() => {
-        const isRunning = ingestionJobs.some(j => 
-            j.processing_status === 'IN_PROGRESS' || j.processing_status === 'PENDING'
-        );
+        const isRunning = ingestionJobs.some(j => {
+            const status = j.processing_status ? String(j.processing_status).toUpperCase() : '';
+            return status === 'IN_PROGRESS' || status === 'PENDING' || status === 'RUNNING';
+        });
         if (!isRunning) return;
 
         const interval = setInterval(() => fetchIngestionJobs(true), 5000);
@@ -57,7 +58,7 @@ export function IngestionJobProvider({ children }) {
                 ...raw,
                 id: raw.ingestion_job_id || raw.id,
                 data_source_id: raw.data_source_id || dataSourceId,
-                processing_status: raw.status?.value || raw.status || 'IN_PROGRESS',
+                processing_status: raw.processing_status || raw.status?.value || raw.status || 'RUNNING',
             };
             setIngestionJobs(prev => [job, ...prev]);
             if (selectedProject) {

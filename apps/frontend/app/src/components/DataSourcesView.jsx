@@ -417,9 +417,10 @@ export default function DataSourcesView({ projectId }) {
                                                 <div key={job.id} className="mini-job-item">
                                                     <div className="mini-job-info">
                                                         <span className="mini-job-id">#{job.id.substring(0, 8)}</span>
-                                                        <span className="mini-job-date">
-                                                            {new Date(job.start_time).toLocaleDateString()}
-                                                        </span>
+                                                        <div className="mini-job-date">
+                                                            <span>{new Date(job.start_time).toLocaleDateString()}</span>
+                                                            <span className="mini-job-time">{new Date(job.start_time).toLocaleTimeString()}</span>
+                                                        </div>
                                                     </div>
                                                     <div className={`mini-job-status status-${status}`}>
                                                         {status}
