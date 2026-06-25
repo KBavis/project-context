@@ -106,7 +106,8 @@ class GithubDataProvider(RepositoryDataProvider):
 
         TODO: Look into handling private GitHub repositories
 
-        TODO: Consider making the "get_repo_data" function more generic for BitBucket re-use
+        # TODO: Refactor this function to be more generic for re-use across BitBucket & GitHub  
+        # (https://github.com/KBavis/contextualized/issues/42)
 
         Args:
             curr_url (str) - current URL to retrieve content from
