@@ -64,6 +64,7 @@ class GithubDataProvider(RepositoryDataProvider):
 
         self.file_svc = file_svc
         self.job_pk = job_pk
+        self.new_or_modified_file_ids = []
 
         if not self.file_svc or not self.job_pk:
             raise Exception(f"FileService and JobPK not provided when attempting to ingest data")
@@ -73,7 +74,7 @@ class GithubDataProvider(RepositoryDataProvider):
         await self._get_repository_data(root_url)
 
         # cleanup any files assocaited with DataSource not processed via current job
-        await self.file_svc.cleanup(self.data_source.id, self.job_pk)
+        await self.file_svc.cleanup(self.data_source.id, self.job_pk, self.new_or_modified_file_ids)
 
 
     def _get_request_headers(self) -> dict[str, str] | None:
@@ -190,7 +191,7 @@ class GithubDataProvider(RepositoryDataProvider):
                 hash=hashed_content,
                 file_url=url
             )
-            file_status = await self.file_svc.process_file(file, self.data_source, self.job_pk)
+            file_status = await self.file_svc.process_file(file, self.data_source, self.job_pk, self.new_or_modified_file_ids)
 
             # skip files already processed & unchanged 
             if file_status == FileProcesingStatus.UNCHANGED:

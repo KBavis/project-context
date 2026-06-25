@@ -67,11 +67,14 @@ class ChunkInsertionService:
         await self._add_nodes_to_docstore(nodes, data_source)
 
         # save LlamaIndex nodes to ChromaDB collection (blocking, runs in thread pool)
-        await asyncio.to_thread(
+        collection_name, total_chunks, total_documents = await asyncio.to_thread(
             self._save_to_chroma_db, 
             nodes, 
             data_source
         )
+
+        # update ChromaCollection counts in DB (async, back on the event loop)
+        await self.chroma_svc.aupdate_collection_counts(collection_name, total_chunks, total_documents)
 
         logger.info(f"Succesfully chunked and stored downloaded Code files")
 
@@ -121,11 +124,14 @@ class ChunkInsertionService:
         await self._add_nodes_to_docstore(nodes, data_source)
 
         # store results within Chroma DB, using embedding specified DataSource (blocking, runs in thread pool)
-        await asyncio.to_thread(
+        collection_name, total_chunks, total_documents = await asyncio.to_thread(
             self._save_to_chroma_db, 
             nodes, 
             data_source
         )
+
+        # update ChromaCollection counts in DB (async, back on the event loop)
+        await self.chroma_svc.aupdate_collection_counts(collection_name, total_chunks, total_documents)
 
         logger.info(f"Succesfully converted, chunked, and stored downloaded Documentation files")
 
@@ -461,9 +467,13 @@ class ChunkInsertionService:
         return chunked_docs
     
 
-    def _save_to_chroma_db(self, nodes: list["TextNode"], data_source: DataSource) -> None: 
+    def _save_to_chroma_db(self, nodes: list["TextNode"], data_source: DataSource) -> tuple[str, int, int]: 
         """
-        Save context-rich ingested documentation and code to our relevant VectorDB & Docstore
+        Save context-rich ingested documentation and code to our relevant VectorDB & Docstore.
+        Runs in a worker thread via asyncio.to_thread.
+
+        Returns:
+            (collection_name, total_chunks, total_documents) for async DB persistence by the caller.
 
         Args:
             nodes (list): relevant chunked docs/code 
@@ -496,10 +506,11 @@ class ChunkInsertionService:
             use_async=True, # embed batches concurrently (num_workers) to approach the gateway rate limit
         )
 
-        # update ChromaCollection record 
-        self.chroma_svc.update_collection_counts(collection)
+        # compute collection counts while still in the thread pool (sync Chroma client calls)
+        total_chunks, total_documents = self.chroma_svc.compute_collection_counts(collection)
 
         logger.info(f"Successfully saved {len(nodes)} nodes to Chroma for DataSource={data_source.id}")
+        return collection.name, total_chunks, total_documents
     
 
     async def _add_nodes_to_docstore(self, nodes: list["TextNode"], data_source: DataSource) -> None:

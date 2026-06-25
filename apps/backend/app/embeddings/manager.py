@@ -58,7 +58,11 @@ class EmbeddingManager:
                         # Returning `self` avoids the crash and prevents duplicating the model in RAM.
                         return self
 
-                return CachedHuggingFaceEmbedding(model_name=settings.EMBEDDING_MODEL)
+                return CachedHuggingFaceEmbedding(
+                    model_name=settings.EMBEDDING_MODEL,
+                    embed_batch_size=settings.EMBEDDING_BATCH_SIZE,
+                    device="cuda" if settings.DOCLING_ACCELERATOR_DEVICE == "cuda" else None
+                )
 
             # Hosted Azure-native OpenAI-compatible Embedding Providers
             case "AzureOpenAI":
