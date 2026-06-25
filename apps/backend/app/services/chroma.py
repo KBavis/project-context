@@ -219,15 +219,16 @@ class ChromaService:
                 .where(File.id.in_(file_ids))
             )
             result = await self.async_db.execute(stmt)
-            chroma_collections = result.scalars().all()
+            chroma_collections = result.scalars().unique().all()
 
             # remove Chunks from Chroma that are assocaited with stale file ID
             async_client = await self.chroma_manager.get_async_client()
+            file_ids_str = [str(file_id) for file_id in file_ids]
             for chroma_collection in chroma_collections:
                 curr_chroma_collection = await async_client.get_collection(chroma_collection.name)
 
-                for file_id in file_ids:
-                    await curr_chroma_collection.delete(where={"file_id": str(file_id)})
+                if file_ids_str:
+                    await curr_chroma_collection.delete(where={"file_id": {"$in": file_ids_str}}) # type: ignore
             
             logger.debug(f"Successfully removed Chunks from ChromaDB associated with FileIds={file_ids}")
 
