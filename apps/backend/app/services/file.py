@@ -195,15 +195,10 @@ class FileService:
         if new_or_modified_file_ids:
             await self.bulk_remove_stale_chunks(new_or_modified_file_ids)
 
-        # remove stale files & chunks if we didn't see this 
+        # remove stale files & chunks if we didn't see this ingestion job (file was moved or renamed)
         if stale_file_ids:
-            # remove stale Nodes from Chroma 
             await self.chroma_svc.adelete_nodes_associated_with_files(stale_file_ids)
-
-            # remove stale chunks from DocStore 
             await self.remove_chunks_from_docstore(stale_file_ids)
-
-            # remove stale File's from DB 
             await self.delete_stale_files_from_db(stale_file_ids)
     
 
