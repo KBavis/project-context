@@ -342,8 +342,7 @@ class DiffService:
                 
                 # update the DiffSyncJob with appropaite status and error message when failing 
                 # NOTE: This is done in seperate session as all other changes will be rolled back
-                session_maker = get_async_session_maker()
-                async with session_maker() as session:
+                async with get_async_db_session_context() as session:
                     fail_end_time = datetime.now(timezone.utc)
                     fail_duration = int((fail_end_time - job_start_time).total_seconds())
                     await self.update_diff_sync_job(

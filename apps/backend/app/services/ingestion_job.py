@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType, ProjectData, Project
-from app.core import settings, get_async_session_maker, get_async_db_session_context, ChromaClientManager
+from app.core import settings, get_async_db_session_context, ChromaClientManager
 from app.services.record_lock import RecordLockService
 from app.services.file import FileService
 from app.services.chroma import ChromaService
@@ -278,8 +278,7 @@ class IngestionJobService:
                     duration=(job_fail_time - job_start_time).seconds
 
                     # NOTE: seperate session required in order to ensure status update is not rolled back
-                    session_maker = get_async_session_maker()
-                    async with session_maker() as session:
+                    async with get_async_db_session_context() as session:
 
                         # update IngestionJob with status/duration
                         await self.update_ingestion_job(

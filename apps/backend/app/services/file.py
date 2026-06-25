@@ -112,16 +112,14 @@ class FileService:
             file_ids (list[UUID]): the list of file IDs to remove chunks for 
         """
 
-        from app.core import get_async_session_maker
-        session_maker = get_async_session_maker()
+        from app.core import get_async_db_session_context
         
-        async with session_maker() as session:
+        async with get_async_db_session_context() as session:
             stmt = (
                 delete(DocstoreChunk)
                 .where(DocstoreChunk.value['__data__']['metadata']['file_id'].astext.in_([str(file_id) for file_id in file_ids]))
             )
             await session.execute(stmt)
-            await session.commit()
 
     async def get_file_status(self, hashed_content: str, file_path: str, data_source_id: UUID) -> tuple[FileProcesingStatus, File | None]:
         """
