@@ -100,6 +100,7 @@ class Settings(BaseSettings):
     BITBUCKET_SECRET_TOKEN: str | None = None
     BITBUCKET_MAX_CONCURRENT_DOWNLOADS: int = 3
     BITBUCKET_DOWNLOAD_TIMEOUT_SECONDS: float = 30.0
+    RELEASE_BRANCH_PATTERN: str | None = None
 
     # number of nodes written to the DocStore per batch
     DOCSTORE_INSERT_BATCH_SIZE: int = 512

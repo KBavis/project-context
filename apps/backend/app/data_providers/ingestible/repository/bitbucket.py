@@ -8,6 +8,7 @@ import httpx
 from io import BytesIO
 from datetime import datetime, timezone
 import base64
+import re
 from typing import TYPE_CHECKING
 
 from .base import RepositoryDataProvider
@@ -328,9 +329,13 @@ class BitbucketDataProvider(RepositoryDataProvider):
                     if pr is None:
                         continue
 
-                    # keep only PRs that target this data source's branch.
+                    # keep only PRs that target this data source's branch or a matching release branch.
                     target_branch = (pr.get("toRef") or {}).get("displayId", "") or ""
-                    if target_branch and target_branch != self.branch_name:
+                    if not self._is_branch_match(target_branch):
+                        logger.info(
+                            f"Skipping PR #{pr_id} because target branch '{target_branch}' "
+                            f"does not match expected branch '{self.branch_name}' or release branch pattern."
+                        )
                         continue
 
                     key = self._match_issue_key(pr, issue_keys, needles)
@@ -355,6 +360,32 @@ class BitbucketDataProvider(RepositoryDataProvider):
             return None
         resp.raise_for_status()
         return resp.json()
+
+    def _is_branch_match(self, target_branch: str) -> bool:
+        """
+        Check if the target branch matches our configured data source branch.
+        Also check against RELEASE_BRANCH_PATTERN if configured.
+        """
+        if not target_branch:
+            # If Bitbucket somehow omits the target branch, assume it doesn't match
+            return False
+            
+        if target_branch == self.branch_name:
+            return True
+            
+        if settings.RELEASE_BRANCH_PATTERN:
+            # support simple prefix matching (e.g. "release/")
+            if target_branch.startswith(settings.RELEASE_BRANCH_PATTERN):
+                return True
+                
+            # fallback to regex evaluation for more complex patterns
+            try:
+                if re.search(settings.RELEASE_BRANCH_PATTERN, target_branch):
+                    return True
+            except Exception as e:
+                logger.warning(f"Invalid RELEASE_BRANCH_PATTERN '{settings.RELEASE_BRANCH_PATTERN}': {e}")
+                
+        return False
 
     def _match_issue_key(self, pr: dict, issue_keys: list[str], needles: list[str]) -> str | None:
         """
