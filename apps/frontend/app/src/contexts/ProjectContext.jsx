@@ -63,9 +63,8 @@ export function ProjectProvider({ children }) {
         const checkInitialSync = async () => {
             try {
                 const res = await api.diff.getSyncStatus(selectedProject.id);
-                if (!res.is_initial_sync_complete) {
+                if (res.overall_status === 'in_progress') {
                     setSyncingProjects(prev => ({ ...prev, [selectedProject.id]: { isSyncing: true, ...res } }));
-
                 } else {
                     setSyncingProjects(prev => ({ ...prev, [selectedProject.id]: { isSyncing: false, ...res } }));
                 }
@@ -96,10 +95,10 @@ export function ProjectProvider({ children }) {
 
             try {
                 const statusRes = await api.diff.getSyncStatus(projectId);
-                if (statusRes.is_initial_sync_complete) {
+                if (statusRes.is_ready) {
                     setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: false, ...statusRes } }));
                     return;
-                } else if (statusRes.status === 'failed') {
+                } else if (statusRes.overall_status === 'failed') {
                     setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: false, ...statusRes } }));
                     return; // Stop polling on failure
                 } else {
