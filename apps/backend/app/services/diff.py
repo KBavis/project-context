@@ -777,6 +777,22 @@ class DiffService:
         result = await async_session.execute(stmt) if async_session else await self.async_db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def adelete_project_repository_changes(self, project_id: UUID, data_source_id: UUID) -> None:
+        """
+        Delete the ProjectRepositoryChanges record associated with a given Project and Data Source.
+        This cascades down to ProjectRepositoryFileHistory and PullRequest records.
+        """
+        stmt = select(ProjectRepositoryChanges).where(
+            ProjectRepositoryChanges.project_id == project_id,
+            ProjectRepositoryChanges.data_source_id == data_source_id
+        )
+        result = await self.async_db.execute(stmt)
+        repo_changes = result.scalar_one_or_none()
+        if repo_changes:
+            await self.async_db.delete(repo_changes)
+            await self.async_db.flush()
+
+
 
     async def get_file_diffs(self, project_id: UUID, data_source_id: UUID) -> list[ProjectRepositoryFileHistory]:
         """

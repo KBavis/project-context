@@ -257,7 +257,7 @@ class ProjectService:
             logger.exception(f"Failure occurred while linking data source to project: {str(e)}")
             raise e
 
-    def unlink_data_source_from_project(self, project_id: UUID, data_source_id: UUID) -> dict:
+    async def aunlink_data_source_from_project(self, project_id: UUID, data_source_id: UUID) -> dict:
         """
         Unlink a DataSource from a Project.
         Includes validations to prevent removing Issue Tracker if issue-scoped repos rely on it.
@@ -294,18 +294,12 @@ class ProjectService:
                             "Unlink those repositories first."
                         )
 
-            # Delete the ProjectRepositoryChanges explicitly to cascade its children
-            stmt_repo_changes = select(ProjectRepositoryChanges).where(
-                ProjectRepositoryChanges.project_id == project_id,
-                ProjectRepositoryChanges.data_source_id == data_source_id
-            )
-            repo_changes = self.db.execute(stmt_repo_changes).scalar_one_or_none()
-            if repo_changes:
-                self.db.delete(repo_changes)
+            # Delete the ProjectRepositoryChanges explicitly to cascade its children using diff_svc
+            await self.diff_svc.adelete_project_repository_changes(project_id, data_source_id)
 
             # Finally, delete the association
             self.db.delete(association)
-            self.db.commit()
+            self.db.flush()
             
             return {
                 "message": f"Successfully unlinked data source {data_source_id} from project {project_id}",
@@ -314,7 +308,6 @@ class ProjectService:
                 "data_source_id": data_source_id
             }
         except Exception as e:
-            self.db.rollback()
             logger.exception(f"Failure occurred while unlinking data source from project: {str(e)}")
             raise e
 

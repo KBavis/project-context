@@ -110,7 +110,7 @@ async def unlink_data_source(
     Unlink an existing Data Source from a Project
     """
     try:
-        res = svc.unlink_data_source_from_project(project_id, data_source_id)
+        res = await svc.aunlink_data_source_from_project(project_id, data_source_id)
         logger.info(f"DataSource={data_source_id} successfully unlinked from Project {project_id}")
         return res
     except ValueError as e:
