@@ -581,7 +581,7 @@ export default function DataSourcesView({ projectId }) {
                                     required
                                 />
                             </div>
-                            {newDS.provider === 'GitHub' && newDS.type === 'REPOSITORY' && (
+                            {newDS.type === 'REPOSITORY' && (
                                 <div className="form-field fade-in">
                                     <label className="input-label">Branch (optional)</label>
                                     <input
