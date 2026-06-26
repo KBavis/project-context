@@ -213,7 +213,7 @@ export const api = {
             return handleResponse(response);
         },
 
-        list: async (projectId) => {
+        list: async () => {
             // Backend has GET /ingestion/jobs/ (all)
             // Ignoring projectId for now as backend returns all
             const response = await fetch(`${API_BASE_URL}/ingestion/jobs/`, { cache: 'no-store' });

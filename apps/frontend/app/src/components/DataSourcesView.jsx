@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react';
 import { useDataSources, useIngestionJobs, useAlert, useProjects } from '../contexts/index';
 import Button from './Button';
 import Modal from './Modal';
-import api from '../services/api';
 import '../styles/DataSourcesView.css';
 import '../styles/IngestionJobsView.css';
 
@@ -244,10 +243,11 @@ export default function DataSourcesView({ projectId }) {
                             <div className="data-source-content">
                                 <div className="data-source-title-row">
                                     <h3 className="data-source-name">{displayName}</h3>
-                                    <p className="data-source-provider">
-                                        {ds.provider || ds.type}
-                                        {ds.branch && <span className="data-source-branch-badge">{ds.branch}</span>}
-                                    </p>
+                                    {ds.branch && (
+                                        <p className="data-source-provider">
+                                            <span className="data-source-branch-badge">{ds.branch}</span>
+                                        </p>
+                                    )}
                                 </div>
                                 <p className="data-source-url" title={url}>{url}</p>
 
@@ -256,7 +256,16 @@ export default function DataSourcesView({ projectId }) {
                                         <div className="meta-section-label-row">
                                             <span className="meta-section-label">Projects</span>
                                             {ds.scope_by_issues && ds.type === 'REPOSITORY' && (
-                                                <span className="scope-indicator" title="Ingestion is scoped to project issues">scoped</span>
+                                                <span className="scope-indicator-pill" title="Ingests repository changes grouped by project issues.">
+                                                    <svg className="scope-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                                        <circle cx="12" cy="12" r="10"></circle>
+                                                        <line x1="22" y1="12" x2="18" y2="12"></line>
+                                                        <line x1="6" y1="12" x2="2" y2="12"></line>
+                                                        <line x1="12" y1="6" x2="12" y2="2"></line>
+                                                        <line x1="12" y1="22" x2="12" y2="18"></line>
+                                                    </svg>
+                                                    Scoped
+                                                </span>
                                             )}
                                         </div>
                                         <div className="meta-section-tags">
@@ -268,7 +277,7 @@ export default function DataSourcesView({ projectId }) {
                                                     </span>
                                                 );
                                             })}
-                                            {(() => {
+                                            {!projectId && (() => {
                                                 const unlinked = projects.filter(p => !ds.linked_projects?.includes(p.id));
                                                 if (unlinked.length > 0) {
                                                     return (
@@ -301,8 +310,9 @@ export default function DataSourcesView({ projectId }) {
                                         </div>
                                     </div>
 
-                                    <div className="meta-section">
-                                        <span className="meta-section-label">MCP Server</span>
+                                    {!projectId && (
+                                        <div className="meta-section">
+                                            <span className="meta-section-label">MCP Server</span>
                                         <div className="meta-section-tags">
                                             {ds.mcp_configs && ds.mcp_configs.length > 0 ? (
                                                 ds.mcp_configs.map(mcp => (
@@ -355,7 +365,8 @@ export default function DataSourcesView({ projectId }) {
                                                 return null;
                                             })()}
                                         </div>
-                                    </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -450,6 +461,7 @@ export default function DataSourcesView({ projectId }) {
 
         return (
             <div className="data-sources-sections">
+
                 <div
                     className={`ds-section fade-in ${isDragOver ? 'drag-over' : ''}`}
                     onDrop={handleDropLink}
@@ -459,6 +471,7 @@ export default function DataSourcesView({ projectId }) {
                     <div className="ds-section-header">
                         <span className="ds-section-label">🔗 Linked to {currentProject?.project_name || 'This Project'}</span>
                         <span className="ds-section-count">{linkedDS.length}</span>
+                        <span className="drag-drop-tip" style={{marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--color-text-tertiary)', fontStyle: 'italic'}}>💡 Drag and drop Data Sources to link or unlink from Project</span>
                     </div>
                     {linkedDS.length > 0 ? (
                         <div className="data-sources-grid">
