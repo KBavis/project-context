@@ -53,6 +53,7 @@ class BitbucketDataProvider(RepositoryDataProvider):
     async def ingest_data(self, file_svc: FileService, job_pk: UUID):
         self.file_svc = file_svc
         self.job_pk = job_pk
+        self.new_or_modified_file_ids = []
 
         if not self.file_svc or not self.job_pk:
             raise Exception("FileService and JobPK not provided when attempting to ingest data")
@@ -61,7 +62,7 @@ class BitbucketDataProvider(RepositoryDataProvider):
         await self._get_repository_data(self.base_api_url)
 
         # Cleanup any files associated with DataSource not processed via current job
-        await self.file_svc.cleanup(self.data_source.id, self.job_pk)
+        await self.file_svc.cleanup(self.data_source.id, self.job_pk, self.new_or_modified_file_ids)
 
     def _get_request_headers(self) -> dict[str, str] | None:
         if settings.BITBUCKET_USERNAME and settings.BITBUCKET_SECRET_TOKEN:
@@ -82,6 +83,9 @@ class BitbucketDataProvider(RepositoryDataProvider):
 
     async def _get_repository_data(self, curr_url: str):
         assert self.file_svc and self.job_pk
+
+        # TODO: Refactor this function to be more generic for re-use across BitBucket & GitHub  
+        # (https://github.com/KBavis/contextualized/issues/42)
 
         # Bitbucket Server /files endpoint to get all files
         # E.g. /rest/api/1.0/projects/{proj}/repos/{repo}/files?at={branch}
@@ -200,7 +204,7 @@ class BitbucketDataProvider(RepositoryDataProvider):
             # The session backing FileService is shared across concurrent downloads,
             # so serialize all session access through the lock.
             async with persist_lock:
-                file_status = await self.file_svc.process_file(file, self.data_source, self.job_pk)
+                file_status = await self.file_svc.process_file(file, self.data_source, self.job_pk, self.new_or_modified_file_ids)
 
             if file_status == FileProcesingStatus.UNCHANGED:
                 return 
@@ -505,7 +509,7 @@ class BitbucketDataProvider(RepositoryDataProvider):
                     lines.append(prefix + line.get("line", ""))
 
         return FileDiffPatch(
-            file_path=file_path,
+            file_path=str(file_path),
             previous_path=previous_path,
             change_type=change_type,
             unified_diff="\n".join(lines) + "\n",

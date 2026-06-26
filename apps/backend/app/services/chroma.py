@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+from typing import Optional
 from uuid import UUID
 import asyncio
 
@@ -26,11 +27,11 @@ class ChromaService:
 
     def __init__(
             self, 
-            db: Session, 
             async_db: AsyncSession,
             chroma_manager: ChromaClientManager,
+            db: Optional[Session] = None,
     ):
-        self.db: Session = db
+        self.db: Optional[Session] = db
         self.async_db: AsyncSession = async_db
         self.client: ClientAPI = chroma_manager.get_sync_client() # NOTE: LlamaIndex doesn't support working with Async Client when creating VectorStore/Index
         self.chroma_manager = chroma_manager
@@ -86,6 +87,8 @@ class ChromaService:
         Args:
             data_source_id (UUID): the data source ID to fetch collections for 
         """
+        assert self.db is not None, "Sync DB session is required for this operation"
+
         stmt = (
             select(ChromaCollection)
             .options(selectinload(ChromaCollection.data_source))
@@ -119,38 +122,49 @@ class ChromaService:
             raise Exception(f"No ChromaCollection found for Data Source ID: {data_source_id}")
         return collection
 
+    def compute_collection_counts(self, collection: Collection) -> tuple[int, int]:
+        """
+        Compute the total chunk count and distinct document (file) count for a
+        Chroma collection.  This method only talks to the Chroma HTTP client
+        (no DB), so it is safe to call from a worker thread.
+
+        Returns:
+            (total_chunks, total_documents)
+        """
+        total_chunks = collection.count()
+
+        file_ids: set[str] = set()
+        offset = 0
+        while True:
+            page = collection.get(
+                limit=settings.CHROMA_GET_PAGE_SIZE,
+                offset=offset,
+                include=["metadatas"],
+            )
+            ids = page["ids"]
+            if not ids:
+                break
+            for metadata in page["metadatas"] or []:
+                file_id = metadata.get("file_id") if metadata else None
+                if file_id is not None:
+                    file_ids.add(str(file_id))
+            offset += len(ids)
+
+        return total_chunks, len(file_ids)
+
     def update_collection_counts(self, collection: Collection):
         """
-        Update the document count and chunk counts for a Chroma Collection
+        Update the document count and chunk counts for a Chroma Collection.
+        Requires a sync DB session (self.db).
 
         Args:
             collection (Collection): the Chroma Collection to update
         """
+        assert self.db is not None, "Sync DB session is required for this operation"
+
         try:
-            # determine Chunk (total embedded pieces of information) count
-            total_chunks = collection.count()
+            total_chunks, total_documents = self.compute_collection_counts(collection)
 
-            # determine Document (File) count = distinct file_id across all chunk
-            # metadata. We must paginate: an unbounded collection.get() leads to issues if collection too large
-            file_ids: set[str] = set()
-            offset = 0
-            while True:
-                page = collection.get(
-                    limit=settings.CHROMA_GET_PAGE_SIZE,
-                    offset=offset,
-                    include=["metadatas"],
-                )
-                ids = page["ids"]
-                if not ids:
-                    break
-                for metadata in page["metadatas"] or []:
-                    file_id = metadata.get("file_id") if metadata else None
-                    if file_id is not None:
-                        file_ids.add(str(file_id))
-                offset += len(ids)
-            total_documents = len(file_ids)
-
-            # update counts in ChromaCollection record
             stmt = (
                 update(ChromaCollection)
                 .where(ChromaCollection.name == collection.name)
@@ -161,6 +175,30 @@ class ChromaService:
             logger.debug(f"Successfully updated document and chunk counts for collection={collection.name}")
         except Exception as e:
             logger.error(f"Failure occurred while attempting to update document and chunk counts for collection={collection.name}", exc_info=True)
+            raise e
+
+    async def aupdate_collection_counts(self, collection_name: str, total_chunks: int, total_documents: int):
+        """
+        Async variant of update_collection_counts.
+        Persists pre-computed counts via the async DB session. Use this from
+        background tasks that don't have a sync DB session.
+
+        Args:
+            collection_name (str): Chroma collection name
+            total_chunks (int): pre-computed total chunk count
+            total_documents (int): pre-computed total document (file) count
+        """
+        try:
+            stmt = (
+                update(ChromaCollection)
+                .where(ChromaCollection.name == collection_name)
+                .values(total_chunks=total_chunks, total_documents=total_documents)
+            )
+            await self.async_db.execute(stmt)
+            await self.async_db.flush()
+            logger.debug(f"Successfully updated document and chunk counts for collection={collection_name}")
+        except Exception as e:
+            logger.error(f"Failure occurred while attempting to async-update counts for collection={collection_name}", exc_info=True)
             raise e
         
 
@@ -181,15 +219,16 @@ class ChromaService:
                 .where(File.id.in_(file_ids))
             )
             result = await self.async_db.execute(stmt)
-            chroma_collections = result.scalars().all()
+            chroma_collections = result.scalars().unique().all()
 
             # remove Chunks from Chroma that are assocaited with stale file ID
             async_client = await self.chroma_manager.get_async_client()
+            file_ids_str = [str(file_id) for file_id in file_ids]
             for chroma_collection in chroma_collections:
                 curr_chroma_collection = await async_client.get_collection(chroma_collection.name)
 
-                for file_id in file_ids:
-                    await curr_chroma_collection.delete(where={"file_id": str(file_id)})
+                if file_ids_str:
+                    await curr_chroma_collection.delete(where={"file_id": {"$in": file_ids_str}}) # type: ignore
             
             logger.debug(f"Successfully removed Chunks from ChromaDB associated with FileIds={file_ids}")
 
@@ -221,6 +260,7 @@ class ChromaService:
             data_source_id (UUID): data source ID — used as the collection name
             data_source_name (str): data source name (used only for log messages)
         """
+        assert self.db is not None, "Sync DB session is required for this operation"
 
         collection_name = str(data_source_id)
 
