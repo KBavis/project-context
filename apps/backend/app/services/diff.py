@@ -72,18 +72,8 @@ class DiffService:
         states = []
         reasons = []
         for ds in repo_data_sources:
-            # Check if sync is already complete for this ds
-            stmt = select(ProjectRepositoryChanges).where(
-                ProjectRepositoryChanges.project_id == project_id,
-                ProjectRepositoryChanges.data_source_id == ds.id
-            )
-            res = await self.async_db.execute(stmt)
-            if res.scalars().first():
-                logger.info(f"[SyncState] project_id={project_id}, ds={ds.id} ({ds.name}): ProjectRepositoryChanges record exists → success")
-                states.append(ProcessingStatus.SUCCESS.value)
-                continue
-                
-            # If not complete, check the latest DiffSyncJob
+            
+            # check latest diff job
             stmt = select(DiffSyncJob).where(
                 DiffSyncJob.project_id == project_id,
                 DiffSyncJob.data_source_id == ds.id
