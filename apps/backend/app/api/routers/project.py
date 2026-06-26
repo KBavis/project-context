@@ -100,6 +100,29 @@ async def link_data_source(
         )
 
 
+@router.delete("/{project_id}/data-sources/{data_source_id}", summary="Unlink data source from project")
+async def unlink_data_source(
+    project_id: UUID,
+    data_source_id: UUID,
+    svc: ProjectService = Depends(get_project_svc)
+):
+    """
+    Unlink an existing Data Source from a Project
+    """
+    try:
+        res = await svc.aunlink_data_source_from_project(project_id, data_source_id)
+        logger.info(f"DataSource={data_source_id} successfully unlinked from Project {project_id}")
+        return res
+    except ValueError as e:
+        logger.error(f"ValueError while attempting to unlink Project={project_id} from DataSource={data_source_id}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Fatal Exception while attempting to unlink Project={project_id} from DataSource={data_source_id}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{str(e)}"
+        )
+
+
 @router.get("/{project_id}/sync-status", summary="Get project readiness state")
 async def get_project_sync_status(
     project_id: UUID,

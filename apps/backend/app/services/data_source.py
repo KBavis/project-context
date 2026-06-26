@@ -1,7 +1,7 @@
 from __future__ import annotations
 import logging
 from uuid import UUID
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -9,9 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 from app.pydantic import DataSourceRequest
-from app.models import DataSource, Project, ProjectData
+from app.models import DataSource, Project, ProjectData, File
 from app.models.data_source import DataSourceType
 from app.services.chroma import ChromaService
+
+if TYPE_CHECKING:
+    from app.services.record_lock import RecordLockService
 from app.core import settings
 from app.data_providers.base import DataProvider, Provider
 from app.data_providers.ingestible.base import IngestibleDataProvider
@@ -22,10 +25,11 @@ logger = logging.getLogger(__name__)
 
 class DataSourceService:
     
-    def __init__(self, db: Session, async_db: AsyncSession, chroma_svc: ChromaService):
+    def __init__(self, db: Session, async_db: AsyncSession, chroma_svc: ChromaService, record_lock_svc: 'RecordLockService'):
         self.db: Session = db
         self.async_db: AsyncSession = async_db
         self.chroma_svc = chroma_svc
+        self.record_lock_svc = record_lock_svc
 
     async def aget_data_source_by_id(self, data_source_id: UUID) -> DataSource:
         """
@@ -325,9 +329,77 @@ class DataSourceService:
             for data_source in data_sources
         ]
 
+    def delete_data_source(self, data_source_id: UUID) -> list[UUID]:
+        """
+        Delete a DataSource after validating edge cases:
+        1. Cannot delete an ISSUE_TRACKER that is the sole issue provider for a project
+           with active scope_by_issues REPOSITORY sources.
+        2. Cannot delete while IN_PROGRESS ingestion jobs exist.
+        3. Cleans up Chroma collection, ProjectData associations, and cascaded relationships.
+        """
+        from app.models import RecordType
+
+        stmt = (
+            select(DataSource)
+            .options(
+                selectinload(DataSource.project_data).selectinload(ProjectData.project).selectinload(Project.project_data).selectinload(ProjectData.data_source),
+                selectinload(DataSource.ingestion_jobs),
+                selectinload(DataSource.chroma_collection),
+            )
+            .where(DataSource.id == data_source_id)
+        )
+        ds = self.db.execute(stmt).scalar_one_or_none()
+        if not ds:
+            raise ValueError(f"Data Source with ID {data_source_id} not found")
+
+        # Guard: block delete if data source is currently locked
+        is_locked = self.record_lock_svc.is_locked_sync(self.db, data_source_id, RecordType.DATA_SOURCE)
+        if is_locked:
+            raise ValueError(
+                "Cannot delete this data source while it is currently locked (e.g., active ingestion job running). "
+                "Please wait for it to complete or cancel it first."
+            )
+
+        # Guard: if this is an ISSUE_TRACKER, check if any linked project depends on it
+        if ds.type == DataSourceType.ISSUE_TRACKER:
+            for pd in ds.project_data:
+                project = pd.project
+                scoped_repos = [
+                    other_pd.data_source for other_pd in project.project_data
+                    if other_pd.data_source.type == DataSourceType.REPOSITORY
+                    and other_pd.data_source.scope_by_issues
+                ]
+                if scoped_repos:
+                    raise ValueError(
+                        f"Cannot delete this Issue Tracker because project "
+                        f"\"{project.project_name}\" has repository data sources scoped by issues "
+                        f"that depend on it. Remove or un-scope those repositories first."
+                    )
+
+        # Clean up Chroma collection if it exists
+        if ds.chroma_collection:
+            try:
+                self.chroma_svc.delete_collection(data_source_id)
+            except Exception as e:
+                logger.warning(f"Failed to delete Chroma collection for DataSource={data_source_id}: {e}")
+
+        # Manually delete ProjectData associations (no cascade on this relationship)
+        for pd in list(ds.project_data):
+            self.db.delete(pd)
+
+        # Extract file_ids before we drop the records so the background job can scrub them from Chroma/DocStore
+        file_ids = list(self.db.execute(select(File.id).where(File.data_source_id == data_source_id)).scalars())
+
+        # Delete the data source (cascades handle ingestion_jobs, files, mcp_configs, chroma_collection)
+        self.db.delete(ds)
+        self.db.flush()
+        
+        return file_ids
+
     def update_data_source(self, data_source_id: UUID, updates: dict) -> dict[str, Any]:
         """
         Update mutable fields of a DataSource
+
 
         Args:
             data_source_id: UUID of the DataSource to update

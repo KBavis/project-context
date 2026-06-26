@@ -5,7 +5,6 @@ import ChatInterface from '../components/ChatInterface';
 import CreateConversationModal from '../components/CreateConversationModal';
 import DataSourcesView from '../components/DataSourcesView';
 import DiffSyncView from '../components/DiffSyncView';
-import MCPConfigsView from '../components/MCPConfigsView';
 import AlertContainer from '../components/Alert';
 import '../styles/Workspace.css';
 
@@ -101,9 +100,6 @@ export default function Workspace() {
                                 <span className="nav-icon">🔄</span> Repository Sync
                             </button>
                         )}
-                        <button onClick={() => setView('mcp')} className={view === 'mcp' ? 'active' : ''}>
-                            <span className="nav-icon">⚡</span> MCP Configs
-                        </button>
                     </div>
                 </nav>
 
@@ -136,7 +132,6 @@ export default function Workspace() {
                 {view === 'chat' && <ChatInterface conversationId={selectedConversation?.id} />}
                 {view === 'datasources' && <DataSourcesView projectId={project.id} />}
                 {view === 'sync' && <DiffSyncView projectId={project.id} />}
-                {view === 'mcp' && <MCPConfigsView />}
             </main>
             <CreateConversationModal isOpen={showCreateConv} onClose={() => setShowCreateConv(false)} />
             <AlertContainer />

@@ -99,6 +99,29 @@ class FileService:
 
         logger.info(f"Successfully removed stale chunks for {len(new_or_modified_file_ids)} files")
 
+    async def background_cleanup_data_source_files(self, file_ids: list[UUID], data_source_id: UUID):
+        """
+        Background task to clean up chunks from DocStore when a Data Source is deleted.
+        Includes verbose logging on failure so orphaned chunks can be identified and removed later.
+        """
+        logger.info(f"Starting background cleanup of Docstore chunks for deleted Data Source={data_source_id}")
+        try:
+            if not file_ids:
+                logger.info(f"No file_ids found for background cleanup, skipping Docstore deletion...")
+                return
+                
+            # We only need to delete from DocStore, because the entire Chroma collection is dropped 
+            # synchronously during DataSource deletion, which instantly wipes all Chroma vectors.
+            await self.remove_chunks_from_docstore(file_ids)
+                
+            logger.info(f"Successfully completed background cleanup of Docstore chunks for deleted DataSource={data_source_id}")
+        except Exception as e:
+            logger.error(
+                f"Failed to clean up files during Data Source deletion for DataSource={data_source_id}. "
+                f"Error: {e}",
+                exc_info=True
+            )
+
 
     async def remove_chunks_from_docstore(self, file_ids: list[UUID]):
         """

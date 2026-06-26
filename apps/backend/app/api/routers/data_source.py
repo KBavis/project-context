@@ -2,11 +2,11 @@ from __future__ import annotations
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 
-from app.services import DataSourceService, ProjectService
+from app.services import DataSourceService, ProjectService, FileService
 from app.pydantic import DataSourceRequest
 from app.models.data_source import DataSourceType
 from app.services.diff import DiffService
-from ..svc_deps import get_data_source_svc, get_async_diff_svc, get_project_svc
+from ..svc_deps import get_data_source_svc, get_async_diff_svc, get_project_svc, get_async_file_svc
 
 from uuid import UUID
 from app.pydantic import DataSourceRequest, DataSourceUpdateRequest
@@ -94,6 +94,28 @@ def update_datasource(
     try:
         # Only send fields that were provided
         return svc.update_data_source(data_source_id, updates.dict(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.delete("/{data_source_id}", summary="Delete a data source")
+def delete_datasource(
+    data_source_id: UUID,
+    background_tasks: BackgroundTasks,
+    data_source_svc: DataSourceService = Depends(get_data_source_svc),
+    file_svc: FileService = Depends(get_async_file_svc)
+):
+    """
+    Delete a Data Source and all associated data (files, ingestion jobs, Chroma collection).
+    Returns 400 if the data source cannot be deleted due to dependency constraints
+    (e.g. it is an Issue Tracker required by scoped repositories, or has active ingestion jobs).
+    """
+    try:
+        file_ids = data_source_svc.delete_data_source(data_source_id)
+        background_tasks.add_task(file_svc.background_cleanup_data_source_files, file_ids, data_source_id)
+        return {"message": "Data source deleted successfully", "id": str(data_source_id)}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:

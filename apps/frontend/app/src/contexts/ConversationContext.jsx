@@ -21,6 +21,10 @@ export function ConversationProvider({ children }) {
     const [error, setError] = useState(null);
 
     useEffect(() => {
+        // Clear stale selection from previous project immediately
+        setSelectedConversation(null);
+        setMessages([]);
+
         const loadConversations = async () => {
             if (!selectedProject) {
                 setConversations([]);
