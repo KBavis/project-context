@@ -101,7 +101,7 @@ def update_datasource(
 
 
 @router.delete("/{data_source_id}", summary="Delete a data source")
-async def delete_datasource(
+def delete_datasource(
     data_source_id: UUID,
     background_tasks: BackgroundTasks,
     data_source_svc: DataSourceService = Depends(get_data_source_svc),
@@ -113,8 +113,8 @@ async def delete_datasource(
     (e.g. it is an Issue Tracker required by scoped repositories, or has active ingestion jobs).
     """
     try:
-        data_source_svc.delete_data_source(data_source_id)
-        background_tasks.add_task(file_svc.background_cleanup_data_source_files, data_source_id)
+        file_ids = data_source_svc.delete_data_source(data_source_id)
+        background_tasks.add_task(file_svc.background_cleanup_data_source_files, file_ids, data_source_id)
         return {"message": "Data source deleted successfully", "id": str(data_source_id)}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

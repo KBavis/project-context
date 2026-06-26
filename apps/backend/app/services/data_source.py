@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 from app.pydantic import DataSourceRequest
-from app.models import DataSource, Project, ProjectData
+from app.models import DataSource, Project, ProjectData, File
 from app.models.data_source import DataSourceType
 from app.services.chroma import ChromaService
 
@@ -329,7 +329,7 @@ class DataSourceService:
             for data_source in data_sources
         ]
 
-    def delete_data_source(self, data_source_id: UUID) -> None:
+    def delete_data_source(self, data_source_id: UUID) -> list[UUID]:
         """
         Delete a DataSource after validating edge cases:
         1. Cannot delete an ISSUE_TRACKER that is the sole issue provider for a project
@@ -387,9 +387,14 @@ class DataSourceService:
         for pd in list(ds.project_data):
             self.db.delete(pd)
 
+        # Extract file_ids before we drop the records so the background job can scrub them from Chroma/DocStore
+        file_ids = list(self.db.execute(select(File.id).where(File.data_source_id == data_source_id)).scalars())
+
         # Delete the data source (cascades handle ingestion_jobs, files, mcp_configs, chroma_collection)
         self.db.delete(ds)
         self.db.flush()
+        
+        return file_ids
 
     def update_data_source(self, data_source_id: UUID, updates: dict) -> dict[str, Any]:
         """
