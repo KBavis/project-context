@@ -54,7 +54,7 @@ def _build_data_source_context(data_sources: list[DataSource]) -> str:
         scope_warning = ""
         if ds.type == DataSourceType.REPOSITORY and getattr(ds, "ingest_paths", None):
             paths_str = ", ".join(ds.ingest_paths)
-            scope_warning = f" | [RESTRICTED SCOPE: {paths_str}] (Note: semantic/grep search and file viewing are limited to these paths. Do not attempt to search outside them.)"
+            scope_warning = f" | [INGESTED SCOPE: {paths_str}] (Note: semantic/grep search are limited to these paths. Do not attempt to search outside them.)"
 
         lines.append(
             f"- [{ds.type}: {ds.provider}] **{ds.name}** (ID: {ds.id}, URL: {ds.url}){scope_warning}\n"
