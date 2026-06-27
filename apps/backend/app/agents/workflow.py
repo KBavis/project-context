@@ -52,7 +52,7 @@ def _build_data_source_context(data_sources: list[DataSource]) -> str:
     for ds in data_sources:
         slug = re.sub(r"[^a-z0-9]+", "_", ds.name.lower()).strip("_")[:30]
         scope_warning = ""
-        if ds.type == DataSourceType.REPOSITORY and getattr(ds, "ingest_paths", None):
+        if ds.type == DataSourceType.REPOSITORY and ds.ingest_paths:
             paths_str = ", ".join(ds.ingest_paths)
             scope_warning = f" | [INGESTED SCOPE: {paths_str}] (Note: semantic/grep search are limited to these paths. Do not attempt to search outside them.)"
 
