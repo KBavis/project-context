@@ -472,7 +472,6 @@ class DiffService:
                 project_id=project_id,
                 data_source_id=repository_data_source_id,
                 diff_sync_job_id=diff_sync_job_id,
-                files_touched=[],
                 file_count=0,
             )
             async_session.add(repo_changes)
@@ -720,16 +719,16 @@ class DiffService:
         diff_sync_job_id: UUID,
         async_session: AsyncSession,
     ):
-        """Refresh the denormalized files_touched / counts / sync metadata."""
-        stmt = select(ProjectRepositoryFileHistory.file_path).where(
+        """Refresh the denormalized counts / sync metadata."""
+        from sqlalchemy import func
+        stmt = select(func.count()).select_from(ProjectRepositoryFileHistory).where(
             ProjectRepositoryFileHistory.project_id == project_id,
             ProjectRepositoryFileHistory.data_source_id == repository_data_source_id,
         )
         res = await async_session.execute(stmt)
-        touched_paths = list(res.scalars().all())
+        file_count = res.scalar_one()
 
-        repo_changes.files_touched = touched_paths
-        repo_changes.file_count = len(touched_paths)
+        repo_changes.file_count = file_count
         repo_changes.diff_sync_job_id = diff_sync_job_id
         repo_changes.last_synced_time = datetime.now(timezone.utc)
         async_session.add(repo_changes)

@@ -38,16 +38,10 @@ class ProjectRepositoryChanges(Base):
     # sync information regarding this state of project repository changes 
     last_synced_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True, comment="End time of DiffSyncJob processing")
 
-    files_touched: Mapped[list[str]] = mapped_column(
-        ARRAY(String),
-        nullable=False,
-        insert_default=list,
-        comment="Repo-relative paths in the net composition diff (denormalized)",
-    )
     file_count: Mapped[int] = mapped_column(
         nullable=False,
         default=0,
-        comment="Number of paths in files_touched",
+        comment="Number of touched files",
     )
 
     # foreign keys
