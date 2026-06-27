@@ -575,13 +575,13 @@ class DiffService:
                     out_of_scope.add(file_path)
 
         if out_of_scope:
-            top_level_dirs = set(p.split("/")[0] for p in out_of_scope if "/" in p)
+            affected = {p.split("/")[0] if "/" in p else "(repo root)" for p in out_of_scope}
             logger.warning(
                 f"Coverage Warning: {len(out_of_scope)} file(s) modified across synced PRs "
                 f"fall outside the configured ingest_paths={ingest_paths}. "
                 f"These repository changes will be tracked as something the project introduced, "
                 f"but will not be searchable by the agent via grep search and semantic search. "
-                f"Affected top-level directories: {', '.join(top_level_dirs)}"
+                f"Affected top-level directories: {', '.join(affected)}"
             )
 
 
