@@ -95,13 +95,18 @@ class DataSourceService:
         # create data source
         if data_source_request.type == DataSourceType.REPOSITORY and data_source_request.provider == "GitHub" and not data_source_request.branch: #TODO: Make this more Generic (any provider liek Bitbucket same deal)
             data_source_request.branch = "main"
+
+        # normalize ingest_paths: strip leading/trailing slashes, de-dup, preserve order
+        normalized_paths = self._normalize_ingest_paths(data_source_request.ingest_paths)
+
         data_source = DataSource(
             provider=data_source_request.provider, 
             url=data_source_request.url, 
             name=data_source_request.name, 
             branch=data_source_request.branch,
             type=data_source_request.type,
-            scope_by_issues=data_source_request.scope_by_issues
+            scope_by_issues=data_source_request.scope_by_issues,
+            ingest_paths=normalized_paths,
         )
 
         # Construct the concrete provider and validate the URL is in the
@@ -180,6 +185,7 @@ class DataSourceService:
             "type": data_source.type,
             "branch": data_source.branch,
             "scope_by_issues": data_source.scope_by_issues,
+            "ingest_paths": data_source.ingest_paths,
             "config": {"url": data_source.url},
             "linked_projects": [str(pd.project_id) for pd in data_source.project_data]
         }
@@ -282,6 +288,7 @@ class DataSourceService:
                 "type": data_source.type,
                 "branch": data_source.branch,
                 "scope_by_issues": data_source.scope_by_issues,
+                "ingest_paths": data_source.ingest_paths,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
                 "mcp_configs": [
@@ -313,6 +320,7 @@ class DataSourceService:
                 "type": data_source.type,
                 "branch": data_source.branch,
                 "scope_by_issues": data_source.scope_by_issues,
+                "ingest_paths": data_source.ingest_paths,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
                 "mcp_configs": [
@@ -431,15 +439,19 @@ class DataSourceService:
             self._validate_scope_by_issues_update(ds, target_type, val)
 
         # Apply allowed updates (exclude `type` and `provider` — those require recreate)
-        allowed = {"name", "branch", "scope_by_issues", "url"}
+        allowed = {"name", "branch", "scope_by_issues", "url", "ingest_paths"}
         for k, v in updates.items():
             if k in allowed:
+                # normalize ingest_paths before setting
+                if k == "ingest_paths" and v is not None:
+                    v = self._normalize_ingest_paths(v)
                 setattr(ds, k, v)
 
         # If resulting type is not REPOSITORY, normalize repo-only fields
         if ds.type != DataSourceType.REPOSITORY:
             ds.branch = None
             ds.scope_by_issues = False
+            ds.ingest_paths = []
 
         # persist
         self.db.add(ds)
@@ -452,6 +464,7 @@ class DataSourceService:
             "type": ds.type,
             "branch": ds.branch,
             "scope_by_issues": ds.scope_by_issues,
+            "ingest_paths": ds.ingest_paths,
             "config": {"url": ds.url},
             "linked_projects": [str(pd.project_id) for pd in ds.project_data]
         }
@@ -547,6 +560,39 @@ class DataSourceService:
                     "Cannot disable `scope_by_issues` while this Data Source is linked to multiple projects: "
                     f"{names}. Unlink other projects from this Data Source before disabling scoping."
                 )
+
+    def _normalize_ingest_paths(self, raw_paths: list[str] | None) -> list[str]:
+        """
+        Normalize and validate the list of paths specified for ingestion filtering.
+        Expects a list of strings where each string is a path from the root
+        of the repository to the high-level directory to start ingesting from.
+        Strips leading/trailing slashes, removes duplicates, and ensures paths
+        do not contain file extensions or relative traversals.
+        """
+        if not raw_paths:
+            return []
+        
+        from pathlib import Path
+        seen: set[str] = set()
+        normalized_paths: list[str] = []
+        for p in raw_paths:
+            cleaned = p.strip("/")
+            if not cleaned:
+                continue
+                
+            if ".." in cleaned:
+                raise ValueError(f"Invalid ingest path '{p}': Path traversal ('..') is not allowed.")
+                
+            if Path(cleaned).suffix:
+                raise ValueError(
+                    f"Invalid ingest path '{p}': ingest_paths must specify directories, not individual files. "
+                    "Paths with file extensions are not allowed."
+                )
+                
+            if cleaned not in seen:
+                seen.add(cleaned)
+                normalized_paths.append(cleaned)
+        return normalized_paths
 
     def link_mcp_config_to_data_source(self, data_source_id: UUID, mcp_config_id: UUID) -> dict[str, Any]:
         """

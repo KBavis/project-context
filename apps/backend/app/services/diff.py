@@ -417,11 +417,13 @@ class DiffService:
             f"Processing {len(new_prs)} new pull request(s) for Project={project.id} "
             f"and DataSource={repository_ds.id}"
         )
+        all_patches = []
         for pr_detail in new_prs:
             pr_record = await self._persist_pull_request(
                 pr_detail, project.id, repository_ds.id, async_session
             )
             patches = await repository_provider.get_pr_diff(pr_detail.pr_number)
+            all_patches.extend(patches)
             await self._apply_pr_file_diffs(
                 pr_record=pr_record,
                 patches=patches,
@@ -430,6 +432,9 @@ class DiffService:
                 diff_sync_job_id=diff_sync_job_id,
                 async_session=async_session,
             )
+
+        # ensure data sources specified `ingest_paths` cover the scope of changes we made on this Repository per this Project
+        self._log_ingest_path_coverage_warning(all_patches, repository_ds.ingest_paths)
 
         await self._update_repository_changes_summary(
             repo_changes, project.id, repository_ds.id, diff_sync_job_id, async_session
@@ -545,6 +550,38 @@ class DiffService:
                 repository_data_source_id=repository_data_source_id,
                 diff_sync_job_id=diff_sync_job_id,
                 async_session=async_session,
+            )
+
+    def _log_ingest_path_coverage_warning(self, all_patches: list[FileDiffPatch], ingest_paths: list[str]):
+        """
+        Log a single warning if any modified files fall outside the configured ingest_paths.
+        Aggregates out-of-scope directories across all processed PRs to avoid spamming.
+        """
+        if not ingest_paths or not all_patches:
+            return
+
+        out_of_scope = set()
+        for patch in all_patches:
+            # Check both old and new paths in case of renames
+            for file_path in (patch.file_path, patch.previous_path):
+                if not file_path:
+                    continue
+                in_scope = False
+                for prefix in ingest_paths:
+                    if file_path == prefix or file_path.startswith(f"{prefix}/"):
+                        in_scope = True
+                        break
+                if not in_scope:
+                    out_of_scope.add(file_path)
+
+        if out_of_scope:
+            top_level_dirs = set(p.split("/")[0] for p in out_of_scope if "/" in p)
+            logger.warning(
+                f"Coverage Warning: {len(out_of_scope)} file(s) modified across synced PRs "
+                f"fall outside the configured ingest_paths={ingest_paths}. "
+                f"These repository changes will be tracked as something the project introduced, "
+                f"but will not be searchable by the agent via grep search and semantic search. "
+                f"Affected top-level directories: {', '.join(top_level_dirs)}"
             )
 
 

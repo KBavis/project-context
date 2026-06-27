@@ -121,7 +121,8 @@ class BitbucketDataProvider(RepositoryDataProvider):
                     break
                 start = content.get("nextPageStart")
 
-            # exclude irrelevant paths before downloading them
+            # first apply inclusive ingest_paths filter, then exclusive path filter
+            paths = self._filter_ingest_paths(paths)
             paths = self._filter_excluded_paths(paths)
 
             # 2. Download relevant files with bounded concurrency: parallel enough

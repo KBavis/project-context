@@ -23,6 +23,7 @@ export default function DataSourcesView({ projectId }) {
         name: '',
         branch: '',
         scope_by_issues: false,
+        ingest_paths: '',
         projectIds: projectId ? [projectId] : []
     });
 
@@ -106,7 +107,22 @@ export default function DataSourcesView({ projectId }) {
     const handleAddDataSource = async (e) => {
         e.preventDefault();
         try {
-            await createDataSource(newDS.provider, { type: newDS.type, url: newDS.url, name: newDS.name, branch: newDS.branch, scope_by_issues: newDS.scope_by_issues }, newDS.projectIds);
+            const parsedIngestPaths = newDS.ingest_paths
+                ? newDS.ingest_paths.split(',').map(p => p.trim()).filter(p => p)
+                : [];
+            
+            await createDataSource(
+                newDS.provider, 
+                { 
+                    type: newDS.type, 
+                    url: newDS.url, 
+                    name: newDS.name, 
+                    branch: newDS.branch, 
+                    scope_by_issues: newDS.scope_by_issues,
+                    ingest_paths: parsedIngestPaths
+                }, 
+                newDS.projectIds
+            );
             setShowAddForm(false);
             setNewDS({
                 provider: 'GitHub',
@@ -115,6 +131,7 @@ export default function DataSourcesView({ projectId }) {
                 name: '',
                 branch: '',
                 scope_by_issues: false,
+                ingest_paths: '',
                 projectIds: projectId ? [projectId] : []
             });
             showAlert('Data source added successfully', 'success');
@@ -394,6 +411,7 @@ export default function DataSourcesView({ projectId }) {
                                         name: ds.name,
                                         branch: ds.branch || '',
                                         scope_by_issues: !!ds.scope_by_issues,
+                                        ingest_paths: ds.ingest_paths ? ds.ingest_paths.join(', ') : '',
                                     });
                                     setIsConfirmingEdit(false);
                                     setEditModalOpen(true);
@@ -582,19 +600,28 @@ export default function DataSourcesView({ projectId }) {
                                 />
                             </div>
                             {newDS.type === 'REPOSITORY' && (
-                                <div className="form-field fade-in">
-                                    <label className="input-label">Branch (optional)</label>
-                                    <input
-                                        className="input"
-                                        type="text"
-                                        value={newDS.branch}
-                                        onChange={e => setNewDS({ ...newDS, branch: e.target.value })}
-                                        placeholder="main"
-                                    />
-                                </div>
-                            )}
-                            {newDS.type === 'REPOSITORY' && (
-                                <div className="form-field fade-in">
+                                <>
+                                    <div className="form-field fade-in">
+                                        <label className="input-label">Branch (optional)</label>
+                                        <input
+                                            className="input"
+                                            type="text"
+                                            value={newDS.branch}
+                                            onChange={e => setNewDS({ ...newDS, branch: e.target.value })}
+                                            placeholder="main"
+                                        />
+                                    </div>
+                                    <div className="form-field fade-in">
+                                        <label className="input-label">Ingest Paths (optional, comma-separated)</label>
+                                        <input
+                                            className="input"
+                                            type="text"
+                                            value={newDS.ingest_paths}
+                                            onChange={e => setNewDS({ ...newDS, ingest_paths: e.target.value })}
+                                            placeholder="backend/src, frontend/src"
+                                        />
+                                    </div>
+                                    <div className="form-field fade-in">
                                     <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <input
                                             type="checkbox"
@@ -688,11 +715,15 @@ export default function DataSourcesView({ projectId }) {
                         ) : (
                             <Button variant="primary" onClick={async () => {
                                 try {
+                                    const parsedIngestPaths = editingDS.ingest_paths
+                                        ? editingDS.ingest_paths.split(',').map(p => p.trim()).filter(p => p)
+                                        : [];
                                     await updateDataSource(editingDS.id, {
                                         name: editingDS.name,
                                         url: editingDS.url,
                                         branch: editingDS.branch || undefined,
-                                        scope_by_issues: editingDS.scope_by_issues
+                                        scope_by_issues: editingDS.scope_by_issues,
+                                        ingest_paths: parsedIngestPaths
                                     });
                                     showAlert('Data source updated', 'success');
                                     setEditModalOpen(false);
@@ -721,10 +752,16 @@ export default function DataSourcesView({ projectId }) {
                                     <input className="input" value={editingDS.url} onChange={(e) => setEditingDS({ ...editingDS, url: e.target.value })} />
                                 </div>
                                 {editingDS.type === 'REPOSITORY' && (
-                                    <div className="form-field">
-                                        <label className="input-label">Branch</label>
-                                        <input className="input" value={editingDS.branch} onChange={(e) => setEditingDS({ ...editingDS, branch: e.target.value })} />
-                                    </div>
+                                    <>
+                                        <div className="form-field">
+                                            <label className="input-label">Branch</label>
+                                            <input className="input" value={editingDS.branch} onChange={(e) => setEditingDS({ ...editingDS, branch: e.target.value })} />
+                                        </div>
+                                        <div className="form-field">
+                                            <label className="input-label">Ingest Paths (comma-separated)</label>
+                                            <input className="input" value={editingDS.ingest_paths} onChange={(e) => setEditingDS({ ...editingDS, ingest_paths: e.target.value })} placeholder="backend/src, frontend/src" />
+                                        </div>
+                                    </>
                                 )}
                                 {editingDS.type === 'REPOSITORY' && (
                                     <div className="form-field">
@@ -744,6 +781,7 @@ export default function DataSourcesView({ projectId }) {
                                     {editingDS.type === 'REPOSITORY' && (
                                         <>
                                             <li style={{ marginBottom: '8px' }}><strong>Branch:</strong> {editingDS.branch || '(default)'}</li>
+                                            <li style={{ marginBottom: '8px' }}><strong>Ingest Paths:</strong> {editingDS.ingest_paths || '(Full Repository)'}</li>
                                             <li style={{ marginBottom: '8px' }}><strong>Scope by Issues:</strong> {editingDS.scope_by_issues ? 'Yes' : 'No'}</li>
                                         </>
                                     )}

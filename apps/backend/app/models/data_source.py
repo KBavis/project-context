@@ -2,7 +2,7 @@ from __future__ import annotations
 from .base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import List, TYPE_CHECKING
-from sqlalchemy import text, ForeignKey, Enum as SQLEnum
+from sqlalchemy import ARRAY, String, text, ForeignKey, Enum as SQLEnum
 from uuid import UUID
 from enum import Enum
 
@@ -56,6 +56,15 @@ class DataSource(Base):
     scope_by_issues: Mapped[bool] = mapped_column(
         default=False, 
         comment="Whether to scope ingestion for this data source to specific issues configured on the project"
+    )
+
+    ingest_paths: Mapped[List[str]] = mapped_column(
+        ARRAY(String),
+        nullable=False,
+        server_default="{}",
+        default=list,
+        comment="Optional repo-root-relative directory prefixes to scope ingestion. "
+                "Empty list = ingest the entire repository (backward compatible).",
     )
 
 

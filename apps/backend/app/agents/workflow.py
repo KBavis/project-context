@@ -4,7 +4,7 @@ from llama_index.core.callbacks import CallbackManager
 
 from app.agents.tools import Tools
 from app.llm import LLMBase
-from app.models.data_source import DataSource
+from app.models.data_source import DataSource, DataSourceType
 from app.pydantic.agent import AgentType, AgentName
 from typing import Any
 from pathlib import Path
@@ -51,8 +51,13 @@ def _build_data_source_context(data_sources: list[DataSource]) -> str:
     lines: list[str] = []
     for ds in data_sources:
         slug = re.sub(r"[^a-z0-9]+", "_", ds.name.lower()).strip("_")[:30]
+        scope_warning = ""
+        if ds.type == DataSourceType.REPOSITORY and getattr(ds, "ingest_paths", None):
+            paths_str = ", ".join(ds.ingest_paths)
+            scope_warning = f" | [RESTRICTED SCOPE: {paths_str}] (Note: semantic/grep search and file viewing are limited to these paths. Do not attempt to search outside them.)"
+
         lines.append(
-            f"- [{ds.type}: {ds.provider}] **{ds.name}** (ID: {ds.id}, URL: {ds.url})\n"
+            f"- [{ds.type}: {ds.provider}] **{ds.name}** (ID: {ds.id}, URL: {ds.url}){scope_warning}\n"
             f"  Tools: `view_file_{slug}`, `list_directory_{slug}`, `generate_citation_{slug}`"
         )
     return "\n".join(lines)

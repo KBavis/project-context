@@ -292,9 +292,13 @@ class AgentService:
         Build string summaries of DataSources, internal tools, and MCP tools
         to pass to the LLM for the Diagnosis phase.
         """
-        data_source_info = "\n".join(
-            [f"- ID: {ds.id} | Name: {ds.name} | Type: {ds.type} | Provider: {ds.provider}" for ds in data_sources]
-        )
+        ds_infos = []
+        for ds in data_sources:
+            info = f"- ID: {ds.id} | Name: {ds.name} | Type: {ds.type} | Provider: {ds.provider}"
+            if ds.type == DataSourceType.REPOSITORY and getattr(ds, "ingest_paths", None):
+                info += f" | Scoped Paths: {', '.join(ds.ingest_paths)}"
+            ds_infos.append(info)
+        data_source_info = "\n".join(ds_infos)
         internal_tool_info = "\n".join(
             [f"- {t.metadata.name}: {t.metadata.description}" for t in internal_tools]
         )

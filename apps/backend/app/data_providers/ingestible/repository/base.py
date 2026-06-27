@@ -112,6 +112,47 @@ class RepositoryDataProvider(IngestibleDataProvider):
 
         return kept
 
+    def _is_in_ingest_paths(self, path: str) -> bool:
+        """
+        Return True if a repo file path is within the configured ingest_paths for this data source.
+        If ingest_paths is empty, the entire repository is considered in-scope.
+        
+        Args:
+            path (str): repository file path to test
+        """
+        if not self.data_source.ingest_paths:
+            return True
+            
+        path = path.strip("/")
+        for prefix in self.data_source.ingest_paths:
+            # Segment-aware match: exactly the directory itself, or inside the directory
+            if path == prefix or path.startswith(f"{prefix}/"):
+                return True
+                
+        return False
+
+    def _filter_ingest_paths(self, paths: list[str]) -> list[str]:
+        """
+        Drop repo file paths that do not match any prefix configured in ingest_paths.
+        If ingest_paths is empty, all paths are kept.
+        
+        Args:
+            paths (list[str]): all file paths enumerated from the repository
+        """
+        if not self.data_source.ingest_paths:
+            return paths
+            
+        kept = [p for p in paths if self._is_in_ingest_paths(p)]
+        
+        excluded = len(paths) - len(kept)
+        if excluded:
+            logger.info(
+                f"Excluded {excluded} of {len(paths)} file(s) from ingestion because they "
+                f"are outside the configured ingest_paths={self.data_source.ingest_paths}; {len(kept)} remain"
+            )
+            
+        return kept
+
 
     @abstractmethod
     def _parse_repository_ref(self) -> tuple[str, str]:

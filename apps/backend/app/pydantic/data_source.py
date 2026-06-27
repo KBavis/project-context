@@ -12,6 +12,7 @@ class DataSourceRequest(BaseModel):
     branch: str | None = None
     project_ids: List[UUID] = []  # list of project Ids to associate this DataSource to 
     scope_by_issues: bool = False
+    ingest_paths: List[str] = []  # optional repo-root-relative directory prefixes
 
     @model_validator(mode="after")
     def validate_repository_fields(self):
@@ -20,6 +21,8 @@ class DataSourceRequest(BaseModel):
                 raise ValueError("Branch can only be specified for REPOSITORY data sources.")
             if self.scope_by_issues:
                 raise ValueError("scope_by_issues can only be enabled for REPOSITORY data sources.")
+            if self.ingest_paths:
+                raise ValueError("ingest_paths can only be specified for REPOSITORY data sources.")
         return self
 
 
@@ -27,6 +30,8 @@ class DataSourceUpdateRequest(BaseModel):
     name: str | None = None
     branch: str | None = None
     scope_by_issues: bool | None = None
+    ingest_paths: List[str] | None = None
     type: DataSourceType | None = None
     url: str | None = None
     provider: str | None = None
+

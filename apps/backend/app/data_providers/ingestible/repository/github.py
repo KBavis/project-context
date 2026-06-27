@@ -133,6 +133,10 @@ class GithubDataProvider(RepositoryDataProvider):
 
             # download file and put into temp directory
             if node["type"] == "file":
+                # enforce inclusive ingest_paths scoping
+                if not self._is_in_ingest_paths(node["path"]):
+                    continue
+
                 # skip vendored/build/generated/fixture files before downloading them
                 if self._is_excluded_path(node["path"]):
                     logger.debug(f"Skipping excluded file: {node['path']}")

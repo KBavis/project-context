@@ -142,6 +142,7 @@ export const api = {
                     name: config.name,
                     branch: config.branch,
                     scope_by_issues: config.scope_by_issues,
+                    ingest_paths: config.ingest_paths,
                     project_ids: projectIds
                 }),
             });
