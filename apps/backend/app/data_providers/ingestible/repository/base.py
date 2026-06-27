@@ -176,28 +176,6 @@ class RepositoryDataProvider(IngestibleDataProvider):
                 
         return False
 
-    def _filter_ingest_paths(self, paths: list[str]) -> list[str]:
-        """
-        Drop repo file paths that do not match any prefix configured in ingest_paths.
-        If ingest_paths is empty, all paths are kept.
-        
-        Args:
-            paths (list[str]): all file paths enumerated from the repository
-        """
-        if not self.data_source.ingest_paths:
-            return paths
-            
-        kept = [p for p in paths if self._is_in_ingest_paths(p)]
-        
-        excluded = len(paths) - len(kept)
-        if excluded:
-            logger.info(
-                f"Excluded {excluded} of {len(paths)} file(s) from ingestion because they "
-                f"are outside the configured ingest_paths={self.data_source.ingest_paths}; {len(kept)} remain"
-            )
-            
-        return kept
-
 
     @abstractmethod
     def _parse_repository_ref(self) -> tuple[str, str]:
