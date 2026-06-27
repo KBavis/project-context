@@ -382,6 +382,17 @@ export default function DataSourcesView({ projectId }) {
                                         </div>
                                         </div>
                                     )}
+
+                                    {ds.type === 'REPOSITORY' && ds.ingest_paths && ds.ingest_paths.length > 0 && (
+                                        <div className="meta-section">
+                                            <span className="meta-section-label">Paths Included</span>
+                                            <div className="meta-section-tags">
+                                                {ds.ingest_paths.map((p, i) => (
+                                                    <span key={i} className="project-tag active">{p}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -598,8 +609,8 @@ export default function DataSourcesView({ projectId }) {
                                 />
                             </div>
                             {newDS.type === 'REPOSITORY' && (
-                                <>
-                                    <div className="form-field fade-in">
+                                <div className="full-width fade-in" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 'var(--spacing-lg)' }}>
+                                    <div className="form-field">
                                         <label className="input-label">Branch (optional)</label>
                                         <input
                                             className="input"
@@ -608,8 +619,20 @@ export default function DataSourcesView({ projectId }) {
                                             onChange={e => setNewDS({ ...newDS, branch: e.target.value })}
                                             placeholder="main"
                                         />
+                                        
+                                        <div style={{ marginTop: '16px' }}>
+                                            <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={newDS.scope_by_issues}
+                                                    onChange={e => setNewDS({ ...newDS, scope_by_issues: e.target.checked })}
+                                                />
+                                                Scope by Issues
+                                            </label>
+                                            <p className="field-hint" style={{ marginTop: '4px' }}>Whether to scope ingestion to specific issues configured on the project.</p>
+                                        </div>
                                     </div>
-                                    <div className="form-field fade-in">
+                                    <div className="form-field">
                                         <div className="issue-field-header">
                                             <label className="input-label">Paths to Include</label>
                                             <button
@@ -658,18 +681,7 @@ export default function DataSourcesView({ projectId }) {
                                             </div>
                                         )}
                                     </div>
-                                    <div className="form-field fade-in">
-                                    <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <input
-                                            type="checkbox"
-                                            checked={newDS.scope_by_issues}
-                                            onChange={e => setNewDS({ ...newDS, scope_by_issues: e.target.checked })}
-                                        />
-                                        Scope by Issues
-                                    </label>
-                                    <p className="field-hint" style={{ marginTop: '4px' }}>Whether to scope ingestion to specific issues configured on the project.</p>
                                 </div>
-                                </>
                             )}
                             <div className="form-field projects-field">
                                 <label className="input-label">Target Projects</label>
