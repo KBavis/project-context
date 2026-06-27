@@ -160,7 +160,6 @@ class Settings(BaseSettings):
         "pl",
         "sh",
         "sql",
-        "xml",
         "json",
         "yaml",
         "yml",
@@ -187,7 +186,6 @@ class Settings(BaseSettings):
         "json": "json",
         "yaml": "yaml",
         "yml": "yaml",
-        "xml": "xml",
     }
 
     DOCS_FILE_EXTENSIONS: set[str] = {"docx", "pdf", "md"}
