@@ -107,9 +107,7 @@ export default function DataSourcesView({ projectId }) {
     const handleAddDataSource = async (e) => {
         e.preventDefault();
         try {
-            const parsedIngestPaths = newDS.ingest_paths
-                ? newDS.ingest_paths.split(',').map(p => p.trim()).filter(p => p)
-                : [];
+            const parsedIngestPaths = newDS.ingest_paths.map(p => p.trim()).filter(p => p);
             
             await createDataSource(
                 newDS.provider, 
@@ -131,7 +129,7 @@ export default function DataSourcesView({ projectId }) {
                 name: '',
                 branch: '',
                 scope_by_issues: false,
-                ingest_paths: '',
+                ingest_paths: [],
                 projectIds: projectId ? [projectId] : []
             });
             showAlert('Data source added successfully', 'success');
@@ -411,7 +409,7 @@ export default function DataSourcesView({ projectId }) {
                                         name: ds.name,
                                         branch: ds.branch || '',
                                         scope_by_issues: !!ds.scope_by_issues,
-                                        ingest_paths: ds.ingest_paths ? ds.ingest_paths.join(', ') : '',
+                                        ingest_paths: ds.ingest_paths ? [...ds.ingest_paths] : [],
                                     });
                                     setIsConfirmingEdit(false);
                                     setEditModalOpen(true);
@@ -612,14 +610,53 @@ export default function DataSourcesView({ projectId }) {
                                         />
                                     </div>
                                     <div className="form-field fade-in">
-                                        <label className="input-label">Ingest Paths (optional, comma-separated)</label>
-                                        <input
-                                            className="input"
-                                            type="text"
-                                            value={newDS.ingest_paths}
-                                            onChange={e => setNewDS({ ...newDS, ingest_paths: e.target.value })}
-                                            placeholder="backend/src, frontend/src"
-                                        />
+                                        <div className="issue-field-header">
+                                            <label className="input-label">Paths to Include</label>
+                                            <button
+                                                type="button"
+                                                className="issue-add-btn"
+                                                onClick={() => setNewDS({ ...newDS, ingest_paths: [...newDS.ingest_paths, ''] })}
+                                                aria-label="Add path to include"
+                                            >
+                                                + Add Path
+                                            </button>
+                                        </div>
+                                        {newDS.ingest_paths.length === 0 && (
+                                            <p className="input-hint">
+                                                Add directory paths (e.g. backend/src) to limit ingestion scoping. If empty, the entire repository is ingested.
+                                            </p>
+                                        )}
+                                        {newDS.ingest_paths.length > 0 && (
+                                            <div className="issue-rows">
+                                                {newDS.ingest_paths.map((path, index) => (
+                                                    <div key={index} className="issue-row">
+                                                        <input
+                                                            type="text"
+                                                            className="input issue-row-input"
+                                                            value={path}
+                                                            onChange={e => {
+                                                                const newPaths = [...newDS.ingest_paths];
+                                                                newPaths[index] = e.target.value;
+                                                                setNewDS({ ...newDS, ingest_paths: newPaths });
+                                                            }}
+                                                            placeholder="e.g. backend/src"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            className="issue-remove-btn"
+                                                            onClick={() => {
+                                                                const newPaths = [...newDS.ingest_paths];
+                                                                newPaths.splice(index, 1);
+                                                                setNewDS({ ...newDS, ingest_paths: newPaths });
+                                                            }}
+                                                            aria-label="Remove path"
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="form-field fade-in">
                                     <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -716,9 +753,7 @@ export default function DataSourcesView({ projectId }) {
                         ) : (
                             <Button variant="primary" onClick={async () => {
                                 try {
-                                    const parsedIngestPaths = editingDS.ingest_paths
-                                        ? editingDS.ingest_paths.split(',').map(p => p.trim()).filter(p => p)
-                                        : [];
+                                    const parsedIngestPaths = editingDS.ingest_paths.map(p => p.trim()).filter(p => p);
                                     await updateDataSource(editingDS.id, {
                                         name: editingDS.name,
                                         url: editingDS.url,
@@ -759,8 +794,53 @@ export default function DataSourcesView({ projectId }) {
                                             <input className="input" value={editingDS.branch} onChange={(e) => setEditingDS({ ...editingDS, branch: e.target.value })} />
                                         </div>
                                         <div className="form-field">
-                                            <label className="input-label">Ingest Paths (comma-separated)</label>
-                                            <input className="input" value={editingDS.ingest_paths} onChange={(e) => setEditingDS({ ...editingDS, ingest_paths: e.target.value })} placeholder="backend/src, frontend/src" />
+                                            <div className="issue-field-header">
+                                                <label className="input-label">Paths to Include</label>
+                                                <button
+                                                    type="button"
+                                                    className="issue-add-btn"
+                                                    onClick={() => setEditingDS({ ...editingDS, ingest_paths: [...editingDS.ingest_paths, ''] })}
+                                                    aria-label="Add path to include"
+                                                >
+                                                    + Add Path
+                                                </button>
+                                            </div>
+                                            {editingDS.ingest_paths.length === 0 && (
+                                                <p className="input-hint">
+                                                    Add directory paths (e.g. backend/src) to limit ingestion scoping. If empty, the entire repository is ingested.
+                                                </p>
+                                            )}
+                                            {editingDS.ingest_paths.length > 0 && (
+                                                <div className="issue-rows">
+                                                    {editingDS.ingest_paths.map((path, index) => (
+                                                        <div key={index} className="issue-row">
+                                                            <input
+                                                                type="text"
+                                                                className="input issue-row-input"
+                                                                value={path}
+                                                                onChange={e => {
+                                                                    const newPaths = [...editingDS.ingest_paths];
+                                                                    newPaths[index] = e.target.value;
+                                                                    setEditingDS({ ...editingDS, ingest_paths: newPaths });
+                                                                }}
+                                                                placeholder="e.g. backend/src"
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                className="issue-remove-btn"
+                                                                onClick={() => {
+                                                                    const newPaths = [...editingDS.ingest_paths];
+                                                                    newPaths.splice(index, 1);
+                                                                    setEditingDS({ ...editingDS, ingest_paths: newPaths });
+                                                                }}
+                                                                aria-label="Remove path"
+                                                            >
+                                                                ×
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     </>
                                 )}
