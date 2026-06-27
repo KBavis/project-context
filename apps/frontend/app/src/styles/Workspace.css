@@ -166,7 +166,7 @@
 }
 
 .nav-group button:hover {
-    background: rgba(255,255,255,0.05);
+    background: rgba(255, 255, 255, 0.05);
     color: var(--text-color);
 }
 
@@ -232,7 +232,7 @@
 }
 
 .conv-item:hover {
-    background: rgba(255,255,255,0.05);
+    background: rgba(255, 255, 255, 0.05);
 }
 
 .conv-item.active {
@@ -257,6 +257,8 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
     background: var(--bg-color);
 }
