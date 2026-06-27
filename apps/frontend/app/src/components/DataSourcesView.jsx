@@ -870,11 +870,22 @@ export default function DataSourcesView({ projectId }) {
                                 <p style={{ marginBottom: '16px' }}>Please confirm the following updates to <strong>{editingDS.name}</strong>:</p>
                                 <ul style={{ background: 'var(--surface-color)', padding: '16px 24px', borderRadius: '8px', border: '1px solid var(--border-color)', listStyle: 'none' }}>
                                     <li style={{ marginBottom: '8px' }}><strong>Name:</strong> {editingDS.name}</li>
-                                    <li style={{ marginBottom: '8px' }}><strong>URL:</strong> {editingDS.url}</li>
+                                    <li style={{ marginBottom: '8px', wordBreak: 'break-all' }}><strong>URL:</strong> {editingDS.url}</li>
                                     {editingDS.type === 'REPOSITORY' && (
                                         <>
                                             <li style={{ marginBottom: '8px' }}><strong>Branch:</strong> {editingDS.branch || '(default)'}</li>
-                                            <li style={{ marginBottom: '8px' }}><strong>Ingest Paths:</strong> {editingDS.ingest_paths || '(Full Repository)'}</li>
+                                            <li style={{ marginBottom: '8px' }}>
+                                                <strong>Paths to Include:</strong>
+                                                {!editingDS.ingest_paths || editingDS.ingest_paths.length === 0 ? (
+                                                    ' (Full Repository)'
+                                                ) : (
+                                                    <ul style={{ listStyleType: 'disc', paddingLeft: '24px', marginTop: '4px' }}>
+                                                        {editingDS.ingest_paths.map((p, i) => (
+                                                            <li key={i} style={{ wordBreak: 'break-all', marginBottom: '2px' }}>{p || '(empty path)'}</li>
+                                                        ))}
+                                                    </ul>
+                                                )}
+                                            </li>
                                             <li style={{ marginBottom: '8px' }}><strong>Scope by Issues:</strong> {editingDS.scope_by_issues ? 'Yes' : 'No'}</li>
                                         </>
                                     )}
