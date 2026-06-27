@@ -632,6 +632,7 @@ export default function DataSourcesView({ projectId }) {
                                     </label>
                                     <p className="field-hint" style={{ marginTop: '4px' }}>Whether to scope ingestion to specific issues configured on the project.</p>
                                 </div>
+                                </>
                             )}
                             <div className="form-field projects-field">
                                 <label className="input-label">Target Projects</label>
