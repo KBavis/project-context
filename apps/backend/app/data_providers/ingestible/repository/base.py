@@ -131,6 +131,51 @@ class RepositoryDataProvider(IngestibleDataProvider):
                 
         return False
 
+    def _collapse_ingest_paths(self) -> list[str]:
+        """
+        Minimal prefix set: drop any prefix that already sits under another
+        (e.g., my/path is removed when my/ is present).
+        Prevents double-listing / double-descent.
+        """
+        if not self.data_source.ingest_paths:
+            return []
+
+        paths = sorted(self.data_source.ingest_paths)
+        collapsed = []
+        for p in paths:
+            if not collapsed:
+                collapsed.append(p)
+                continue
+            
+            last = collapsed[-1]
+            if p == last or p.startswith(f"{last}/"):
+                continue
+            
+            collapsed.append(p)
+        return collapsed
+
+    def _should_descend(self, dir_path: str) -> bool:
+        """
+        For tree-walkers (GitHub): return True if we should enter this directory.
+        - ingest_paths is empty (whole repo)
+        - dir is root ("") -> always True
+        - dir equals a prefix
+        - dir is inside a prefix
+        - dir is an ancestor of a prefix
+        """
+        if not self.data_source.ingest_paths:
+            return True
+            
+        d = dir_path.strip("/")
+        if not d:
+            return True
+            
+        for p in self.data_source.ingest_paths:
+            if d == p or d.startswith(f"{p}/") or p.startswith(f"{d}/"):
+                return True
+                
+        return False
+
     def _filter_ingest_paths(self, paths: list[str]) -> list[str]:
         """
         Drop repo file paths that do not match any prefix configured in ingest_paths.

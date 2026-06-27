@@ -88,10 +88,6 @@ class BitbucketDataProvider(RepositoryDataProvider):
         # TODO: Refactor this function to be more generic for re-use across BitBucket & GitHub  
         # (https://github.com/KBavis/contextualized/issues/42)
 
-        # Bitbucket Server /files endpoint to get all files
-        # E.g. /rest/api/1.0/projects/{proj}/repos/{repo}/files?at={branch}
-        files_url = f"{self.base_api_url}/files?at={self.branch_name}&limit=10000"
-
         # reuse single pooled client
         max_concurrency = max(1, settings.BITBUCKET_MAX_CONCURRENT_DOWNLOADS) # max downloads occuring at one time
         limits = httpx.Limits(
@@ -103,26 +99,18 @@ class BitbucketDataProvider(RepositoryDataProvider):
         async with httpx.AsyncClient(
             headers=self.request_headers, limits=limits, timeout=timeout
         ) as client:
-            # 1. Enumerate every file path on the branch (handling pagination).
             paths: list[str] = []
-            start = None
-            while True:
-                page_url = files_url if start is None else f"{files_url}&start={start}"
-                try:
-                    response = await client.get(page_url)
-                    response.raise_for_status()
-                    content = response.json()
-                except Exception as e:
-                    logger.error(f"Failure while attempting to retrieve data from the URL {page_url}")
-                    raise e
+            # if no ingestion paths specified on data source, extract all paths in repo
+            if not self.data_source.ingest_paths:
+                files_url = f"{self.base_api_url}/files?at={self.branch_name}&limit=10000"
+                paths = await self._enumerate_paths(client, files_url)
+            else:
+                # only extract paths relevant to specified ingested paths on Repository Data Source 
+                for prefix in self._collapse_ingest_paths():
+                    files_url = f"{self.base_api_url}/files/{quote(prefix, safe='/')}?at={self.branch_name}&limit=10000"
+                    paths.extend(await self._enumerate_paths(client, files_url, path_prefix=prefix))
 
-                paths.extend(content.get("values", []))
-                if content.get("isLastPage", True):
-                    break
-                start = content.get("nextPageStart")
-
-            # first apply inclusive ingest_paths filter, then exclusive path filter
-            paths = self._filter_ingest_paths(paths)
+            # Apply exclusive path filter (e.g. .gitignore or hardcoded exclusions)
             paths = self._filter_excluded_paths(paths)
 
             # 2. Download relevant files with bounded concurrency: parallel enough
@@ -163,6 +151,42 @@ class BitbucketDataProvider(RepositoryDataProvider):
                 f"{len(paths)} file(s) failing to download; the remaining "
                 f"{len(paths) - len(failures)} file(s) were processed successfully."
             )
+
+    async def _enumerate_paths(self, client: httpx.AsyncClient, base_files_url: str, path_prefix: str = "") -> list[str]:
+        """
+        Paginates through a Bitbucket `/files` endpoint to collect all file paths.
+
+        If a `path_prefix` is provided, the API returns paths relative to that subtree.
+        This function re-prepends the prefix to ensure all returned paths remain 
+        relative to the repository root (preserving expected path invariants).
+        Gracefully handles 404s for invalid or missing subtrees.
+        """
+        paths = []
+        start = None
+        while True:
+            page_url = base_files_url if start is None else f"{base_files_url}&start={start}"
+            try:
+                response = await client.get(page_url)
+                if response.status_code == 404:
+                    if path_prefix:
+                        logger.warning(f"Subtree '{path_prefix}' not found or empty, skipping.")
+                        return paths
+                response.raise_for_status()
+                content = response.json()
+            except Exception as e:
+                logger.error(f"Failure while attempting to retrieve data from the URL {page_url}")
+                raise e
+
+            fetched = content.get("values", [])
+            if path_prefix:
+                paths.extend(f"{path_prefix}/{p}" for p in fetched)
+            else:
+                paths.extend(fetched)
+                
+            if content.get("isLastPage", True):
+                break
+            start = content.get("nextPageStart")
+        return paths
 
     async def _download_file(
         self, client: httpx.AsyncClient, url: str, file_name: str, file_path: str, persist_lock: asyncio.Lock

@@ -143,8 +143,9 @@ class GithubDataProvider(RepositoryDataProvider):
                     continue
                 await self._download_file(node["download_url"], node["name"], node["path"], node["size"])
             else:
-                # recursively download files in specificied directory
-                await self._get_repository_data(node["url"])
+                # prune traversal to scoped directories
+                if self._should_descend(node["path"]):
+                    await self._get_repository_data(node["url"])
 
 
     async def _download_file(self, url: str, file_name: str, file_path: str, size: int):
