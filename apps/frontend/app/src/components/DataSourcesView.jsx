@@ -609,8 +609,8 @@ export default function DataSourcesView({ projectId }) {
                                 />
                             </div>
                             {newDS.type === 'REPOSITORY' && (
-                                <div className="full-width fade-in" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 'var(--spacing-lg)' }}>
-                                    <div className="form-field">
+                                <div className="full-width fade-in" style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2xl)', alignItems: 'flex-start' }}>
+                                    <div className="form-field" style={{ flex: '1 1 250px', maxWidth: '320px' }}>
                                         <label className="input-label">Branch (optional)</label>
                                         <input
                                             className="input"
@@ -632,7 +632,7 @@ export default function DataSourcesView({ projectId }) {
                                             <p className="field-hint" style={{ marginTop: '4px' }}>Whether to scope ingestion to specific issues configured on the project.</p>
                                         </div>
                                     </div>
-                                    <div className="form-field">
+                                    <div className="form-field" style={{ flex: '2 1 350px', maxWidth: '500px' }}>
                                         <div className="issue-field-header">
                                             <label className="input-label">Paths to Include</label>
                                             <button
@@ -800,12 +800,12 @@ export default function DataSourcesView({ projectId }) {
                                     <input className="input" value={editingDS.url} onChange={(e) => setEditingDS({ ...editingDS, url: e.target.value })} />
                                 </div>
                                 {editingDS.type === 'REPOSITORY' && (
-                                    <>
-                                        <div className="form-field">
+                                    <div className="full-width" style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-xl)', alignItems: 'flex-start', marginTop: 'var(--spacing-sm)' }}>
+                                        <div className="form-field" style={{ flex: '1 1 200px', maxWidth: '250px' }}>
                                             <label className="input-label">Branch</label>
                                             <input className="input" value={editingDS.branch} onChange={(e) => setEditingDS({ ...editingDS, branch: e.target.value })} />
                                         </div>
-                                        <div className="form-field">
+                                        <div className="form-field" style={{ flex: '2 1 300px', maxWidth: '400px' }}>
                                             <div className="issue-field-header">
                                                 <label className="input-label">Paths to Include</label>
                                                 <button
@@ -854,7 +854,7 @@ export default function DataSourcesView({ projectId }) {
                                                 </div>
                                             )}
                                         </div>
-                                    </>
+                                    </div>
                                 )}
                                 {editingDS.type === 'REPOSITORY' && (
                                     <div className="form-field">
