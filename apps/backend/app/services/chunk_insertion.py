@@ -305,10 +305,14 @@ class ChunkInsertionService:
 
             # configure splitter to be used for grouped file types
             splitter = CodeSplitter(language=file_type) # TODO: Consider tweaking max_chars or other attributes here
-            lang_nodes = splitter.get_nodes_from_documents(docs)
-            nodes.extend(lang_nodes)
-
-            logger.debug(f"Successfully chunked ingested code files for language={file_type} into {len(lang_nodes)} nodes")
+            for doc in docs:
+                try:
+                    doc_nodes = splitter.get_nodes_from_documents([doc])
+                    nodes.extend(doc_nodes)
+                    logger.debug(f"Successfully chunked file_id={doc.metadata.get('file_id')} (language={file_type}) into {len(doc_nodes)} nodes")
+                except Exception as e:
+                    logger.warning(f"Skipping unparseable file_id={doc.metadata.get('file_id')} " 
+                                   f"(language={file_type})", exc_info=True)
 
         # hard-cap oversized chunks so a single giant chunk can't exceed the embedding gateways request size limit
         nodes = self._enforce_max_chunk_size(nodes)

@@ -163,6 +163,7 @@ class Settings(BaseSettings):
         "json",
         "yaml",
         "yml",
+        "xml"
     }
 
     EXTENSION_TO_LANGUAGE: dict[str, str] = {
@@ -186,6 +187,7 @@ class Settings(BaseSettings):
         "json": "json",
         "yaml": "yaml",
         "yml": "yaml",
+        "xml": "xml"
     }
 
     DOCS_FILE_EXTENSIONS: set[str] = {"docx", "pdf", "md"}
