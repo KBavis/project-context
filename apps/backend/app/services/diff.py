@@ -834,25 +834,44 @@ class DiffService:
         result = await self.async_db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_data_source_file_ids(self, project_id: UUID) -> dict[str, list[str]]:
+    async def build_scoped_repository_file_id_map(self, project_id: UUID) -> dict[str, list[str]]:
         """
-        Returns a map of data_source_id (as str) to a list of file_ids (as str) 
-        that were touched by the project. Limits searches to specific file IDs for 
-        issue-scoped repositories.
+        Returns a mapping of data source IDs (as strings) to list of file IDs (as strings)
+        representing the files touched by the project.
+        
+        This mapping only includes:
+          a) Data sources configured for the project (via ProjectData), AND
+          b) Data sources that are scoped by issues (scope_by_issues is True and type is REPOSITORY).
+          
+        Other data sources do not have a ProjectRepositoryFileHistory record, and are excluded
+        from this mapping (rather than returning empty lists/mappings).
         """
         stmt = (
-            select(ProjectRepositoryFileHistory.data_source_id, func.array_agg(File.id))
-            .join(
-                File, 
-                (File.path == ProjectRepositoryFileHistory.file_path) & 
+            select(DataSource.id, func.array_agg(File.id))
+            .join(ProjectData, ProjectData.data_source_id == DataSource.id)
+            .outerjoin(
+                ProjectRepositoryFileHistory,
+                (ProjectRepositoryFileHistory.data_source_id == DataSource.id) &
+                (ProjectRepositoryFileHistory.project_id == project_id)
+            )
+            .outerjoin(
+                File,
+                (File.path == ProjectRepositoryFileHistory.file_path) &
                 (File.data_source_id == ProjectRepositoryFileHistory.data_source_id)
             )
-            .where(ProjectRepositoryFileHistory.project_id == project_id)
-            .group_by(ProjectRepositoryFileHistory.data_source_id)
+            .where(
+                ProjectData.project_id == project_id,
+                DataSource.type == DataSourceType.REPOSITORY,
+                DataSource.scope_by_issues == True
+            )
+            .group_by(DataSource.id)
         )
         result = await self.async_db.execute(stmt)
         
-        return {str(ds_id): [str(fid) for fid in file_ids] for ds_id, file_ids in result.all()}
+        return {
+            str(ds_id): [str(fid) for fid in file_ids if fid is not None] if file_ids is not None else []
+            for ds_id, file_ids in result.all()
+        }
 
     async def get_file_diff_string(self, project_id: UUID, data_source_id: UUID, file_path: str) -> str:
         """

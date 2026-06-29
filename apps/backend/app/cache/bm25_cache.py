@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 # Key = (set of data source IDs the index was built over, k baked into the retriever).
 # NOTE: frozenset leveraged so our set of data source ID's is hashable
-BM25CacheKey = tuple[frozenset[str], int]
+BM25CacheKey = tuple[str, int]
 
 
 class BM25RetrieverCache:
@@ -23,14 +23,14 @@ class BM25RetrieverCache:
     the built object and reuse it until the underlying corpus changes (see invalidate).
     Each entry can hold hundreds of MB, so the cache is bounded by capacity and evicts
     the least-recently-used entry — preventing unbounded growth when many distinct
-    (data-source-set, k) combinations are searched.
+    (data-source, k) combinations are searched.
     """
 
     _cache: OrderedDict[BM25CacheKey, BaseRetriever] = OrderedDict()
 
     @classmethod
-    def build_key(cls, data_source_ids: list[str], k: int) -> BM25CacheKey:
-        return (frozenset(str(id) for id in data_source_ids), k)
+    def build_key(cls, data_source_id: str, k: int) -> BM25CacheKey:
+        return (data_source_id, k)
 
     @classmethod
     def get(cls, key: BM25CacheKey) -> BaseRetriever | None:
@@ -56,7 +56,7 @@ class BM25RetrieverCache:
         search rebuilds against the updated docstore. Called when ingestion writes nodes.
         """
         target = str(data_source_id)
-        stale = [key for key in cls._cache if target in key[0]]
+        stale = [key for key in cls._cache if key[0] == target]
         for key in stale:
             del cls._cache[key]
         if stale:

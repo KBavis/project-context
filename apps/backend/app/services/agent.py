@@ -92,9 +92,9 @@ class AgentService:
             logger.info("Retrieved %d MCP tools across %d DataSources", total_mcp, len(data_sources))
 
             # 3. Initialize internal tooling manager (all DataSources, pre-Diagnosis)
-            data_source_file_ids = {}
+            scope_map = {}
             if self.diff_svc:
-                data_source_file_ids = await self.diff_svc.get_data_source_file_ids(project_id)
+                scope_map = await self.diff_svc.build_scoped_repository_file_id_map(project_id)
 
             tool_manager = Tools(
                 data_sources=data_sources,
@@ -102,7 +102,7 @@ class AgentService:
                 llm=llm,
                 chunk_retrieval_svc=self.chunk_retrieval_svc,
                 data_source_svc=self.data_source_svc,
-                data_source_file_ids=data_source_file_ids,
+                scope_map=scope_map,
                 diff_svc=self.diff_svc,
             )
             all_internal_tools = tool_manager.get_all_internal_tools()
@@ -238,14 +238,16 @@ class AgentService:
         """
         Resolve the project's searchable data sources and pre-build the BM25 index for them.
 
-        Runs as a fire-and-forget background task. We resolve the ids the same way the
-        semantic_search tool does for an unscoped search (all ingestible data sources) so
-        the warmed cache key matches what the first broad search will look up. Failures are
-        swallowed by warm_bm25_cache itself, so this never disrupts the agent run.
+        Runs as a fire-and-forget background task. We resolve the ids and warm only the 
+        unscoped data sources (scoped repositories are not cached, so warming them is wasted work).
         """
         try:
-            data_source_ids = await self.data_source_svc.aget_data_source_ids_by_type(project_id, None)
-            await self.chunk_retrieval_svc.warm_bm25_cache(data_source_ids)
+            data_sources = await self.data_source_svc.aget_project_data_sources(project_id)
+            unscoped_ds_ids = [
+                str(ds.id) for ds in data_sources
+                if not (ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues)
+            ]
+            await self.chunk_retrieval_svc.warm_bm25_cache(unscoped_ds_ids)
         except Exception as e:
             logger.warning("BM25 warmup task failed for Project %s: %s", project_id, e)
 
