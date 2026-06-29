@@ -276,7 +276,8 @@ class ChunkRetrievalService:
                     # Skip the data source entirely (empty scope)
                     continue
                 bm25_retriever = await self._get_bm25_retriever(ds_id, k, scope)
-                retrievers.append(bm25_retriever)
+                if bm25_retriever is not None:
+                    retrievers.append(bm25_retriever)
 
             if not retrievers:
                 return []
@@ -300,13 +301,12 @@ class ChunkRetrievalService:
             
 
 
-
     async def _get_bm25_retriever(
         self, 
         data_source_id: str,
         k: int,
         scope: list[str] | None = None
-    ) -> BaseRetriever:
+    ) -> BaseRetriever | None:
         """
         Configure BM25 Retriever for Hybrid Search functionality based on a single
         Data Source in Postgres KV Store.
@@ -329,7 +329,7 @@ class ChunkRetrievalService:
         k: int,
         scope: list[str] | None = None,
         should_cache: bool = True
-    ) -> BaseRetriever:
+    ) -> BaseRetriever | None:
         """
         Synchronously load docstore nodes for a single data source and build (+ cache if unscoped) the BM25 retriever.
         """
@@ -358,6 +358,10 @@ class ChunkRetrievalService:
         if scope:
             allowed_files = set(scope)
             ds_nodes = [n for n in ds_nodes if n.metadata.get('file_id') in allowed_files]
+
+        if not ds_nodes:
+            logger.info(f"No nodes found for Data Source ID: {data_source_id}. Skipping retriever build.")
+            return None
 
         # configure BM25 retriever based on nodes, then cache if allowed
         retriever = BM25Retriever.from_defaults(

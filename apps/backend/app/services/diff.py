@@ -862,7 +862,7 @@ class DiffService:
             .where(
                 ProjectData.project_id == project_id,
                 DataSource.type == DataSourceType.REPOSITORY,
-                DataSource.scope_by_issues == True
+                DataSource.scope_by_issues.is_(True)
             )
             .group_by(DataSource.id)
         )

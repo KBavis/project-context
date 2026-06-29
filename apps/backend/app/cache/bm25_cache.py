@@ -10,8 +10,7 @@ from app.core import settings
 logger = logging.getLogger(__name__)
 
 
-# Key = (set of data source IDs the index was built over, k baked into the retriever).
-# NOTE: frozenset leveraged so our set of data source ID's is hashable
+# Key = (data source ID the index was built over, k baked into the retriever).
 BM25CacheKey = tuple[str, int]
 
 
