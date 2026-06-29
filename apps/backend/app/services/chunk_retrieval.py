@@ -50,6 +50,8 @@ class ChunkRetrievalService:
         self, 
         key_word: str,
         data_source_ids: list[str],
+        data_source_file_ids: dict[str, list[str]] | None = None,
+        scoped_repo_data_source_ids: list[str] | None = None,
         k: int = 10
     ):
         """
@@ -71,9 +73,37 @@ class ChunkRetrievalService:
             logger.info(f"Performing grep search for '{key_word}' in Data Sources: {data_source_ids}")
 
             # 2. Build and execute the SQLAlchemy query 
+            ds_filters = []
+            for ds_id in data_source_ids:
+                ds_str = str(ds_id)
+                ds_namespace = f"{ds_str}/data"
+                
+                # Apply file_id filters ONLY if this data source is issue-scoped
+                if scoped_repo_data_source_ids and ds_str in scoped_repo_data_source_ids:
+                    touched_ids = data_source_file_ids.get(ds_str, []) if data_source_file_ids else []
+                    if touched_ids:
+                        ds_filters.append(
+                            and_(
+                                DocstoreChunk.namespace == ds_namespace,
+                                or_(
+                                    DocstoreChunk.value['__data__']['metadata']['file_id'].astext.in_(touched_ids),
+                                    DocstoreChunk.value['metadata']['file_id'].astext.in_(touched_ids)
+                                )
+                            )
+                        )
+                    # If it is scoped but has no touched files, we do NOT add it to ds_filters.
+                    # This means no chunks from this DS will be returned.
+                else:
+                    # Unscoped DS: no file_id filtering needed, just allow the namespace
+                    ds_filters.append(DocstoreChunk.namespace == ds_namespace)
+
+            if not ds_filters:
+                # All requested data sources were scoped but had no touched files.
+                return []
+
             stmt = (
                 select(DocstoreChunk)
-                .where(DocstoreChunk.namespace.in_([f"{str(id)}/data" for id in data_source_ids]))
+                .where(or_(*ds_filters))
                 .where(
                     or_(
                         DocstoreChunk.value['__data__']['text'].astext.op('~*')(key_word),
@@ -82,6 +112,7 @@ class ChunkRetrievalService:
                 )
                 .limit(k)
             )
+            
             result = await self.db.execute(stmt)
             docstore_chunks = result.scalars().all()
             if not docstore_chunks:
@@ -156,6 +187,8 @@ class ChunkRetrievalService:
         query: str,
         llm: LLMBase,
         data_source_ids: list[str],
+        data_source_file_ids: dict[str, list[str]] | None = None,
+        scoped_repo_data_source_ids: list[str] | None = None,
         k: int = DEFAULT_SEARCH_K
     ):
         """
@@ -192,7 +225,7 @@ class ChunkRetrievalService:
         embedding = await EmbeddingManager.aget_embedding_model_cached()
         
         # retrieve chunks based on query        
-        chunks = await self._get_chunks(query, collections, embedding, llm, k, data_source_ids)
+        chunks = await self._get_chunks(query, collections, embedding, llm, k, data_source_ids, data_source_file_ids, scoped_repo_data_source_ids)
         if not chunks:
             logger.warning(f"No chunks retrieved for Query={query}, Data Sources={data_source_ids}")
 
@@ -214,30 +247,22 @@ class ChunkRetrievalService:
         embedding: BaseEmbedding,
         llm: LLMBase,
         k: int,
-        data_source_ids: list[str]
+        data_source_ids: list[str],
+        data_source_file_ids: dict[str, list[str]] | None = None,
+        scoped_repo_data_source_ids: list[str] | None = None
     ) -> list["NodeWithScore"]:
         """
         Retrieve chunks directly from ChromaDB based on the query and specified collections
-
-        Args:
-            query (str): user passed in query
-            collections (list[ChromaCollection]): the Chroma collections to query against
-            embedding: the LlamaIndex embedding model to use for querying
-            llm (LLMBase): the LLM associated with the Conversation
-            k (int): the number of chunks to retrieve --> default is 10 chunks
-            data_source_ids (list[str]): list of data source IDs
         """
-
         try:
-        
             # configure the retrievers
             retrievers = []
             for collection in collections:
-                chroma_retriever = await self._get_chroma_retreiver(collection, embedding, k)
+                chroma_retriever = await self._get_chroma_retreiver(collection, embedding, k, data_source_file_ids, scoped_repo_data_source_ids)
                 retrievers.append(chroma_retriever)
             
             # configure BM25 retriever
-            bm25_retriever = await self._get_bm25_retriever(k, data_source_ids)
+            bm25_retriever = await self._get_bm25_retriever(k, data_source_ids, data_source_file_ids, scoped_repo_data_source_ids)
             retrievers.append(bm25_retriever)
 
             # configure the fusion retriever (hybrid cordinator for both seamtnic and direct comparisons)
@@ -263,7 +288,9 @@ class ChunkRetrievalService:
     async def _get_bm25_retriever(
         self, 
         k: int,
-        data_source_ids: list[str]
+        data_source_ids: list[str],
+        data_source_file_ids: dict[str, list[str]] | None = None,
+        scoped_repo_data_source_ids: list[str] | None = None
     ) -> BaseRetriever:
         """
         Configure BM25 Retriever for Hybrid Search functionality based on all 
@@ -274,20 +301,34 @@ class ChunkRetrievalService:
             data_source_ids (list): list of data source's to filter search by 
         """
 
-        # serve from cache when the same data sources were already indexed at this k
-        cache_key = BM25RetrieverCache.build_key(data_source_ids, k)
-        cached = BM25RetrieverCache.get(cache_key)
-        if cached is not None:
-            logger.info(f"Reusing cached BM25 retriever for Data Sources={data_source_ids}, k={k}")
-            return cached
+        # To support scoped retrieval, if we have a scoped data source, we must rebuild the cache key
+        # by hashing the actual allowed file IDs or just building it dynamically. Since BM25 cache is
+        # meant for all files, if we have scoped files, we just bypass the cache and build it for the touched files.
+        is_scoped = False
+        if scoped_repo_data_source_ids:
+            for ds_id in data_source_ids:
+                if str(ds_id) in scoped_repo_data_source_ids:
+                    is_scoped = True
+                    break
 
-        return self._build_and_cache_bm25(k, data_source_ids)
+        if not is_scoped:
+            # serve from cache when the same data sources were already indexed at this k
+            cache_key = BM25RetrieverCache.build_key(data_source_ids, k)
+            cached = BM25RetrieverCache.get(cache_key)
+            if cached is not None:
+                logger.info(f"Reusing cached BM25 retriever for Data Sources={data_source_ids}, k={k}")
+                return cached
+
+        return self._build_and_cache_bm25(k, data_source_ids, data_source_file_ids if is_scoped else None, scoped_repo_data_source_ids, should_cache=not is_scoped)
 
 
     def _build_and_cache_bm25(
         self,
         k: int,
-        data_source_ids: list[str]
+        data_source_ids: list[str],
+        data_source_file_ids: dict[str, list[str]] | None = None,
+        scoped_repo_data_source_ids: list[str] | None = None,
+        should_cache: bool = True
     ) -> BaseRetriever:
         """
         Synchronously load every docstore node and build + cache the BM25 retriever.
@@ -318,15 +359,26 @@ class ChunkRetrievalService:
                 namespace=str(id)
             )
 
-            all_nodes.extend(doc_store.docs.values())
+            ds_nodes = list(doc_store.docs.values())
+            
+            # Apply scope filter for this DataSource if it is issue-scoped
+            if scoped_repo_data_source_ids and str(id) in scoped_repo_data_source_ids:
+                allowed_files = set(data_source_file_ids.get(str(id), [])) if data_source_file_ids else set()
+                ds_nodes = [n for n in ds_nodes if n.metadata.get('file_id') in allowed_files]
+
+            all_nodes.extend(ds_nodes)
         
         # configure BM25 retreiver based on all nodes, then cache it for reuse
         retriever = BM25Retriever.from_defaults(
             nodes=all_nodes,
             similarity_top_k=k
         )
-        BM25RetrieverCache.put(cache_key, retriever)
-        logger.info(f"Cached BM25 retriever ({len(all_nodes)} nodes) for Data Sources={data_source_ids}, k={k}")
+        if should_cache:
+            BM25RetrieverCache.put(cache_key, retriever)
+            logger.info(f"Cached BM25 retriever ({len(all_nodes)} nodes) for Data Sources={data_source_ids}, k={k}")
+        else:
+            logger.info(f"Built un-cached scoped BM25 retriever ({len(all_nodes)} nodes) for Data Sources={data_source_ids}, k={k}")
+            
         return retriever
 
 
@@ -364,7 +416,7 @@ class ChunkRetrievalService:
             logger.warning(f"Background BM25 cache warmup failed for Data Sources={data_source_ids}, k={k}: {e}")
         
 
-    async def _get_chroma_retreiver(self, collection: ChromaCollection, embedding: BaseEmbedding, k: int) -> BaseRetriever:
+    async def _get_chroma_retreiver(self, collection: ChromaCollection, embedding: BaseEmbedding, k: int, data_source_file_ids: dict[str, list[str]] | None = None, scoped_repo_data_source_ids: list[str] | None = None) -> BaseRetriever:
         """
         Get retriever associated with relevant Chroma Collection 
 
@@ -381,7 +433,33 @@ class ChunkRetrievalService:
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
         index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embedding) # pass embed_model explicitly to avoid race conditions with global Settings
         
-        return index.as_retriever(similarity_top_k=k)
+        filters = None
+        ds_id_str = str(collection.data_source_id)
+        if scoped_repo_data_source_ids and ds_id_str in scoped_repo_data_source_ids:
+            touched_ids = data_source_file_ids.get(ds_id_str, []) if data_source_file_ids else []
+            if touched_ids:
+                filters = MetadataFilters(
+                    filters=[
+                        MetadataFilter(
+                            key="file_id", 
+                            value=touched_ids, 
+                            operator=FilterOperator.IN
+                        )
+                    ]
+                )
+            else:
+                # If the DS is scoped but has NO touched files, we query with a filter that returns nothing
+                filters = MetadataFilters(
+                    filters=[
+                        MetadataFilter(
+                            key="file_id", 
+                            value=["impossible-value-no-files-touched"], 
+                            operator=FilterOperator.IN
+                        )
+                    ]
+                )
+
+        return index.as_retriever(similarity_top_k=k, filters=filters)
         
 
 

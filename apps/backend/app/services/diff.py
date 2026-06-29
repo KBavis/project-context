@@ -5,7 +5,7 @@ from uuid import UUID
 from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from fastapi import HTTPException
 from sqlalchemy.orm import selectinload
 
@@ -22,6 +22,7 @@ from app.models.ingestion_job import ProcessingStatus
 from app.models.record_lock import RecordType
 from app.services.record_lock import RecordLockService
 from app.models.project_data import ProjectData
+from app.models.file import File
 from app.data_providers.fetchable.issue_tracker import IssueTrackerDataProvider
 from app.data_providers.ingestible.repository import RepositoryDataProvider
 from app.pydantic.pull_request import PullRequestDetail
@@ -832,6 +833,26 @@ class DiffService:
         stmt = select(ProjectRepositoryFileHistory).where(ProjectRepositoryFileHistory.project_id == project_id, ProjectRepositoryFileHistory.data_source_id == data_source_id)
         result = await self.async_db.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_data_source_file_ids(self, project_id: UUID) -> dict[str, list[str]]:
+        """
+        Returns a map of data_source_id (as str) to a list of file_ids (as str) 
+        that were touched by the project. Limits searches to specific file IDs for 
+        issue-scoped repositories.
+        """
+        stmt = (
+            select(ProjectRepositoryFileHistory.data_source_id, func.array_agg(File.id))
+            .join(
+                File, 
+                (File.path == ProjectRepositoryFileHistory.file_path) & 
+                (File.data_source_id == ProjectRepositoryFileHistory.data_source_id)
+            )
+            .where(ProjectRepositoryFileHistory.project_id == project_id)
+            .group_by(ProjectRepositoryFileHistory.data_source_id)
+        )
+        result = await self.async_db.execute(stmt)
+        
+        return {str(ds_id): [str(fid) for fid in file_ids] for ds_id, file_ids in result.all()}
 
     async def get_file_diff_string(self, project_id: UUID, data_source_id: UUID, file_path: str) -> str:
         """

@@ -92,13 +92,18 @@ class AgentService:
             logger.info("Retrieved %d MCP tools across %d DataSources", total_mcp, len(data_sources))
 
             # 3. Initialize internal tooling manager (all DataSources, pre-Diagnosis)
+            data_source_file_ids = {}
+            if self.diff_svc:
+                data_source_file_ids = await self.diff_svc.get_data_source_file_ids(project_id)
+
             tool_manager = Tools(
-                data_sources,
-                project_id,
-                llm,
-                self.chunk_retrieval_svc,
-                self.data_source_svc,
-                self.diff_svc,
+                data_sources=data_sources,
+                project_id=project_id,
+                llm=llm,
+                chunk_retrieval_svc=self.chunk_retrieval_svc,
+                data_source_svc=self.data_source_svc,
+                data_source_file_ids=data_source_file_ids,
+                diff_svc=self.diff_svc,
             )
             all_internal_tools = tool_manager.get_all_internal_tools()
             logger.info("Initialized %d internal tools across %d DataSources", len(all_internal_tools), len(data_sources))
