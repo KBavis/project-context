@@ -5,8 +5,7 @@ from uuid import UUID
 from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func
-from fastapi import HTTPException
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from app.services.data_source import DataSourceService
@@ -795,14 +794,23 @@ class DiffService:
         result = await self.async_db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_project_touched_file_paths(self, data_source_id: UUID) -> list[str]:
+    async def get_project_touched_file_paths(
+        self,
+        data_source_id: UUID,
+        async_session: AsyncSession | None = None,
+    ) -> list[str]:
         """
         Return the list of all unique file paths touched by any project on a specific data source.
         """
-        stmt = select(ProjectAffectedFile.file_path).where(
-            ProjectAffectedFile.data_source_id == data_source_id
-        ).distinct()
-        res = await self.async_db.execute(stmt)
+        stmt = (
+            select(ProjectAffectedFile.file_path)
+            .where(
+                ProjectAffectedFile.data_source_id == data_source_id,
+                ProjectAffectedFile.change_type != ChangeType.DELETED,
+            )
+            .distinct()
+        )
+        res = await (async_session or self.async_db).execute(stmt)
         return list(res.scalars().all())
 
     async def build_scoped_repository_file_id_map(self, project_id: UUID) -> dict[str, list[str]]:

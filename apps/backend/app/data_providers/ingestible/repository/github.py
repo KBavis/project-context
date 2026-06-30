@@ -190,6 +190,9 @@ class GithubDataProvider(RepositoryDataProvider):
             # retrieve file from specific URL asynchronously
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, headers=self.request_headers)
+                if response.status_code == 404:
+                    logger.info(f"Skipping file={file_path} - not found at HEAD (404)")
+                    return
                 response.raise_for_status()
 
             # hash file content & store in buffer 

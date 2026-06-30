@@ -210,6 +210,9 @@ class BitbucketDataProvider(RepositoryDataProvider):
 
         try:
             response = await client.get(url)
+            if response.status_code == 404:
+                logger.info(f"Skipping file={file_path} - not found at HEAD (404)")
+                return
             response.raise_for_status()
 
             buffer = BytesIO()

@@ -230,7 +230,7 @@ class IngestionJobService:
                 try:
 
                     # use data source information to fetch relevant data & store in temp directory
-                    code_path, docs_path = await self._retrieve_data(provider, job_pk, file_svc)
+                    code_path, docs_path = await self._retrieve_data(provider, job_pk, file_svc, async_session)
 
                     # determine which data source types were downloaded
                     has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(code_path)
@@ -366,7 +366,7 @@ class IngestionJobService:
     
 
     async def _retrieve_data(
-        self, provider: IngestibleDataProvider, job_pk: UUID, file_svc: "FileService"
+        self, provider: IngestibleDataProvider, job_pk: UUID, file_svc: "FileService", async_session: AsyncSession
     ) -> tuple[Path, Path]:
         """
         Retrieve relevant data from specified Data Source and store within temporary /data directory
@@ -385,7 +385,7 @@ class IngestionJobService:
 
         touched_file_paths = None
         if provider.data_source.type == DataSourceType.REPOSITORY and provider.data_source.scope_by_issues:
-            touched_file_paths = await self.diff_svc.get_project_touched_file_paths(provider.data_source.id)
+            touched_file_paths = await self.diff_svc.get_project_touched_file_paths(provider.data_source.id, async_session=async_session)
             logger.info(f"DataSource {provider.data_source.id} is scoped by issues. Fetched {len(touched_file_paths)} touched file paths across projects.")
 
         await provider.ingest_data(job_pk=job_pk, file_svc=file_svc, touched_file_paths=touched_file_paths) 
