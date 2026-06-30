@@ -4,19 +4,19 @@ from typing import TYPE_CHECKING, List
 from uuid import UUID
 from datetime import datetime
 
-from sqlalchemy import ARRAY, ForeignKey, ForeignKeyConstraint, String, DateTime
+from sqlalchemy import ForeignKey, ForeignKeyConstraint, String, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
 
 if TYPE_CHECKING:
-    from .project_repository_file_history import ProjectRepositoryFileHistory
+    from .project_affected_file import ProjectAffectedFile
     from .diff_sync_job import DiffSyncJob
     from .project_data import ProjectData
     from .pull_request import PullRequest
 
 
-class ProjectRepositoryChanges(Base):
+class ProjectRepoSummary(Base):
     """
     Aggregate project contribution on a single repository DataSource.
 
@@ -24,7 +24,7 @@ class ProjectRepositoryChanges(Base):
     diff tracking is enabled for that repository.
     """
 
-    __tablename__ = "project_repository_changes"
+    __tablename__ = "project_repo_summary"
 
     __table_args__ = (
         ForeignKeyConstraint(
@@ -68,14 +68,14 @@ class ProjectRepositoryChanges(Base):
     # many to one with DiffSyncJob (no reverse collection on DiffSyncJob)
     diff_sync_job: Mapped["DiffSyncJob"] = relationship()
 
-    # one to many relationship with ProjectRepositoryFileHistory
-    file_histories: Mapped[List["ProjectRepositoryFileHistory"]] = relationship(
-        back_populates="project_repository_changes",
+    # one to many relationship with ProjectAffectedFile
+    file_histories: Mapped[List["ProjectAffectedFile"]] = relationship(
+        back_populates="project_repo_summary",
         cascade="all, delete-orphan",
     )
 
     # one to many relationship with PullRequest
     pull_requests: Mapped[List["PullRequest"]] = relationship(
-        back_populates="project_repository_changes",
+        back_populates="project_repo_summary",
         cascade="all, delete-orphan",
     )

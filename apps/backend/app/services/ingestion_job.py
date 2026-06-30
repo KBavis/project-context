@@ -5,22 +5,26 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from uuid import UUID, uuid4
 import shutil
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType, ProjectData, Project
+from app.models.data_source import DataSourceType
+
+from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType, ProjectData
 from app.core import settings, get_async_db_session_context, ChromaClientManager
 from app.services.record_lock import RecordLockService
 from app.services.file import FileService
 from app.services.chroma import ChromaService
 from app.services.chunk_insertion import ChunkInsertionService
-from typing import TYPE_CHECKING
 from app.data_providers.ingestible.base import IngestibleDataProvider
+from app.services.diff import DiffService
 
 if TYPE_CHECKING:
     from app.services.data_source import DataSourceService
+
 logger = logging.getLogger(__name__)
 
 class IngestionJobService:
@@ -29,7 +33,8 @@ class IngestionJobService:
             self, 
             db: AsyncSession, 
             record_lock_svc: RecordLockService,
-            data_source_svc: "DataSourceService"
+            data_source_svc: DataSourceService,
+            diff_svc: DiffService
     ):
         """
         Initialize IngestionJobService with necessary dependencies
@@ -41,7 +46,8 @@ class IngestionJobService:
         """
         self.db: AsyncSession = db
         self.record_lock_svc: RecordLockService = record_lock_svc
-        self.data_source_svc: "DataSourceService" = data_source_svc
+        self.data_source_svc: DataSourceService = data_source_svc
+        self.diff_svc: DiffService = diff_svc
 
     @staticmethod
     def _build_ingestion_services(
@@ -377,7 +383,12 @@ class IngestionJobService:
 
         code_path, docs_path = self._create_tmp_dirs(job_pk) 
 
-        await provider.ingest_data(job_pk=job_pk, file_svc=file_svc) 
+        touched_file_paths = None
+        if provider.data_source.type == DataSourceType.REPOSITORY and provider.data_source.scope_by_issues:
+            touched_file_paths = await self.diff_svc.get_project_touched_file_paths(provider.data_source.id)
+            logger.info(f"DataSource {provider.data_source.id} is scoped by issues. Fetched {len(touched_file_paths)} touched file paths across projects.")
+
+        await provider.ingest_data(job_pk=job_pk, file_svc=file_svc, touched_file_paths=touched_file_paths) 
         return code_path, docs_path
 
 

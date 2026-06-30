@@ -18,8 +18,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
 if TYPE_CHECKING:
-    from .project_repository_changes import ProjectRepositoryChanges
-    from .project_repository_file_pr_diff import ProjectRepositoryFilePrDiff
+    from .project_repo_summary import ProjectRepoSummary
+    from .project_file_diff import ProjectFileDiff
     from .git_commit import GitCommit
 
 
@@ -31,7 +31,7 @@ class PullRequest(Base):
     references that issue's key) and is the record that ties project repository
     changes back to the work that introduced them; commits are persisted only as
     descriptive metadata. Only MERGED pull requests are recorded; the per-file
-    diffs a PR introduced live in ``ProjectRepositoryFilePrDiff`` rows that
+    diffs a PR introduced live in ``ProjectFileDiff`` rows that
     reference this PR.
     """
 
@@ -41,8 +41,8 @@ class PullRequest(Base):
         ForeignKeyConstraint(
             ["project_id", "data_source_id"],
             [
-                "project_repository_changes.project_id",
-                "project_repository_changes.data_source_id",
+                "project_repo_summary.project_id",
+                "project_repo_summary.data_source_id",
             ],
             ondelete="CASCADE",
             deferrable=True,  # only enforce the constraint at transaction commit
@@ -62,7 +62,7 @@ class PullRequest(Base):
         server_default=text("gen_random_uuid()"),
     )
 
-    # Scoped FK back to ProjectRepositoryChanges
+    # Scoped FK back to ProjectRepoSummary
     project_id: Mapped[UUID] = mapped_column(
         index=True,
         nullable=False,
@@ -132,11 +132,11 @@ class PullRequest(Base):
     )
 
     # Relationships
-    project_repository_changes: Mapped["ProjectRepositoryChanges"] = relationship(
+    project_repo_summary: Mapped["ProjectRepoSummary"] = relationship(
         back_populates="pull_requests",
     )
 
-    file_pr_diffs: Mapped[List["ProjectRepositoryFilePrDiff"]] = relationship(
+    file_pr_diffs: Mapped[List["ProjectFileDiff"]] = relationship(
         back_populates="pull_request",
         cascade="all, delete-orphan",
     )

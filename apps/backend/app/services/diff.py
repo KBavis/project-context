@@ -12,9 +12,9 @@ from sqlalchemy.orm import selectinload
 from app.services.data_source import DataSourceService
 from app.models.data_source import DataSourceType, DataSource
 from app.models.project import Project
-from app.models.project_repository_changes import ProjectRepositoryChanges
-from app.models.project_repository_file_history import ProjectRepositoryFileHistory
-from app.models.project_repository_file_pr_diff import ProjectRepositoryFilePrDiff
+from app.models.project_repo_summary import ProjectRepoSummary
+from app.models.project_affected_file import ProjectAffectedFile
+from app.models.project_file_diff import ProjectFileDiff
 from app.models.pull_request import PullRequest
 from app.models.git_commit import GitCommit
 from app.models.diff_sync_job import DiffSyncJob
@@ -35,7 +35,7 @@ import uuid
 logger = logging.getLogger(__name__)
 
 # Maximum number of bytes of unified-diff text stored per file PR diff; larger
-# diffs are capped and flagged via ProjectRepositoryFilePrDiff.diff_truncated.
+# diffs are capped and flagged via ProjectFileDiff.diff_truncated.
 MAX_DIFF_BYTES = 256 * 1024
 
 
@@ -368,14 +368,14 @@ class DiffService:
         Merged pull requests are immutable, so previously-processed PRs are
         skipped and their stored diff slices are never recomputed. For each new
         PR (oldest first), its metadata + non-merge commits are persisted and its
-        per-file diff is appended as an ordered ProjectRepositoryFilePrDiff on each file.
+        per-file diff is appended as an ordered ProjectFileDiff on each file.
         """
         # derive the project's issue keys from the issue tracker (Jira: epic -> stories)
         issue_provider = IssueTrackerDataProvider.from_provider(issue_tracker_ds)
         child_issues = await issue_provider.get_issues(project.parent_issues)
 
         # ensure the aggregate record exists before persisting PRs (composite FK target)
-        repo_changes = await self._ensure_project_repository_changes(
+        repo_changes = await self._ensure_project_repo_summary(
             project.id, repository_ds.id, diff_sync_job_id, async_session
         )
 
@@ -434,8 +434,7 @@ class DiffService:
                 async_session=async_session,
             )
 
-        # ensure data sources specified `ingest_paths` cover the scope of changes we made on this Repository per this Project
-        self._log_ingest_path_coverage_warning(all_patches, repository_ds.ingest_paths)
+
 
         await self._update_repository_changes_summary(
             repo_changes, project.id, repository_ds.id, diff_sync_job_id, async_session
@@ -460,21 +459,21 @@ class DiffService:
         return set(res.scalars().all())
 
 
-    async def _ensure_project_repository_changes(
+    async def _ensure_project_repo_summary(
         self,
         project_id: UUID,
         repository_data_source_id: UUID,
         diff_sync_job_id: UUID,
         async_session: AsyncSession,
-    ) -> ProjectRepositoryChanges:
-        """Get the ProjectRepositoryChanges row, creating an empty one on first sync."""
-        repo_changes = await self.get_project_repository_changes(
+    ) -> ProjectRepoSummary:
+        """Get the ProjectRepoSummary row, creating an empty one on first sync."""
+        repo_changes = await self.get_project_repo_summary(
             project_id=project_id,
             data_source_id=repository_data_source_id,
             async_session=async_session,
         )
         if not repo_changes:
-            repo_changes = ProjectRepositoryChanges(
+            repo_changes = ProjectRepoSummary(
                 project_id=project_id,
                 data_source_id=repository_data_source_id,
                 diff_sync_job_id=diff_sync_job_id,
@@ -538,7 +537,7 @@ class DiffService:
 
         A PR has a single net effect on each path it touches (added, modified, or
         deleted). We first consolidate all raw patches into a path -> net-effect
-        map, then persist exactly one ProjectRepositoryFilePrDiff per path
+        map, then persist exactly one ProjectFileDiff per path
         """
         for file_path, effect in self._consolidate_pr_patches(patches).items():
             await self._apply_file_net_effect(
@@ -552,44 +551,6 @@ class DiffService:
                 diff_sync_job_id=diff_sync_job_id,
                 async_session=async_session,
             )
-
-    def _log_ingest_path_coverage_warning(self, all_patches: list[FileDiffPatch], ingest_paths: list[str]):
-        """
-        Log a single warning if any modified files fall outside the configured ingest_paths.
-        Aggregates out-of-scope directories across all processed PRs to avoid spamming.
-        """
-        if not ingest_paths or not all_patches:
-            return
-
-        out_of_scope = set()
-        for patch in all_patches:
-            # Check both old and new paths in case of renames
-            for file_path in (patch.file_path, patch.previous_path):
-                if not file_path:
-                    continue
-                in_scope = False
-                for prefix in ingest_paths:
-                    if file_path == prefix or file_path.startswith(f"{prefix}/"):
-                        in_scope = True
-                        break
-                if not in_scope:
-                    out_of_scope.add(file_path)
-
-        if out_of_scope:
-            file_list = sorted(list(out_of_scope))
-            if len(file_list) > 20:
-                affected_files_str = ', '.join(file_list[:20]) + f", ... and {len(file_list) - 20} more files"
-            else:
-                affected_files_str = ', '.join(file_list)
-                
-            logger.warning(
-                f"Coverage Warning: {len(out_of_scope)} file(s) modified across synced PRs "
-                f"fall outside the configured ingest_paths={ingest_paths}. "
-                f"These repository changes will be tracked as something the project introduced, "
-                f"but will not be searchable by the agent via grep search and semantic search. "
-                f"Affected files: {affected_files_str}"
-            )
-
 
     def _get_deletion_unified_diff(self, file_path: str) -> str:
         """
@@ -656,7 +617,7 @@ class DiffService:
         Persist one file's net effect from a pull request onto its change history.
 
         Called exactly once per path per PR (patches are consolidated upstream),
-        so each PR contributes at most one ProjectRepositoryFilePrDiff per path.
+        so each PR contributes at most one ProjectFileDiff per path.
         Applies the change-type reconciliation rule:
 
           - A file the project ADDED that is later deleted is net-zero: the whole
@@ -666,19 +627,19 @@ class DiffService:
           - A pre-existing file the project deletes keeps its history and its
             roll-up change_type becomes DELETED.
         """
-        stmt = select(ProjectRepositoryFileHistory).options(
-            selectinload(ProjectRepositoryFileHistory.pr_diffs)
+        stmt = select(ProjectAffectedFile).options(
+            selectinload(ProjectAffectedFile.pr_diffs)
         ).where(
-            ProjectRepositoryFileHistory.project_id == project_id,
-            ProjectRepositoryFileHistory.data_source_id == repository_data_source_id,
-            ProjectRepositoryFileHistory.file_path == file_path,
+            ProjectAffectedFile.project_id == project_id,
+            ProjectAffectedFile.data_source_id == repository_data_source_id,
+            ProjectAffectedFile.file_path == file_path,
         )
         res = await async_session.execute(stmt)
         file_history = res.scalar_one_or_none()
 
         if file_history is None:
             # first time the project touches this path -> seed the roll-up change_type
-            file_history = ProjectRepositoryFileHistory(
+            file_history = ProjectAffectedFile(
                 project_id=project_id,
                 data_source_id=repository_data_source_id,
                 file_path=file_path,
@@ -731,7 +692,7 @@ class DiffService:
 
     async def _add_pr_diff(
         self,
-        file_history: ProjectRepositoryFileHistory,
+        file_history: ProjectAffectedFile,
         pr_record: PullRequest,
         ordinal: int,
         change_type: ChangeType,
@@ -739,11 +700,11 @@ class DiffService:
         provider_truncated: bool,
         async_session: AsyncSession,
     ):
-        """Create and stage a ProjectRepositoryFilePrDiff for a file under a pull request."""
+        """Create and stage a ProjectFileDiff for a file under a pull request."""
         stored, diff_hash, truncated = self._prepare_diff_payload(
             unified_diff, provider_truncated
         )
-        async_session.add(ProjectRepositoryFilePrDiff(
+        async_session.add(ProjectFileDiff(
             file_history_id=file_history.id,
             pull_request_id=pr_record.id,
             ordinal=ordinal,
@@ -756,7 +717,7 @@ class DiffService:
 
     async def _update_repository_changes_summary(
         self,
-        repo_changes: ProjectRepositoryChanges,
+        repo_changes: ProjectRepoSummary,
         project_id: UUID,
         repository_data_source_id: UUID,
         diff_sync_job_id: UUID,
@@ -764,9 +725,9 @@ class DiffService:
     ):
         """Refresh the denormalized counts / sync metadata."""
         from sqlalchemy import func
-        stmt = select(func.count()).select_from(ProjectRepositoryFileHistory).where(
-            ProjectRepositoryFileHistory.project_id == project_id,
-            ProjectRepositoryFileHistory.data_source_id == repository_data_source_id,
+        stmt = select(func.count()).select_from(ProjectAffectedFile).where(
+            ProjectAffectedFile.project_id == project_id,
+            ProjectAffectedFile.data_source_id == repository_data_source_id,
         )
         res = await async_session.execute(stmt)
         file_count = res.scalar_one()
@@ -790,12 +751,12 @@ class DiffService:
         """
 
 
-    async def get_project_repository_changes(
+    async def get_project_repo_summary(
         self, 
         project_id: UUID, 
         data_source_id: UUID,
         async_session: AsyncSession | None = None
-    ) -> ProjectRepositoryChanges | None:
+    ) -> ProjectRepoSummary | None:
         """
         Get the accumulation of `Repository Code Changes` that we're introduced as a part of this Project
             - shows all changes across each Repository that are a part of this Project if no DataSourceID supplied 
@@ -805,18 +766,18 @@ class DiffService:
             data_source_id (UUID): The ID of the Data Source to filter the changes by.
             async_session (AsyncSession?): optional AsyncSession to leverage if this is a background job (default to use this if present)
         """
-        stmt = select(ProjectRepositoryChanges).where(ProjectRepositoryChanges.project_id == project_id, ProjectRepositoryChanges.data_source_id == data_source_id)
+        stmt = select(ProjectRepoSummary).where(ProjectRepoSummary.project_id == project_id, ProjectRepoSummary.data_source_id == data_source_id)
         result = await async_session.execute(stmt) if async_session else await self.async_db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def adelete_project_repository_changes(self, project_id: UUID, data_source_id: UUID) -> None:
+    async def adelete_project_repo_summary(self, project_id: UUID, data_source_id: UUID) -> None:
         """
-        Delete the ProjectRepositoryChanges record associated with a given Project and Data Source.
-        This cascades down to ProjectRepositoryFileHistory and PullRequest records.
+        Delete the ProjectRepoSummary record associated with a given Project and Data Source.
+        This cascades down to ProjectAffectedFile and PullRequest records.
         """
-        stmt = select(ProjectRepositoryChanges).where(
-            ProjectRepositoryChanges.project_id == project_id,
-            ProjectRepositoryChanges.data_source_id == data_source_id
+        stmt = select(ProjectRepoSummary).where(
+            ProjectRepoSummary.project_id == project_id,
+            ProjectRepoSummary.data_source_id == data_source_id
         )
         result = await self.async_db.execute(stmt)
         repo_changes = result.scalar_one_or_none()
@@ -826,38 +787,47 @@ class DiffService:
 
 
 
-    async def get_file_diffs(self, project_id: UUID, data_source_id: UUID) -> list[ProjectRepositoryFileHistory]:
+    async def get_file_diffs(self, project_id: UUID, data_source_id: UUID) -> list[ProjectAffectedFile]:
         """
-        Get the `project_repository_file_history` records that are associated with a given Project and DataSource
+        Get the `project_affected_file` records that are associated with a given Project and DataSource
         """
-        stmt = select(ProjectRepositoryFileHistory).where(ProjectRepositoryFileHistory.project_id == project_id, ProjectRepositoryFileHistory.data_source_id == data_source_id)
+        stmt = select(ProjectAffectedFile).where(ProjectAffectedFile.project_id == project_id, ProjectAffectedFile.data_source_id == data_source_id)
         result = await self.async_db.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_project_touched_file_paths(self, data_source_id: UUID) -> list[str]:
+        """
+        Return the list of all unique file paths touched by any project on a specific data source.
+        """
+        stmt = select(ProjectAffectedFile.file_path).where(
+            ProjectAffectedFile.data_source_id == data_source_id
+        ).distinct()
+        res = await self.async_db.execute(stmt)
+        return list(res.scalars().all())
 
     async def build_scoped_repository_file_id_map(self, project_id: UUID) -> dict[str, list[str]]:
         """
         Returns a mapping of data source IDs (as strings) to list of file IDs (as strings)
-        representing the files touched by the project.
         
         This mapping only includes:
           a) Data sources configured for the project (via ProjectData), AND
           b) Data sources that are scoped by issues (scope_by_issues is True and type is REPOSITORY).
           
-        Other data sources do not have a ProjectRepositoryFileHistory record, and are excluded
+        Other data sources do not have a ProjectAffectedFile record, and are excluded
         from this mapping (rather than returning empty lists/mappings).
         """
         stmt = (
             select(DataSource.id, func.array_agg(File.id))
             .join(ProjectData, ProjectData.data_source_id == DataSource.id)
             .outerjoin(
-                ProjectRepositoryFileHistory,
-                (ProjectRepositoryFileHistory.data_source_id == DataSource.id) &
-                (ProjectRepositoryFileHistory.project_id == project_id)
+                ProjectAffectedFile,
+                (ProjectAffectedFile.data_source_id == DataSource.id) &
+                (ProjectAffectedFile.project_id == project_id)
             )
             .outerjoin(
                 File,
-                (File.path == ProjectRepositoryFileHistory.file_path) &
-                (File.data_source_id == ProjectRepositoryFileHistory.data_source_id)
+                (File.path == ProjectAffectedFile.file_path) &
+                (File.data_source_id == ProjectAffectedFile.data_source_id)
             )
             .where(
                 ProjectData.project_id == project_id,
@@ -888,12 +858,12 @@ class DiffService:
             file_path (str): The path to the file for which to retrieve the changes.
         """
         try:
-            stmt = select(ProjectRepositoryFileHistory).options(
-                selectinload(ProjectRepositoryFileHistory.pr_diffs).selectinload(ProjectRepositoryFilePrDiff.pull_request)
+            stmt = select(ProjectAffectedFile).options(
+                selectinload(ProjectAffectedFile.pr_diffs).selectinload(ProjectFileDiff.pull_request)
             ).where(
-                ProjectRepositoryFileHistory.project_id == project_id,
-                ProjectRepositoryFileHistory.data_source_id == data_source_id,
-                ProjectRepositoryFileHistory.file_path == file_path,
+                ProjectAffectedFile.project_id == project_id,
+                ProjectAffectedFile.data_source_id == data_source_id,
+                ProjectAffectedFile.file_path == file_path,
             )
             result = await self.async_db.execute(stmt)
             file_history = result.scalar_one_or_none()

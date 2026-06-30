@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from app.pydantic import ProjectRequest
 from app.pydantic.status import ProcessingStatus
-from app.models import Project, ProjectData, DataSource, IngestionJob, ProjectRepositoryChanges
+from app.models import Project, ProjectData, DataSource 
 from app.models.data_source import DataSourceType
 from app.data_providers.ingestible.base import IngestibleDataProvider
 from uuid import UUID
@@ -46,7 +46,7 @@ class ProjectService:
           - Any ingestible data source (REPOSITORY, DOCUMENTATION) has not completed
             a successful IngestionJob, OR
           - Any issue-scoped Repository data source has not completed a successful
-            DiffSyncJob (i.e. ProjectRepositoryChanges record not yet created).
+            DiffSyncJob (i.e. ProjectRepoSummary record not yet created).
 
         Fetchable-only sources (ISSUE_TRACKER) are ignored for both checks.
         """
@@ -294,8 +294,8 @@ class ProjectService:
                             "Unlink those repositories first."
                         )
 
-            # Delete the ProjectRepositoryChanges explicitly to cascade its children using diff_svc
-            await self.diff_svc.adelete_project_repository_changes(project_id, data_source_id)
+            # Delete the ProjectRepoSummary explicitly to cascade its children using diff_svc
+            await self.diff_svc.adelete_project_repo_summary(project_id, data_source_id)
 
             # Finally, delete the association
             self.db.delete(association)

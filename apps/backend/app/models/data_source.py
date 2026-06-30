@@ -58,14 +58,6 @@ class DataSource(Base):
         comment="Whether to scope ingestion for this data source to specific issues configured on the project"
     )
 
-    ingest_paths: Mapped[List[str]] = mapped_column(
-        ARRAY(String),
-        nullable=False,
-        server_default="{}",
-        default=list,
-        comment="Optional repo-root-relative directory prefixes to scope ingestion. "
-                "Empty list = ingest the entire repository (backward compatible).",
-    )
 
 
     # many to many relationship with MCPConfig

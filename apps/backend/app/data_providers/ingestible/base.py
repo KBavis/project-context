@@ -36,7 +36,7 @@ class IngestibleDataProvider(DataProvider):
                 )
     
     @abstractmethod
-    async def ingest_data(self, job_pk: UUID, file_svc: "FileService"):
+    async def ingest_data(self, job_pk: UUID, file_svc: "FileService", touched_file_paths: list[str] | None = None):
         raise NotImplementedError()
 
         

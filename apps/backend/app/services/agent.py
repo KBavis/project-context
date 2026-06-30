@@ -266,7 +266,7 @@ class AgentService:
         scope_summary = ""
         for ds in data_sources:
             if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues:
-                changes = await self.diff_svc.get_project_repository_changes(project_id, ds.id)
+                changes = await self.diff_svc.get_project_repo_summary(project_id, ds.id)
                 if changes:
                     file_diffs = await self.diff_svc.get_file_diffs(project_id, ds.id)
                     if file_diffs:
@@ -302,8 +302,6 @@ class AgentService:
         ds_infos = []
         for ds in data_sources:
             info = f"- ID: {ds.id} | Name: {ds.name} | Type: {ds.type} | Provider: {ds.provider}"
-            if ds.type == DataSourceType.REPOSITORY and getattr(ds, "ingest_paths", None):
-                info += f" | Scoped Paths: {', '.join(ds.ingest_paths)}"
             ds_infos.append(info)
         data_source_info = "\n".join(ds_infos)
         internal_tool_info = "\n".join(

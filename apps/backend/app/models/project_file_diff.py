@@ -19,28 +19,28 @@ from .base import Base
 from app.pydantic.change_type import ChangeType
 
 if TYPE_CHECKING:
-    from .project_repository_file_history import ProjectRepositoryFileHistory
+    from .project_affected_file import ProjectAffectedFile
     from .pull_request import PullRequest
 
 
-class ProjectRepositoryFilePrDiff(Base):
+class ProjectFileDiff(Base):
     """
     A single file's diff as introduced by one merged pull request.
 
-    A file's history (``ProjectRepositoryFileHistory``) is the ordered list of
+    A file's history (``ProjectAffectedFile``) is the ordered list of
     these per-PR diffs (one per pull request that touched the path). The list is
     sequential — NOT a netted composite — so the LATEST diff is the most recent
     change to the path, not the cumulative effect of the project. Consumers
     reason across the ordered diffs to derive net state.
     """
 
-    __tablename__ = "project_repository_file_pr_diff"
+    __tablename__ = "project_file_diff"
 
     __table_args__ = (
         UniqueConstraint(
             "file_history_id",
             "pull_request_id",
-            name="uq_project_repository_file_pr_diff_history_pr",
+            name="uq_project_file_diff_history_pr",
         ),
     )
 
@@ -51,7 +51,7 @@ class ProjectRepositoryFilePrDiff(Base):
     )
 
     file_history_id: Mapped[UUID] = mapped_column(
-        ForeignKey("project_repository_file_history.id", ondelete="CASCADE"),
+        ForeignKey("project_affected_file.id", ondelete="CASCADE"),
         index=True,
         nullable=False,
         comment="The file history this per-PR diff belongs to",
@@ -94,7 +94,7 @@ class ProjectRepositoryFilePrDiff(Base):
     )
 
     # Relationships
-    file_history: Mapped["ProjectRepositoryFileHistory"] = relationship(
+    file_history: Mapped["ProjectAffectedFile"] = relationship(
         back_populates="pr_diffs",
     )
     pull_request: Mapped["PullRequest"] = relationship(

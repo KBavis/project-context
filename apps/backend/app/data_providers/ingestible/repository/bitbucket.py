@@ -51,7 +51,7 @@ class BitbucketDataProvider(RepositoryDataProvider):
         self.base_api_url = f"https://{self.domain}/rest/api/1.0/projects/{self.repository_owner}/repos/{self.repository_name}"
         self.file_download_base_url = f"{self.base_api_url}/raw"
 
-    async def ingest_data(self, file_svc: FileService, job_pk: UUID):
+    async def ingest_data(self, job_pk: UUID, file_svc: FileService, touched_file_paths: list[str] | None = None):
         self.file_svc = file_svc
         self.job_pk = job_pk
         self.new_or_modified_file_ids = []
@@ -60,7 +60,7 @@ class BitbucketDataProvider(RepositoryDataProvider):
             raise Exception("FileService and JobPK not provided when attempting to ingest data")
 
         # Reach out to Bitbucket and recursively fetch and store documentation within our temp directory
-        await self._get_repository_data(self.base_api_url)
+        await self._get_repository_data(self.base_api_url, touched_file_paths)
 
         # Cleanup any files associated with DataSource not processed via current job
         await self.file_svc.cleanup(self.data_source.id, self.job_pk, self.new_or_modified_file_ids)
@@ -82,7 +82,7 @@ class BitbucketDataProvider(RepositoryDataProvider):
                 f"https://<domain>/projects/<project>/repos/<repo_name>"
             )
 
-    async def _get_repository_data(self, curr_url: str):
+    async def _get_repository_data(self, curr_url: str, touched_file_paths: list[str] | None = None):
         assert self.file_svc and self.job_pk
 
         # TODO: Refactor this function to be more generic for re-use across BitBucket & GitHub  
@@ -100,15 +100,15 @@ class BitbucketDataProvider(RepositoryDataProvider):
             headers=self.request_headers, limits=limits, timeout=timeout
         ) as client:
             paths: list[str] = []
-            # if no ingestion paths specified on data source, extract all paths in repo
-            if not self.data_source.ingest_paths:
+            # NOTE: If the DataSource is `scoped_by_issues`, we only ingest files touched by the Project on DataSource (i.e touched_file_paths)
+            if self.data_source.scope_by_issues:
+                if touched_file_paths is None:
+                    logger.info(f"Skipping ingestion for DataSource={self.data_source.id}: No touched_file_paths provided for issue-scoped repository.")
+                    return
+                paths = touched_file_paths
+            else:
                 files_url = f"{self.base_api_url}/files?at={self.branch_name}&limit=10000"
                 paths = await self._enumerate_paths(client, files_url)
-            else:
-                # only extract paths relevant to specified ingested paths on Repository Data Source 
-                for prefix in self._collapse_ingest_paths():
-                    files_url = f"{self.base_api_url}/files/{quote(prefix, safe='/')}?at={self.branch_name}&limit=10000"
-                    paths.extend(await self._enumerate_paths(client, files_url, path_prefix=prefix))
 
             # Apply exclusive path filter (e.g. .gitignore or hardcoded exclusions)
             paths = self._filter_excluded_paths(paths)

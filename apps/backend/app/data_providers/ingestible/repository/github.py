@@ -55,7 +55,7 @@ class GithubDataProvider(RepositoryDataProvider):
         self.file_download_base_url = f"https://raw.githubusercontent.com/{self.repository_owner}/{self.repository_name}/{self.branch_name}"
 
 
-    async def ingest_data(self, file_svc: FileService, job_pk: UUID):
+    async def ingest_data(self, job_pk: UUID, file_svc: FileService, touched_file_paths: list[str] | None = None):
         """
         Functionality to parse our GitHub Url and invoke relevant functionality
         to DFS through repository and retrieve relevant files to store within our
@@ -69,9 +69,24 @@ class GithubDataProvider(RepositoryDataProvider):
         if not self.file_svc or not self.job_pk:
             raise Exception(f"FileService and JobPK not provided when attempting to ingest data")
 
-        # reach out to GitHub and recurisvely fetch and store documentation within our temp directory
-        root_url = f"{self.base_api_url}{self.branch_reference}"
-        await self._get_repository_data(root_url)
+        # NOTE: If the DataSource is `scoped_by_issues`, we only ingest files touched by the Project on DataSource (i.e touched_file_paths)
+        if self.data_source.scope_by_issues:
+            if touched_file_paths is None:
+                logger.info(f"Skipping ingestion for DataSource={self.data_source.id}: No touched_file_paths provided for issue-scoped repository.")
+            else:
+                # Fetch explicitly supplied file paths
+                for path in touched_file_paths:
+                    if self._is_excluded_path(path):
+                        logger.debug(f"Skipping excluded file: {path}")
+                        continue
+                    # Derive download URL directly to skip directory walking
+                    # Note: 'size' will be computed from the downloaded buffer if we pass 0
+                    download_url = f"{self.file_download_base_url}/{path}"
+                    await self._download_file(download_url, Path(path).name, path, 0)
+        else:
+            # reach out to GitHub and recurisvely fetch and store documentation within our temp directory
+            root_url = f"{self.base_api_url}{self.branch_reference}"
+            await self._get_repository_data(root_url)
 
         # cleanup any files assocaited with DataSource not processed via current job
         await self.file_svc.cleanup(self.data_source.id, self.job_pk, self.new_or_modified_file_ids)
@@ -133,19 +148,14 @@ class GithubDataProvider(RepositoryDataProvider):
 
             # download file and put into temp directory
             if node["type"] == "file":
-                # enforce inclusive ingest_paths scoping
-                if not self._is_in_ingest_paths(node["path"]):
-                    continue
-
                 # skip vendored/build/generated/fixture files before downloading them
                 if self._is_excluded_path(node["path"]):
                     logger.debug(f"Skipping excluded file: {node['path']}")
                     continue
                 await self._download_file(node["download_url"], node["name"], node["path"], node["size"])
             else:
-                # prune traversal to scoped directories
-                if self._should_descend(node["path"]):
-                    await self._get_repository_data(node["url"])
+                # descend into all directories (scope_by_issues handles filtering upfront)
+                await self._get_repository_data(node["url"])
 
 
     async def _download_file(self, url: str, file_name: str, file_path: str, size: int):
@@ -193,7 +203,7 @@ class GithubDataProvider(RepositoryDataProvider):
                 path=file_path, 
                 file_name=file_name, 
                 file_type=self.file_svc.get_file_extension(file_extension), 
-                size=size, 
+                size=size or buffer.getbuffer().nbytes, 
                 hash=hashed_content,
                 file_url=url
             )

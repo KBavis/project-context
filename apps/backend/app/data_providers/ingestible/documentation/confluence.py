@@ -58,7 +58,7 @@ class ConfluenceDataProvider(DocumentationDataProvider):
                 f"The specified data source URL, {self.url}, is not in the proper format: https://<domain>/spaces/<SPACE_KEY>/pages/<PAGE_ID>"
             )
 
-    async def ingest_data(self, file_svc: FileService, job_pk: UUID):
+    async def ingest_data(self, job_pk: UUID, file_svc: FileService, touched_file_paths: list[str] | None = None):
         self.file_svc = file_svc
         self.job_pk = job_pk
         self.new_or_modified_file_ids = []
