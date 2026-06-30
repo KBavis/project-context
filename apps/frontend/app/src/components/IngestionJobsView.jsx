@@ -79,7 +79,7 @@ export default function IngestionJobsView() {
         <div className="jobs-container">
             <div className="jobs-header-section">
                 <div className="jobs-header">
-                    <h2>Ingestion Jobs</h2>
+                    <h2>Data Source Refresh History</h2>
                 </div>
                 <div className="jobs-filters-group">
                     <div className="filter-item">
@@ -151,8 +151,8 @@ export default function IngestionJobsView() {
             {jobs.length === 0 && !loading ? (
                 <div className="jobs-empty">
                     <div className="empty-icon">⚙️</div>
-                    <h3>No Ingestion Jobs</h3>
-                    <p>Jobs will appear here once started from the Data Sources view</p>
+                    <h3>No Refresh History</h3>
+                    <p>Data Source refresh runs will appear here once triggered from the Data Sources view or via Sync Project</p>
                 </div>
             ) : (
                 <div className="jobs-list">

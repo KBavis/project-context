@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useDataSources, useAlert, useProjects } from '../contexts/index';
+import { useDataSources, useAlert, useProjects, useIngestionJobs } from '../contexts/index';
 import api from '../services/api';
 import Button from './Button';
 import Modal from './Modal';
@@ -8,11 +8,13 @@ import '../styles/DiffSyncView.css';
 export default function DiffSyncView({ projectId }) {
     const { dataSources } = useDataSources();
     const { syncingProjects, startPolling } = useProjects();
+    const { ingestionJobs } = useIngestionJobs();
     const { showAlert } = useAlert();
 
     const [diffSyncJobs, setDiffSyncJobs] = useState({});
     const [loadingJobs, setLoadingJobs] = useState(false);
     const [triggeringSync, setTriggeringSync] = useState(false);
+    const [syncingProject, setSyncingProject] = useState(false);
 
     // Confirmation modal
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, confirmLabel: 'Confirm' });
@@ -32,6 +34,13 @@ export default function DiffSyncView({ projectId }) {
         if (s === 'SUCCESS' || s === 'COMPLETED') return 'completed';
         if (s === 'FAILED') return 'failed';
         return status.toLowerCase();
+    };
+
+    // Get latest ingestion job for a data source
+    const getLatestIngestionJob = (dsId) => {
+        return ingestionJobs
+            .filter(job => job.data_source_id === dsId)
+            .sort((a, b) => new Date(b.start_time || b.created_at) - new Date(a.start_time || a.created_at))[0] || null;
     };
 
     // Fetch diff sync jobs for all eligible sources
@@ -63,12 +72,36 @@ export default function DiffSyncView({ projectId }) {
         }
     }, [syncState?.isSyncing]);
 
+    // ── Sync Project (full orchestrator) ──
+    const handleSyncProject = () => {
+        setConfirmModal({
+            isOpen: true,
+            title: 'Sync Project',
+            message: `This will run a full Sync Project: Refresh Project Changes (diff-sync) for all ${eligibleSources.length} issue-scoped repo(s), then Refresh Data Source (ingestion) for all configured sources. This runs in the background.`,
+            confirmLabel: 'Sync Project',
+            onConfirm: async () => {
+                setSyncingProject(true);
+                closeConfirmModal();
+                try {
+                    await api.projects.sync(projectId);
+                    startPolling(projectId);
+                    showAlert('🚀 Sync Project triggered! All stages running in background.', 'success');
+                    setTimeout(fetchAllJobs, 3000);
+                } catch (err) {
+                    showAlert('Failed to trigger Sync Project: ' + err.message, 'error');
+                } finally {
+                    setSyncingProject(false);
+                }
+            }
+        });
+    };
+
     const handleSyncAll = () => {
         setConfirmModal({
             isOpen: true,
-            title: 'Sync All Repositories',
-            message: `This will trigger a Diff Sync for all ${eligibleSources.length} eligible data source(s). Each repository will be synced with the latest commits.`,
-            confirmLabel: 'Sync All',
+            title: 'Refresh Project Changes',
+            message: `This will trigger a Refresh Project Changes (diff-sync) for all ${eligibleSources.length} eligible data source(s). Each repository will be synced with the latest commits.`,
+            confirmLabel: 'Refresh All',
             onConfirm: async () => {
                 setTriggeringSync(true);
                 closeConfirmModal();
@@ -77,7 +110,7 @@ export default function DiffSyncView({ projectId }) {
                         await api.diff.triggerSync(projectId, ds.id);
                     }
                     startPolling(projectId);
-                    showAlert('🚀 Project-wide Diff Sync triggered!', 'success');
+                    showAlert('🚀 Refresh Project Changes triggered!', 'success');
                     setTimeout(fetchAllJobs, 2000);
                 } catch (err) {
                     showAlert('Failed to trigger sync: ' + err.message, 'error');
@@ -91,8 +124,8 @@ export default function DiffSyncView({ projectId }) {
     const handleSyncSingle = (ds) => {
         setConfirmModal({
             isOpen: true,
-            title: 'Sync Repository',
-            message: `Trigger a Diff Sync for "${ds.name}"? This will fetch the latest commits and update the repository changes.`,
+            title: 'Refresh Project Changes',
+            message: `Trigger a Refresh Project Changes for "${ds.name}"? This will fetch the latest commits and update the repository changes.`,
             confirmLabel: 'Start Sync',
             onConfirm: async () => {
                 setTriggeringSync(true);
@@ -100,7 +133,7 @@ export default function DiffSyncView({ projectId }) {
                 try {
                     await api.diff.triggerSync(projectId, ds.id);
                     startPolling(projectId);
-                    showAlert(`🚀 Diff Sync triggered for "${ds.name}"!`, 'success');
+                    showAlert(`🚀 Refresh Project Changes triggered for "${ds.name}"!`, 'success');
                     setTimeout(fetchAllJobs, 2000);
                 } catch (err) {
                     showAlert('Failed to trigger sync: ' + err.message, 'error');
@@ -115,12 +148,12 @@ export default function DiffSyncView({ projectId }) {
         return (
             <div className="diff-sync-container">
                 <div className="diff-sync-header">
-                    <h2>Repository Sync</h2>
+                    <h2>Sync Project</h2>
                 </div>
                 <div className="diff-sync-empty">
                     <div className="empty-icon">🔄</div>
                     <h3>No Eligible Repositories</h3>
-                    <p>Link an issue-scoped repository data source to this project to enable Diff Sync.</p>
+                    <p>Link an issue-scoped repository data source to this project to enable Sync Project.</p>
                 </div>
             </div>
         );
@@ -130,18 +163,29 @@ export default function DiffSyncView({ projectId }) {
         <div className="diff-sync-container">
             <div className="diff-sync-header">
                 <div>
-                    <h2>Repository Sync</h2>
+                    <h2>Sync Project</h2>
                     <p className="diff-sync-subtitle">
-                        Sync repository changes for this project's issue-scoped data sources.
+                        Orchestrate Refresh Project Changes and Refresh Data Source across all configured sources.
                     </p>
                 </div>
-                <Button 
-                    size="sm" 
-                    onClick={handleSyncAll} 
-                    disabled={triggeringSync}
-                >
-                    {triggeringSync ? 'Syncing...' : `Sync All (${eligibleSources.length})`}
-                </Button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <Button 
+                        size="sm" 
+                        variant="primary"
+                        onClick={handleSyncProject} 
+                        disabled={syncingProject || triggeringSync}
+                    >
+                        {syncingProject ? 'Syncing...' : '🚀 Sync Project'}
+                    </Button>
+                    <Button 
+                        size="sm" 
+                        variant="secondary"
+                        onClick={handleSyncAll} 
+                        disabled={triggeringSync || syncingProject}
+                    >
+                        {triggeringSync ? 'Syncing...' : `Refresh Changes (${eligibleSources.length})`}
+                    </Button>
+                </div>
             </div>
 
             {syncState && syncState.sync_status && (
@@ -149,15 +193,22 @@ export default function DiffSyncView({ projectId }) {
                     <span className="status-dot"></span>
                     <span>
                         {syncState.sync_status === 'in_progress' && 'Sync is currently in progress...'}
-                        {syncState.sync_status === 'failed' && 'Last sync failed. Please trigger a new sync.'}
+                        {syncState.sync_status === 'failed' && 'Last sync failed or has not yet been run. Trigger a Sync Project to start.'}
                         {syncState.sync_status === 'success' && 'All repositories are synced and up to date.'}
                     </span>
                 </div>
             )}
 
+            <h3 className="diff-sync-section-title" style={{ margin: '20px 0 12px', fontSize: '0.95rem', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+                Refresh Project Changes
+            </h3>
+
             <div className="diff-sync-sources">
                 {eligibleSources.map(ds => {
                     const jobs = diffSyncJobs[ds.id] || [];
+                    const latestIngestion = getLatestIngestionJob(ds.id);
+                    const latestIngestionStatus = latestIngestion ? mapStatus(latestIngestion.processing_status) : null;
+
                     return (
                         <div key={ds.id} className="sync-source-card">
                             <div className="sync-source-header">
@@ -172,14 +223,54 @@ export default function DiffSyncView({ projectId }) {
                                     size="sm" 
                                     variant="secondary" 
                                     onClick={() => handleSyncSingle(ds)}
-                                    disabled={triggeringSync}
+                                    disabled={triggeringSync || syncingProject}
                                 >
                                     Sync
                                 </Button>
                             </div>
 
+                            {/* Per-source Refresh Data Source activity indicator */}
+                            {latestIngestion && (
+                                <div className="sync-source-activity" style={{
+                                    padding: '8px 12px',
+                                    margin: '0 16px 8px',
+                                    borderRadius: '8px',
+                                    background: 'var(--surface-color)',
+                                    border: '1px solid var(--border-color)',
+                                    fontSize: '0.8rem',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                }}>
+                                    <span style={{ color: 'var(--color-text-secondary)' }}>
+                                        Refresh Data Source
+                                    </span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ color: 'var(--color-text-tertiary)', fontSize: '0.75rem' }}>
+                                            {new Date(latestIngestion.start_time).toLocaleString()}
+                                        </span>
+                                        <span className={`mini-job-status status-${latestIngestionStatus}`}>
+                                            {latestIngestionStatus}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+                            {!latestIngestion && ds.scope_by_issues && (
+                                <div style={{
+                                    padding: '8px 12px',
+                                    margin: '0 16px 8px',
+                                    borderRadius: '8px',
+                                    background: 'rgba(255, 193, 7, 0.06)',
+                                    border: '1px solid rgba(255, 193, 7, 0.15)',
+                                    fontSize: '0.8rem',
+                                    color: 'var(--color-text-secondary)',
+                                }}>
+                                    ⚠️ Not yet synced — run Sync Project to initialize.
+                                </div>
+                            )}
+
                             <div className="sync-jobs-section">
-                                <h4>Recent Jobs</h4>
+                                <h4>Recent Refresh Project Changes</h4>
                                 {loadingJobs ? (
                                     <p className="sync-jobs-loading">Loading...</p>
                                 ) : jobs.length === 0 ? (

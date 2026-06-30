@@ -84,17 +84,17 @@ export default function DataSourcesView({ projectId }) {
 
         setConfirmModal({
             isOpen: true,
-            title: 'Run Ingestion',
-            message: `You are about to start a new ingestion job for "${displayName}". This will retrieve and process the latest data from the source.`,
-            confirmLabel: 'Start Ingestion',
+            title: 'Refresh Data Source',
+            message: `You are about to start a Refresh Data Source for "${displayName}". This will retrieve and process the latest data from the source.`,
+            confirmLabel: 'Refresh Data Source',
             onConfirm: async () => {
                 setCreatingJob(true);
                 try {
                     await createIngestionJob(dsId);
                     setActiveJobView(dsId);
-                    showAlert('🚀 Ingestion job successfully triggered!', 'success');
+                    showAlert('🚀 Refresh Data Source triggered!', 'success');
                 } catch (err) {
-                    showAlert('Failed to start ingestion job: ' + err.message, 'error');
+                    showAlert('Failed to start refresh: ' + err.message, 'error');
                 } finally {
                     setCreatingJob(false);
                 }
@@ -383,6 +383,42 @@ export default function DataSourcesView({ projectId }) {
                             </div>
                         </div>
 
+                        {/* Per-source latest activity indicator */}
+                        {ds.type !== 'ISSUE_TRACKER' && (() => {
+                            const latestJobs = getLatestJobsForDataSource(ds.id);
+                            const latestJob = latestJobs.length > 0 ? latestJobs[0] : null;
+                            const latestStatus = latestJob ? mapStatus(latestJob.processing_status) : null;
+                            const noJobsAndScoped = !latestJob && ds.scope_by_issues && ds.type === 'REPOSITORY';
+                            return (
+                                <div style={{
+                                    padding: '6px 16px 6px',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    fontSize: '0.78rem',
+                                    color: 'var(--color-text-tertiary)',
+                                    borderTop: '1px solid var(--border-color)',
+                                    marginTop: '4px',
+                                }}>
+                                    <span>Refresh Data Source</span>
+                                    {latestJob ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ fontSize: '0.72rem' }}>
+                                                {new Date(latestJob.start_time).toLocaleString()}
+                                            </span>
+                                            <span className={`mini-job-status status-${latestStatus}`} style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
+                                                {latestStatus}
+                                            </span>
+                                        </div>
+                                    ) : noJobsAndScoped ? (
+                                        <span style={{ color: 'rgba(255, 193, 7, 0.85)', fontSize: '0.72rem' }}>⚠️ Not yet synced</span>
+                                    ) : (
+                                        <span style={{ fontSize: '0.72rem' }}>—</span>
+                                    )}
+                                </div>
+                            );
+                        })()}
+
                         <div className="data-source-actions-flat">
                             {ds.type !== 'ISSUE_TRACKER' && (
                                 <button
@@ -419,7 +455,7 @@ export default function DataSourcesView({ projectId }) {
                                     onClick={() => handleRunIngestion(ds.id)}
                                     disabled={creatingJob}
                                 >
-                                    {creatingJob ? 'Starting...' : 'Run Ingestion'}
+                                    {creatingJob ? 'Starting...' : 'Refresh Data Source'}
                                 </button>
                             )}
                         </div>
@@ -427,7 +463,7 @@ export default function DataSourcesView({ projectId }) {
                         {activeJobView === ds.id && (
                             <div className="data-source-jobs-mini fade-in">
                                 <div className="mini-jobs-header">
-                                    <span>Latest Activity</span>
+                                    <span>Data Source Refresh History</span>
                                     {getLatestJobsForDataSource(ds.id).length > 0 && <span className="jobs-count">{getLatestJobsForDataSource(ds.id).length}/3</span>}
                                 </div>
                                 {getLatestJobsForDataSource(ds.id).length === 0 ? (

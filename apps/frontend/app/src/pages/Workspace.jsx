@@ -97,7 +97,7 @@ export default function Workspace() {
                         </button>
                         {hasIssueScopedRepo && (
                             <button onClick={() => setView('sync')} className={view === 'sync' ? 'active' : ''}>
-                                <span className="nav-icon">🔄</span> Repository Sync
+                                <span className="nav-icon">🔄</span> Sync Project
                             </button>
                         )}
                     </div>

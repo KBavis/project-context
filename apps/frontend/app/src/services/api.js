@@ -118,6 +118,13 @@ export const api = {
             });
             return handleResponse(response);
         },
+
+        sync: async (projectId) => {
+            const response = await fetch(`${API_BASE_URL}/projects/${projectId}/sync`, {
+                method: 'POST',
+            });
+            return handleResponse(response);
+        },
     },
 
     // Data Source endpoints
@@ -218,6 +225,15 @@ export const api = {
             // Ignoring projectId for now as backend returns all
             const response = await fetch(`${API_BASE_URL}/ingestion/jobs/`, { cache: 'no-store' });
             return handleResponse(response);
+        },
+
+        getJobStatusForSource: async (dataSourceId) => {
+            // Returns all ingestion jobs, filtered client-side for this source
+            const response = await fetch(`${API_BASE_URL}/ingestion/jobs/`, { cache: 'no-store' });
+            const jobs = await handleResponse(response);
+            return jobs
+                .filter(j => j.data_source_id === dataSourceId)
+                .sort((a, b) => new Date(b.start_time) - new Date(a.start_time))[0] || null;
         },
     },
     // Diff endpoints

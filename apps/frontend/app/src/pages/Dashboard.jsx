@@ -24,7 +24,7 @@ export default function Dashboard() {
                  <nav className="dashboard-nav">
                      <button onClick={() => setView('projects')} className={view === 'projects' ? 'active' : ''}>Projects</button>
                      <button onClick={() => setView('datasources')} className={view === 'datasources' ? 'active' : ''}>Data Sources</button>
-                     <button onClick={() => setView('jobs')} className={view === 'jobs' ? 'active' : ''}>Ingestion Jobs</button>
+                     <button onClick={() => setView('jobs')} className={view === 'jobs' ? 'active' : ''}>Refresh History</button>
                      <button onClick={() => setView('mcp')} className={view === 'mcp' ? 'active' : ''}>MCP Configs</button>
                  </nav>
              </header>
