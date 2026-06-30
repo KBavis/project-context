@@ -224,6 +224,7 @@ def get_project_svc(
         async_db: AsyncSession = Depends(get_async_db_session),
         diff_svc: DiffService = Depends(get_async_diff_svc),
         ingestion_job_svc: IngestionJobService = Depends(get_async_ingestion_job_svc),
+        data_source_svc: DataSourceService = Depends(get_data_source_svc),
 ):
     """
     Setup ProjectService dependency
@@ -236,7 +237,8 @@ def get_project_svc(
         db=db, 
         async_db=async_db, 
         diff_svc=diff_svc, 
-        ingestion_job_svc=ingestion_job_svc
+        ingestion_job_svc=ingestion_job_svc,
+        data_source_svc=data_source_svc,
     )
 
 

@@ -1,6 +1,9 @@
 from __future__ import annotations
+import asyncio
 import logging
 from typing import TYPE_CHECKING
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,6 +16,7 @@ from app.models import Project, ProjectData, DataSource
 from app.models.data_source import DataSourceType
 from app.data_providers.ingestible.base import IngestibleDataProvider
 from uuid import UUID
+from app.core import get_async_db_session_context
 
 if TYPE_CHECKING:
     from app.services.diff import DiffService
@@ -100,6 +104,111 @@ class ProjectService:
             "reasons": all_reasons
         }
 
+
+    async def sync_project(self, project_id: UUID) -> None:
+        """
+        Orchestrator: fan out across all configured data sources for the project,
+        run the appropriate pipeline for each, in the correct order.
+
+        Classification:
+          - scoped_repos:  REPOSITORY + scope_by_issues → Stage 1 (diff-sync) then Stage 2 (ingestion)
+          - direct_ingest: non-scoped REPOSITORY + DOCUMENTATION → Stage 2 only (ingestion)
+          - skip:          ISSUE_TRACKER and anything non-ingestible
+
+        Execution:
+          Wave 1: asyncio.gather(direct_ingest Stage 2, scoped_repos Stage 1)
+          Barrier: wait for Wave 1
+          Wave 2: scoped_repos Stage 2 (consumes touched-file allowlist from Stage 1)
+
+        Each per-source pipeline opens its own background-scoped AsyncSession (via
+        IngestionJobService._build_ingestion_services) so one source's failure cannot
+        poison the rest.  Already-locked resources are caught and skipped.
+        """
+        # Resolve all data sources linked to this project
+        assert self.data_source_svc is not None
+        
+        async with get_async_db_session_context() as async_session:
+            linked_data_sources = await self.data_source_svc.aget_project_data_sources(
+                project_id, async_session=async_session
+            )
+
+        scoped_repos: list[DataSource] = []
+        direct_ingest: list[DataSource] = []
+
+        for ds in linked_data_sources:
+            if ds.type == DataSourceType.ISSUE_TRACKER:
+                continue  # skip — not ingestible, not diff-syncable
+            if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues:
+                scoped_repos.append(ds)
+            else:
+                # REPOSITORY (non-scoped) and DOCUMENTATION → direct ingestion
+                try:
+                    IngestibleDataProvider.from_provider(ds)
+                    direct_ingest.append(ds)
+                except Exception:
+                    logger.info(f"[SyncProject] Skipping non-ingestible DataSource={ds.id} ({ds.name})")
+
+        logger.info(
+            f"[SyncProject] project_id={project_id}: "
+            f"{len(scoped_repos)} scoped repo(s), "
+            f"{len(direct_ingest)} direct ingest source(s), "
+            f"{len(linked_data_sources) - len(scoped_repos) - len(direct_ingest)} skipped"
+        )
+
+        # ── Wave 1: direct ingestion (no Stage 1) + scoped repo Stage 1 ──
+        wave1_tasks: list[asyncio.Task] = []
+
+        # Direct ingestion sources → Stage 2 immediately
+        for ds in direct_ingest:
+            wave1_tasks.append(
+                asyncio.create_task(
+                    self.ingestion_job_svc.run_ingestion_pipeline(ds),
+                    name=f"direct-ingest-{ds.id}",
+                )
+            )
+
+        # Scoped repos → Stage 1 (diff-sync) only
+        for ds in scoped_repos:
+            wave1_tasks.append(
+                asyncio.create_task(
+                    self.diff_svc.run_diff_sync_pipeline(project_id, ds.id),
+                    name=f"stage1-diffsync-{ds.id}",
+                )
+            )
+
+        if wave1_tasks:
+            # validate Wave 1 tasks (non-scoped Repository ingestion & Diff Sync Job) completed successfully
+            results = await asyncio.gather(*wave1_tasks, return_exceptions=True)
+            for task, result in zip(wave1_tasks, results):
+                if isinstance(result, Exception):
+                    logger.error(
+                        f"[SyncProject] Wave 1 task {task.get_name()} failed: {result}",
+                        exc_info=result,
+                    )
+
+        # ── Barrier: Wave 1 complete ──
+        logger.info(f"[SyncProject] project_id={project_id}: Wave 1 complete, starting Wave 2")
+
+        # ── Wave 2: scoped repos Stage 2 (ingestion, consumes touched-file set) ──
+        wave2_tasks: list[asyncio.Task] = []
+        for ds in scoped_repos:
+            wave2_tasks.append(
+                asyncio.create_task(
+                    self.ingestion_job_svc.run_ingestion_pipeline(ds, project_id=project_id),
+                    name=f"stage2-ingest-{ds.id}",
+                )
+            )
+
+        if wave2_tasks:
+            results = await asyncio.gather(*wave2_tasks, return_exceptions=True)
+            for task, result in zip(wave2_tasks, results):
+                if isinstance(result, Exception):
+                    logger.error(
+                        f"[SyncProject] Wave 2 task {task.get_name()} failed: {result}",
+                        exc_info=result,
+                    )
+
+        logger.info(f"[SyncProject] project_id={project_id}: Sync Project complete")
 
     def create_project(self, request: ProjectRequest) -> dict:
         """

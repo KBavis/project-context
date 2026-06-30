@@ -19,16 +19,23 @@ from app.core import settings
 from app.data_providers.base import DataProvider, Provider
 from app.data_providers.ingestible.base import IngestibleDataProvider
 from app.models.data_source_mcp import DataSourceMCPConfig
+from app.models.mcp_config import MCPConfig
 
 logger = logging.getLogger(__name__)
 
 
 class DataSourceService:
     
-    def __init__(self, db: Session, async_db: AsyncSession, chroma_svc: ChromaService, record_lock_svc: 'RecordLockService'):
-        self.db: Session = db
+    def __init__(
+        self, 
+        async_db: AsyncSession, 
+        record_lock_svc: 'RecordLockService',
+        db: Session | None = None, 
+        chroma_svc: ChromaService | None = None
+    ):
+        self.db: Session | None = db
         self.async_db: AsyncSession = async_db
-        self.chroma_svc = chroma_svc
+        self.chroma_svc: ChromaService | None = chroma_svc
         self.record_lock_svc = record_lock_svc
 
     async def aget_data_source_by_id(self, data_source_id: UUID) -> DataSource:
@@ -75,6 +82,7 @@ class DataSourceService:
         """
         Functionality to retrieve a DataSource by ID
         """
+        assert self.db is not None, "Synchronous DB session is required"
 
         stmt = select(DataSource).where(DataSource.id == data_source_id)
         data_source = self.db.execute(stmt).scalar_one_or_none()
@@ -89,6 +97,8 @@ class DataSourceService:
         """
         Functionality to persist new DataSource based on specified request
         """
+        assert self.db is not None, "Synchronous DB session is required"
+        assert self.chroma_svc is not None, "Chroma Service is required"
 
         self._validate_data_source_request(data_source_request)
 
@@ -269,6 +279,7 @@ class DataSourceService:
         """
         Functionality to retreive persisted data_sourcs that correspond to particular Project ID
         """
+        assert self.db is not None, "Synchronous DB session is required"
 
         stmt = (
             select(DataSource)
@@ -305,6 +316,8 @@ class DataSourceService:
         """
         Functionality to retrieve all persisted data sources
         """
+        assert self.db is not None, "Synchronous DB session is required"
+
         stmt = select(DataSource)
         data_sources = self.db.execute(stmt).scalars().unique().all()
 
@@ -341,6 +354,8 @@ class DataSourceService:
         3. Cleans up Chroma collection, ProjectData associations, and cascaded relationships.
         """
         from app.models import RecordType
+        assert self.db is not None, "Synchronous DB session is required"
+        assert self.chroma_svc is not None, "Chroma Service is required"
 
         stmt = (
             select(DataSource)
@@ -408,6 +423,7 @@ class DataSourceService:
             data_source_id: UUID of the DataSource to update
             updates: dict containing fields to update (e.g. `name`, `branch`, `scope_by_issues`)
         """
+        assert self.db is not None, "Synchronous DB session is required"
         # retrieve existing data source
         stmt = select(DataSource).where(DataSource.id == data_source_id)
         ds = self.db.execute(stmt).scalar_one_or_none()
@@ -465,6 +481,8 @@ class DataSourceService:
         data source. Used to enforce the Bitbucket<->Jira coupling required
         for issue-scoped Bitbucket repositories.
         """
+        assert self.db is not None, "Synchronous DB session is required"
+
         stmt = (
             select(DataSource)
             .join(ProjectData, ProjectData.data_source_id == DataSource.id)
@@ -557,8 +575,8 @@ class DataSourceService:
         """
         Link an existing MCP Config to this DataSource
         """
-        from app.models.data_source_mcp import DataSourceMCPConfig
-        from app.models.mcp_config import MCPConfig
+
+        assert self.db is not None, "Synchronous DB session is required"
 
         try:
             # check if relationship already exists

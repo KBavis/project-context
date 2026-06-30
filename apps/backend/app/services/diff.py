@@ -93,9 +93,9 @@ class DiffService:
                 elif job_state == ProcessingStatus.SKIPPED.value:
                     reasons.append(f"Diff sync was skipped for repository '{ds.name}' due to missing configuration.")
             else:
-                logger.info(f"[SyncState] project_id={project_id}, ds={ds.id} ({ds.name}): no DiffSyncJob found → failed")
-                states.append(ProcessingStatus.FAILED.value)
-                reasons.append(f"Repository '{ds.name}' has not been synced yet.")
+                logger.info(f"[SyncState] project_id={project_id}, ds={ds.id} ({ds.name}): no DiffSyncJob found → not yet synced")
+                states.append(ProcessingStatus.NOT_YET_SYNCED.value)
+                reasons.append(f"Repository '{ds.name}' has not yet been synced.")
         
         logger.info(f"[SyncState] project_id={project_id}: all states={states}")
         
@@ -107,21 +107,23 @@ class DiffService:
         return ProcessingStatus.SUCCESS.value, []
 
 
-    async def init_diff_sync_job(self, project_id: UUID, data_source_id: UUID) -> DiffSyncJob:
+    async def init_diff_sync_job(self, project_id: UUID, data_source_id: UUID, async_session: AsyncSession | None = None) -> DiffSyncJob:
         """
         Validate ProjectData and create initial diff sync job with IN_PROGRESS status
 
         Args:
             project_id (UUID): the PK for the project to sync
             data_source_id (UUID): the PK for the repository to sync
+            async_session: optional background session
 
         Returns:
             DiffSyncJob: the initialized DiffSyncJob
         """
+        db = async_session or self.async_db
         
         # validate ProjectData exists
         stmt = select(ProjectData).where(ProjectData.project_id == project_id, ProjectData.data_source_id == data_source_id)
-        res = await self.async_db.execute(stmt)
+        res = await db.execute(stmt)
         project_data = res.scalar_one_or_none()
         
         if not project_data:
@@ -142,8 +144,8 @@ class DiffService:
             status=ProcessingStatus.IN_PROGRESS,
             start_time=datetime.now(timezone.utc),
         )
-        self.async_db.add(job)
-        await self.async_db.flush()
+        db.add(job)
+        await db.flush()
         
         return job
 
@@ -850,6 +852,28 @@ class DiffService:
             str(ds_id): [str(fid) for fid in file_ids if fid is not None] if file_ids is not None else []
             for ds_id, file_ids in result.all()
         }
+
+    async def run_diff_sync_pipeline(
+        self, project_id: UUID, data_source_id: UUID
+    ) -> None:
+        """
+        Run diff-sync (Refresh Project Changes) for a single scoped repo.
+        Opens its own background session lifecycle so failures are isolated.
+        """
+        try:
+            async with get_async_db_session_context() as async_session:
+                job = await self.init_diff_sync_job(project_id, data_source_id, async_session=async_session)
+                await async_session.commit()
+
+            # execute in its own session (execute_repository_sync_job opens get_async_db_session_context internally)
+            await self.execute_repository_sync_job(job.id)
+
+        except Exception as e:
+            logger.error(
+                f"[SyncProject] Stage 1 failed for DataSource={data_source_id}: {e}",
+                exc_info=True,
+            )
+
 
     async def get_file_diff_string(self, project_id: UUID, data_source_id: UUID, file_path: str) -> str:
         """

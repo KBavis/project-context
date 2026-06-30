@@ -135,13 +135,15 @@ class IngestionJobService:
 
     
 
-    async def init_ingestion_job(self, data_source_id: UUID, job_start_time: datetime): 
+    async def init_ingestion_job(self, data_source_id: UUID, job_start_time: datetime, async_session: AsyncSession | None = None): 
         """
         Validate Datasource & create inital ingestion job with IN_PROGRESS status 
 
         Args:
             data_source_id (UUID): the data source this ingestion job corresponds to 
+            async_session (AsyncSession?): optional background session
         """
+        db = async_session or self.db
         
         # retrieve data source (EAGERLY load project_data and project for future processing)
         stmt = (
@@ -152,7 +154,7 @@ class IngestionJobService:
                 ) 
                 .where(DataSource.id == data_source_id)
         )
-        res = await self.db.execute(stmt)
+        res = await db.execute(stmt)
         data_source = res.scalar_one_or_none()
 
         if not data_source:
@@ -167,12 +169,40 @@ class IngestionJobService:
         
         # generate current IngestionJob id & persist inital record
         job_pk = uuid4() 
-        await self.create_ingestion_job(job_pk=job_pk, data_source_id=data_source_id, start_time=job_start_time)
+        await self.create_ingestion_job(job_pk=job_pk, data_source_id=data_source_id, start_time=job_start_time, async_session=async_session)
 
         logger.info(f"Successfully created inital IngestionJob with ID={job_pk}")
         return data_source, job_pk
 
 
+
+    async def run_ingestion_pipeline(
+        self, data_source: DataSource, project_id: UUID | None = None
+    ) -> None:
+        """
+        Run ingestion (Refresh Data Source) for a single data source.
+        Mirrors IngestionJobService session lifecycle: init in one session,
+        run in a background session.
+        """
+        try:
+            job_start_time = datetime.now(ZoneInfo("America/New_York"))
+            
+            async with get_async_db_session_context() as async_session:
+                data_source_obj, job_pk = await self.init_ingestion_job(
+                    data_source.id, job_start_time, async_session=async_session
+                )
+                await async_session.commit()
+
+            # run_ingestion_job creates its own sessions for chroma/db
+            await self.run_ingestion_job(
+                job_pk, job_start_time, data_source_obj, project_id=project_id
+            )
+        except Exception as e:
+            logger.error(
+                f"[SyncProject] Ingestion failed for DataSource={data_source.id} "
+                f"({data_source.name}): {e}",
+                exc_info=True,
+            )
 
     async def run_ingestion_job(
             self, 
@@ -334,7 +364,7 @@ class IngestionJobService:
         await session.commit()
 
     
-    async def create_ingestion_job(self, job_pk: UUID, data_source_id: UUID, start_time: datetime):
+    async def create_ingestion_job(self, job_pk: UUID, data_source_id: UUID, start_time: datetime, async_session: AsyncSession | None = None):
         """
         Persist a new IngestionJob that we are kicking off for a particular DataSource
 
@@ -342,7 +372,9 @@ class IngestionJobService:
             job_pk (UUID): PK for current ingestion job 
             data_source_id (UUID): data source this ingestion job is being ran for 
             start_time (datetime): start time of the IngestionJob
+            async_session (AsyncSession?): optional background session
         """
+        db = async_session or self.db
         ingestion_job = IngestionJob(
             id=job_pk, 
             processing_status=ProcessingStatus.IN_PROGRESS, 
@@ -350,8 +382,8 @@ class IngestionJobService:
             start_time=start_time
         )
 
-        self.db.add(ingestion_job)
-        await self.db.flush()
+        db.add(ingestion_job)
+        await db.flush()
 
     async def get_all_ingestion_jobs(self) -> list[IngestionJob]:
         """

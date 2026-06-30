@@ -11,3 +11,4 @@ class ProcessingStatus(Enum):
     IN_PROGRESS = "in_progress"
     FAILED = "failed"
     SKIPPED = "skipped"
+    NOT_YET_SYNCED = "not_yet_synced"
