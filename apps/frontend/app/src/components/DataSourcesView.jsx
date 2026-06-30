@@ -23,7 +23,6 @@ export default function DataSourcesView({ projectId }) {
         name: '',
         branch: '',
         scope_by_issues: false,
-        ingest_paths: '',
         projectIds: projectId ? [projectId] : []
     });
 
@@ -106,18 +105,8 @@ export default function DataSourcesView({ projectId }) {
 
     const handleAddDataSource = async (e) => {
         e.preventDefault();
-        try {
-            const parsedIngestPaths = newDS.ingest_paths.map(p => p.trim()).filter(p => p);
-            
-            await createDataSource(
-                newDS.provider, 
-                { 
-                    type: newDS.type, 
-                    url: newDS.url, 
-                    name: newDS.name, 
                     branch: newDS.branch, 
-                    scope_by_issues: newDS.scope_by_issues,
-                    ingest_paths: parsedIngestPaths
+                    scope_by_issues: newDS.scope_by_issues
                 }, 
                 newDS.projectIds
             );
@@ -129,7 +118,6 @@ export default function DataSourcesView({ projectId }) {
                 name: '',
                 branch: '',
                 scope_by_issues: false,
-                ingest_paths: [],
                 projectIds: projectId ? [projectId] : []
             });
             showAlert('Data source added successfully', 'success');
@@ -383,16 +371,7 @@ export default function DataSourcesView({ projectId }) {
                                         </div>
                                     )}
 
-                                    {ds.type === 'REPOSITORY' && ds.ingest_paths && ds.ingest_paths.length > 0 && (
-                                        <div className="meta-section">
-                                            <span className="meta-section-label">Paths Included</span>
-                                            <div className="meta-section-tags">
-                                                {ds.ingest_paths.map((p, i) => (
-                                                    <span key={i} className="project-tag active">{p}</span>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
+
                                 </div>
                             </div>
                         </div>
@@ -419,8 +398,7 @@ export default function DataSourcesView({ projectId }) {
                                         url: ds.config?.url || ds.url,
                                         name: ds.name,
                                         branch: ds.branch || '',
-                                        scope_by_issues: !!ds.scope_by_issues,
-                                        ingest_paths: ds.ingest_paths ? [...ds.ingest_paths] : [],
+                                        scope_by_issues: !!ds.scope_by_issues
                                     });
                                     setIsConfirmingEdit(false);
                                     setEditModalOpen(true);
@@ -632,55 +610,7 @@ export default function DataSourcesView({ projectId }) {
                                             <p className="field-hint" style={{ marginTop: '4px' }}>Whether to scope ingestion to specific issues configured on the project.</p>
                                         </div>
                                     </div>
-                                    <div className="form-field" style={{ flex: '2 1 350px', maxWidth: '500px' }}>
-                                        <div className="issue-field-header">
-                                            <label className="input-label">Paths to Include</label>
-                                            <button
-                                                type="button"
-                                                className="issue-add-btn"
-                                                onClick={() => setNewDS({ ...newDS, ingest_paths: [...newDS.ingest_paths, ''] })}
-                                                aria-label="Add path to include"
-                                            >
-                                                + Add Path
-                                            </button>
-                                        </div>
-                                        {newDS.ingest_paths.length === 0 && (
-                                            <p className="input-hint">
-                                                Add directory paths (e.g. backend/src) to limit ingestion scoping. If empty, the entire repository is ingested.
-                                            </p>
-                                        )}
-                                        {newDS.ingest_paths.length > 0 && (
-                                            <div className="issue-rows">
-                                                {newDS.ingest_paths.map((path, index) => (
-                                                    <div key={index} className="issue-row">
-                                                        <input
-                                                            type="text"
-                                                            className="input issue-row-input"
-                                                            value={path}
-                                                            onChange={e => {
-                                                                const newPaths = [...newDS.ingest_paths];
-                                                                newPaths[index] = e.target.value;
-                                                                setNewDS({ ...newDS, ingest_paths: newPaths });
-                                                            }}
-                                                            placeholder="e.g. backend/src"
-                                                        />
-                                                        <button
-                                                            type="button"
-                                                            className="issue-remove-btn"
-                                                            onClick={() => {
-                                                                const newPaths = [...newDS.ingest_paths];
-                                                                newPaths.splice(index, 1);
-                                                                setNewDS({ ...newDS, ingest_paths: newPaths });
-                                                            }}
-                                                            aria-label="Remove path"
-                                                        >
-                                                            ×
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
+
                                 </div>
                             )}
                             <div className="form-field projects-field">
@@ -765,13 +695,11 @@ export default function DataSourcesView({ projectId }) {
                         ) : (
                             <Button variant="primary" onClick={async () => {
                                 try {
-                                    const parsedIngestPaths = editingDS.ingest_paths.map(p => p.trim()).filter(p => p);
                                     await updateDataSource(editingDS.id, {
                                         name: editingDS.name,
                                         url: editingDS.url,
                                         branch: editingDS.branch || undefined,
-                                        scope_by_issues: editingDS.scope_by_issues,
-                                        ingest_paths: parsedIngestPaths
+                                        scope_by_issues: editingDS.scope_by_issues
                                     });
                                     showAlert('Data source updated', 'success');
                                     setEditModalOpen(false);
@@ -805,55 +733,7 @@ export default function DataSourcesView({ projectId }) {
                                             <label className="input-label">Branch</label>
                                             <input className="input" value={editingDS.branch} onChange={(e) => setEditingDS({ ...editingDS, branch: e.target.value })} />
                                         </div>
-                                        <div className="form-field" style={{ flex: '2 1 300px', maxWidth: '400px' }}>
-                                            <div className="issue-field-header">
-                                                <label className="input-label">Paths to Include</label>
-                                                <button
-                                                    type="button"
-                                                    className="issue-add-btn"
-                                                    onClick={() => setEditingDS({ ...editingDS, ingest_paths: [...editingDS.ingest_paths, ''] })}
-                                                    aria-label="Add path to include"
-                                                >
-                                                    + Add Path
-                                                </button>
-                                            </div>
-                                            {editingDS.ingest_paths.length === 0 && (
-                                                <p className="input-hint">
-                                                    Add directory paths (e.g. backend/src) to limit ingestion scoping. If empty, the entire repository is ingested.
-                                                </p>
-                                            )}
-                                            {editingDS.ingest_paths.length > 0 && (
-                                                <div className="issue-rows">
-                                                    {editingDS.ingest_paths.map((path, index) => (
-                                                        <div key={index} className="issue-row">
-                                                            <input
-                                                                type="text"
-                                                                className="input issue-row-input"
-                                                                value={path}
-                                                                onChange={e => {
-                                                                    const newPaths = [...editingDS.ingest_paths];
-                                                                    newPaths[index] = e.target.value;
-                                                                    setEditingDS({ ...editingDS, ingest_paths: newPaths });
-                                                                }}
-                                                                placeholder="e.g. backend/src"
-                                                            />
-                                                            <button
-                                                                type="button"
-                                                                className="issue-remove-btn"
-                                                                onClick={() => {
-                                                                    const newPaths = [...editingDS.ingest_paths];
-                                                                    newPaths.splice(index, 1);
-                                                                    setEditingDS({ ...editingDS, ingest_paths: newPaths });
-                                                                }}
-                                                                aria-label="Remove path"
-                                                            >
-                                                                ×
-                                                            </button>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
+
                                     </div>
                                 )}
                                 {editingDS.type === 'REPOSITORY' && (
@@ -874,18 +754,7 @@ export default function DataSourcesView({ projectId }) {
                                     {editingDS.type === 'REPOSITORY' && (
                                         <>
                                             <li style={{ marginBottom: '8px' }}><strong>Branch:</strong> {editingDS.branch || '(default)'}</li>
-                                            <li style={{ marginBottom: '8px' }}>
-                                                <strong>Paths to Include:</strong>
-                                                {!editingDS.ingest_paths || editingDS.ingest_paths.length === 0 ? (
-                                                    ' (Full Repository)'
-                                                ) : (
-                                                    <ul style={{ listStyleType: 'disc', paddingLeft: '24px', marginTop: '4px' }}>
-                                                        {editingDS.ingest_paths.map((p, i) => (
-                                                            <li key={i} style={{ wordBreak: 'break-all', marginBottom: '2px' }}>{p || '(empty path)'}</li>
-                                                        ))}
-                                                    </ul>
-                                                )}
-                                            </li>
+
                                             <li style={{ marginBottom: '8px' }}><strong>Scope by Issues:</strong> {editingDS.scope_by_issues ? 'Yes' : 'No'}</li>
                                         </>
                                     )}
