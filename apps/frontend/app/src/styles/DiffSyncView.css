@@ -61,6 +61,12 @@
     color: #f87171;
 }
 
+.sync-status-banner.status-not-synced {
+    background: rgba(255, 193, 7, 0.1);
+    border: 1px solid rgba(255, 193, 7, 0.25);
+    color: #ffca28;
+}
+
 .sync-status-banner.status-completed {
     background: rgba(16, 185, 129, 0.1);
     border: 1px solid rgba(16, 185, 129, 0.25);

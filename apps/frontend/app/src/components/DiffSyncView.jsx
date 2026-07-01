@@ -33,6 +33,7 @@ export default function DiffSyncView({ projectId }) {
         if (s === 'IN_PROGRESS' || s === 'RUNNING') return 'running';
         if (s === 'SUCCESS' || s === 'COMPLETED') return 'completed';
         if (s === 'FAILED') return 'failed';
+        if (s === 'NOT_YET_SYNCED') return 'not-synced';
         return status.toLowerCase();
     };
 
@@ -193,7 +194,8 @@ export default function DiffSyncView({ projectId }) {
                     <span className="status-dot"></span>
                     <span>
                         {syncState.sync_status === 'in_progress' && 'Sync is currently in progress...'}
-                        {syncState.sync_status === 'failed' && 'Last sync failed or has not yet been run. Trigger a Sync Project to start.'}
+                        {syncState.sync_status === 'failed' && 'Last sync failed. Trigger a Sync Project to retry.'}
+                        {syncState.sync_status === 'not_yet_synced' && 'This project has not yet been synced. Run Sync Project to initialize.'}
                         {syncState.sync_status === 'success' && 'All repositories are synced and up to date.'}
                     </span>
                 </div>

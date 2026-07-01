@@ -67,7 +67,11 @@ class ProjectService:
                 status_code=412,
                 detail=f"Project synchronization is in progress. {reasons_str}"
             )
-
+        if readiness["overall_status"] == ProcessingStatus.NOT_YET_SYNCED.value:
+            raise HTTPException(
+                status_code=412,
+                detail=f"Project has not yet been synced. {reasons_str}"
+            )
         raise HTTPException(
             status_code=412,
             detail=f"Project synchronization failed or is incomplete. {reasons_str}"
@@ -91,6 +95,8 @@ class ProjectService:
             overall = ProcessingStatus.IN_PROGRESS.value
         elif ProcessingStatus.FAILED.value in (ingestion_state, diff_state):
             overall = ProcessingStatus.FAILED.value
+        elif ProcessingStatus.NOT_YET_SYNCED.value in (ingestion_state, diff_state):
+            overall = ProcessingStatus.NOT_YET_SYNCED.value
         else:
             overall = ProcessingStatus.SUCCESS.value
 

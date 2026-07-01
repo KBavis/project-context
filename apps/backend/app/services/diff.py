@@ -103,6 +103,8 @@ class DiffService:
             return ProcessingStatus.IN_PROGRESS.value, reasons
         if ProcessingStatus.FAILED.value in states:
             return ProcessingStatus.FAILED.value, reasons
+        if ProcessingStatus.NOT_YET_SYNCED.value in states:
+            return ProcessingStatus.NOT_YET_SYNCED.value, reasons
             
         return ProcessingStatus.SUCCESS.value, []
 

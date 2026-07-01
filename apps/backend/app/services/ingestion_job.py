@@ -103,10 +103,10 @@ class IngestionJobService:
             if not latest_job:
                 logger.info(
                     f"[IngestionState] project_id={project_id}, ds={ds.id} ({ds.name}): "
-                    "no IngestionJob found → failed"
+                    "no IngestionJob found → not yet synced"
                 )
-                states.append(ProcessingStatus.FAILED.value)
-                reasons.append(f"Data source '{ds.name}' has not been ingested yet.")
+                states.append(ProcessingStatus.NOT_YET_SYNCED.value)
+                reasons.append(f"Data source '{ds.name}' has not yet been ingested.")
                 continue
 
             job_state = latest_job.processing_status.value
@@ -129,6 +129,8 @@ class IngestionJobService:
             return ProcessingStatus.IN_PROGRESS.value, reasons
         if ProcessingStatus.FAILED.value in states:
             return ProcessingStatus.FAILED.value, reasons
+        if ProcessingStatus.NOT_YET_SYNCED.value in states:
+            return ProcessingStatus.NOT_YET_SYNCED.value, reasons
         return ProcessingStatus.SUCCESS.value, []
 
 
