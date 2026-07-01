@@ -128,9 +128,15 @@ class ChunkRetrievalService:
             for chunk in docstore_chunks:
                 data_source = chunk.node_metadata.get('data_source_id', 'Unknown Data Source ID')
                 file_path = chunk.node_metadata.get('file_path', 'Unknown File Path')
+                file_id = chunk.node_metadata.get('file_id', 'Unknown File ID')
                 text_content = chunk.node_text
                 
-                formatted_chunks.append(f"Data Source:{data_source}\nFile Path:{file_path}\nContent:\n{text_content}")
+                chunk_str = f"Data Source:{data_source}\nFile Path:{file_path}\nFile ID:{file_id}\n"
+                if scope_map and data_source in scope_map:
+                    chunk_str += "Authorship: context-only (verify against diff slices before attributing to the project)\n"
+                chunk_str += f"Content:\n{text_content}"
+                
+                formatted_chunks.append(chunk_str)
                 
             return formatted_chunks
         except Exception as e:
@@ -238,8 +244,15 @@ class ChunkRetrievalService:
         for chunk in chunks:
             data_source = chunk.node.metadata.get('data_source_id', "Unknown Data Source ID")
             file_path = chunk.node.metadata.get('file_path', "Unknown File Path")
+            file_id = chunk.node.metadata.get('file_id', "Unknown File ID")
             text_content = chunk.node.get_content()
-            formatted_chunks.append(f"Data Source:{data_source}\nFile Path:{file_path}\nContent:\n{text_content}")
+            
+            chunk_str = f"Data Source:{data_source}\nFile Path:{file_path}\nFile ID:{file_id}\n"
+            if scope_map and data_source in scope_map:
+                chunk_str += "Authorship: context-only (verify against diff slices before attributing to the project)\n"
+            chunk_str += f"Content:\n{text_content}"
+            
+            formatted_chunks.append(chunk_str)
 
         return formatted_chunks
 
