@@ -17,10 +17,34 @@ class JobResponse(BaseModel):
     start_time: datetime
     end_time: Optional[datetime]
     total_duration: Optional[int]
+    diff_tasks: list["DiffTaskResponse"] = []
+    embed_tasks: list["EmbedTaskResponse"] = []
 
     class Config:
         from_attributes = True
 
+
+class DiffTaskResponse(BaseModel):
+    id: UUID
+    status: ProcessingStatus
+    start_time: datetime
+    end_time: Optional[datetime]
+    total_duration: Optional[int]
+    reason: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class EmbedTaskResponse(BaseModel):
+    id: UUID
+    processing_status: ProcessingStatus
+    start_time: datetime
+    end_time: Optional[datetime]
+    total_duration: Optional[int]
+    reason: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 class LatestJobsByDataSourceResponse(BaseModel):
     """Response model for latest jobs grouped by data source."""

@@ -47,11 +47,9 @@ class DiffTaskService:
         self, 
         async_db: AsyncSession, 
         data_source_svc: DataSourceService,
-        record_lock_svc: RecordLockService,
     ):
         self.async_db: AsyncSession = async_db
         self.data_source_svc = data_source_svc
-        self.record_lock_svc = record_lock_svc
     
 
 
@@ -96,7 +94,7 @@ class DiffTaskService:
 
     async def update_diff_task(
         self,
-        job_id: UUID,
+        diff_task_id: UUID,
         status: ProcessingStatus,
         end_time: datetime,
         duration: int,
@@ -107,9 +105,9 @@ class DiffTaskService:
         """
         Update existing DiffTask with relevant status, end_time, and duration.
         """
-        job = await session.get(DiffTask, job_id)
+        job = await session.get(DiffTask, diff_task_id)
         if not job:
-            raise Exception(f"Failed to find DiffTask by ID={job_id}")
+            raise Exception(f"Failed to find DiffTask by ID={diff_task_id}")
 
         job.status = status
         job.end_time = end_time
@@ -150,26 +148,26 @@ class DiffTaskService:
         if not issue_trackers:
             raise TaskSkipped(f"No ISSUE_TRACKER configured for Project={project.id}")
 
-    async def execute_repository_sync_job(self, job_id: UUID):
+    async def execute_repository_sync_job(self, diff_task_id: UUID):
         """
-        Execute an initalized DiffTask keyed by the specified JobID. This job will be ran in 
+        Execute an initalized DiffTask keyed by the specified DiffTask PK. This job will be ran in 
         a FastAPI.BackgroundTask and will be responsbile for syncing the code changes introduced
         to a particular Repository DataSource by a specific Project. 
 
         Args:
-            job_id (UUID): the DiffTask PK to execute 
+            diff_task_id (UUID): the DiffTask PK to execute 
         """
-        from app.services.background import get_current_session
+        from app.core.background import get_current_session
         async_session = get_current_session()
 
         # retrieve the initalized DiffTask
-        stmt = select(DiffTask).where(DiffTask.id == job_id)
+        stmt = select(DiffTask).where(DiffTask.id == diff_task_id)
         res = await async_session.execute(stmt)
         job = res.scalar_one_or_none()
         
         if not job:
-            logger.error(f"No DiffTask found for ID: {job_id}")
-            raise Exception(f"No DiffTask found for ID: {job_id}")
+            logger.error(f"No DiffTask found for ID: {diff_task_id}")
+            raise Exception(f"No DiffTask found for ID: {diff_task_id}")
 
         # Fetch the associated Project and DataSource inside this session
         stmt = select(Project).where(Project.id == job.project_id)
@@ -202,12 +200,12 @@ class DiffTaskService:
             project=project,
             repository_ds=repository_ds,
             issue_tracker_ds=issue_tracker_ds,
-            diff_task_id=job_id,
+            diff_task_id=diff_task_id,
             async_session=async_session,
         )
 
         logger.info(
-            f"DiffTask {job_id} completed successfully for "
+            f"DiffTask {diff_task_id} completed successfully for "
             f"Project={project.id} (Repository DataSource={repository_ds.id}): "
             f"{metrics['new_prs']} new pull request(s) processed of "
             f"{metrics['resolved_prs']} linked, {metrics['files_touched']} file(s) "

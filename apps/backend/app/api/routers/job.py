@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
 
-@router.post("/projects/{project_id}", status_code=status.HTTP_202_ACCEPTED, summary="Fan-out one Job per applicable source")
+@router.post("/project/{project_id}", status_code=status.HTTP_202_ACCEPTED, summary="Fan-out one Job per applicable source")
 async def run_project_jobs(
     project_id: UUID,
     background_tasks: BackgroundTasks,
@@ -40,7 +40,7 @@ async def run_project_jobs(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
-@router.post("/projects/{project_id}/data-sources/{data_source_id}", status_code=status.HTTP_202_ACCEPTED, summary="Run a Job for one source")
+@router.post("/project/{project_id}/data-source/{data_source_id}", status_code=status.HTTP_202_ACCEPTED, summary="Run a Job for one source")
 async def run_data_source_job(
     project_id: UUID,
     data_source_id: UUID,
@@ -69,6 +69,19 @@ async def run_data_source_job(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
+@router.get("/", response_model=List[JobResponse], summary="List all Jobs (System level)")
+async def get_all_jobs(
+    limit: int = 50,
+    svc: JobService = Depends(get_job_svc),
+):
+    """Get all jobs globally for system-level views."""
+    try:
+        return await svc.get_all_jobs(limit)
+    except Exception as e:
+        logger.error(f"Error retrieving all jobs: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
 @router.get("/{job_id}", response_model=JobResponse, summary="Get Job status")
 async def get_job(
     job_id: UUID,
@@ -88,7 +101,7 @@ async def get_job(
 
 
 @router.get(
-    "/projects/{project_id}/latest",
+    "/project/{project_id}/latest",
     response_model=List[JobResponse],
     summary="Get latest jobs for a project (last 3 per data source)",
 )
@@ -108,7 +121,7 @@ async def get_latest_project_jobs(
 
 
 @router.get(
-    "/data-sources/{data_source_id}/latest",
+    "/data-source/{data_source_id}/latest",
     response_model=List[JobResponse],
     summary="Get latest jobs for a specific data source",
 )

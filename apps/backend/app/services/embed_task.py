@@ -33,7 +33,6 @@ class EmbedTaskService:
     def __init__(
             self, 
             db: AsyncSession, 
-            record_lock_svc: RecordLockService,
             data_source_svc: DataSourceService,
             diff_task_svc: DiffTaskService
     ):
@@ -42,11 +41,9 @@ class EmbedTaskService:
 
         Args:
             db (AsyncSession): Database session for ORM operations
-            record_lock_svc (RecordLockService): Service for managing record locks
             data_source_svc (DataSourceService): Service for managing data sources
         """
         self.db: AsyncSession = db
-        self.record_lock_svc: RecordLockService = record_lock_svc
         self.data_source_svc: DataSourceService = data_source_svc
         self.diff_task_svc: DiffTaskService = diff_task_svc
 
@@ -108,7 +105,7 @@ class EmbedTaskService:
 
         # generate current EmbedTask id & persist inital record
         task_pk = uuid4() 
-        await self.create_embed_task(job_pk=task_pk, data_source_id=data_source_id, start_time=job_start_time, job_id=job_id, async_session=async_session)
+        await self.create_embed_task(embed_task_id=task_pk, data_source_id=data_source_id, start_time=job_start_time, job_id=job_id, async_session=async_session)
 
         logger.info(f"Successfully created inital EmbedTask with ID={task_pk}")
         return data_source, task_pk
@@ -119,7 +116,7 @@ class EmbedTaskService:
 
     async def run_embed_task(
             self, 
-            job_pk: UUID, 
+            embed_task_id: UUID, 
             job_start_time: datetime, 
             data_source: DataSource, 
             project_id: UUID | None = None
@@ -132,7 +129,7 @@ class EmbedTaskService:
         belong exclusively to this data source's collection and namespace.
 
         Args:
-            job_pk (UUID): unique ID of the current ingestion job
+            embed_task_id (UUID): unique ID of the current ingestion job
             job_start_time (datetime): wall-clock time the job was initiated
             data_source (DataSource): the data source being ingested
             project_id (Optional[UUID]): unused; reserved for future project-scoped filtering
@@ -149,7 +146,7 @@ class EmbedTaskService:
             raise TaskSkipped(f"{data_source.type} is not ingestible: {e}")
 
         # use data source information to fetch relevant data & store in temp directory
-        code_path, docs_path = await self._retrieve_data(provider, job_pk, file_svc, async_session)
+        code_path, docs_path = await self._retrieve_data(provider, embed_task_id, file_svc, async_session)
 
         # determine which data source types were downloaded
         has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(code_path)
@@ -163,14 +160,14 @@ class EmbedTaskService:
             logger.info(f"EmbedTask for DataSource={data_source_id} has ingested relevant docs files; chunking & saving to ChromaDB")
 
             # run Docling conversion, chunking, and ChromaDB persistence 
-            await chunk_insertion_svc.docs_convert_chunk_and_store(data_source, job_pk)
+            await chunk_insertion_svc.docs_convert_chunk_and_store(data_source, embed_task_id)
 
         # code files were ingested 
         if has_code:
             logger.info(f"EmbedTask for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
-            await chunk_insertion_svc.code_chunk_and_store(data_source, job_pk)
+            await chunk_insertion_svc.code_chunk_and_store(data_source, embed_task_id)
         
-        self._cleanup_tmp_dirs(job_pk)
+        self._cleanup_tmp_dirs(embed_task_id)
 
         logger.info(
             f"Ingestion Job for DataSource={data_source_id} completed successfully"
@@ -179,7 +176,7 @@ class EmbedTaskService:
 
     async def update_embed_task(
             self, 
-            job_pk: UUID, 
+            embed_task_id: UUID, 
             status: ProcessingStatus,
             end_time: datetime, 
             duration: int, 
@@ -191,7 +188,7 @@ class EmbedTaskService:
         Update existing EmbedTask with relevant status, end_time, and duration
 
         Args:
-            job_pk (UUID): PK of EmbedTask
+            embed_task_id (UUID): PK of EmbedTask
             status (ProcessingStatus): the status of the EmbedTask
             end_time (datetime): time of completion for EmbedTask 
             duration (int): total amount of time it took to complete ingestion job
@@ -200,9 +197,9 @@ class EmbedTaskService:
             commit (bool): whether to commit the transaction (default False)
         """
 
-        embed_task = await session.get(EmbedTask, job_pk)
+        embed_task = await session.get(EmbedTask, embed_task_id)
         if not embed_task:
-            raise Exception(f"Failed to find EmbedTask by PK={job_pk}")
+            raise Exception(f"Failed to find EmbedTask by PK={embed_task_id}")
 
         embed_task.processing_status = status
         embed_task.end_time = end_time
@@ -218,19 +215,19 @@ class EmbedTaskService:
             await session.commit()
 
     
-    async def create_embed_task(self, job_pk: UUID, data_source_id: UUID, start_time: datetime, job_id: UUID | None = None, async_session: AsyncSession | None = None):
+    async def create_embed_task(self, embed_task_id: UUID, data_source_id: UUID, start_time: datetime, job_id: UUID | None = None, async_session: AsyncSession | None = None):
         """
         Persist a new EmbedTask that we are kicking off for a particular DataSource
 
         Args:
-            job_pk (UUID): PK for current ingestion job 
+            embed_task_id (UUID): PK for current ingestion job 
             data_source_id (UUID): data source this ingestion job is being ran for 
             start_time (datetime): start time of the EmbedTask
             async_session (AsyncSession?): optional background session
         """
         db = async_session or self.db
         embed_task = EmbedTask(
-            id=job_pk, 
+            id=embed_task_id, 
             processing_status=ProcessingStatus.IN_PROGRESS, 
             data_source_id=data_source_id,
             job_id=job_id,
@@ -269,7 +266,7 @@ class EmbedTaskService:
     
 
     async def _retrieve_data(
-        self, provider: IngestibleDataProvider, job_pk: UUID, file_svc: "FileService", async_session: AsyncSession
+        self, provider: IngestibleDataProvider, embed_task_id: UUID, file_svc: "FileService", async_session: AsyncSession
     ) -> tuple[Path, Path]:
         """
         Retrieve relevant data from specified Data Source and store within temporary /data directory
@@ -277,51 +274,51 @@ class EmbedTaskService:
 
         Args:
             provider - instantiated IngestibleDataProvider to ingest data from
-            job_pk (UUID) - unique job id
+            embed_task_id (UUID) - unique job id
             file_svc (FileService) - instantiated FileService to use for file state persistence
 
         NOTE: In future, we should make some sort of "diff" calculation each time we retreive data from data source
         in order to quickly determine what's already been retireving before
         """
 
-        code_path, docs_path = self._create_tmp_dirs(job_pk) 
+        code_path, docs_path = self._create_tmp_dirs(embed_task_id) 
 
         touched_file_paths = None
         if provider.data_source.type == DataSourceType.REPOSITORY and provider.data_source.scope_by_issues:
             touched_file_paths = await self.diff_task_svc.get_project_touched_file_paths(provider.data_source.id, async_session=async_session)
             logger.info(f"DataSource {provider.data_source.id} is scoped by issues. Fetched {len(touched_file_paths)} touched file paths across projects.")
 
-        await provider.ingest_data(job_pk=job_pk, file_svc=file_svc, touched_file_paths=touched_file_paths) 
+        await provider.ingest_data(embed_task_id=embed_task_id, file_svc=file_svc, touched_file_paths=touched_file_paths) 
         return code_path, docs_path
 
 
-    def _create_tmp_dirs(self, job_pk: UUID):
+    def _create_tmp_dirs(self, embed_task_id: UUID):
         """
         Create temporary directory for storing downloaded code and documentation files
 
         Args:
-            job_pk (UUID): unique ID for current job (used to ensure files downloaded for ingestion job stored in unique dir)
+            embed_task_id (UUID): unique ID for current job (used to ensure files downloaded for ingestion job stored in unique dir)
         """
 
-        docs_path = Path(f"{settings.TMP_DOCS or 'tmp/docs'}/{job_pk}")
+        docs_path = Path(f"{settings.TMP_DOCS or 'tmp/docs'}/{embed_task_id}")
         docs_path.mkdir(exist_ok=True, parents=True)
-        code_path = Path(f"{settings.TMP_CODE or 'tmp/code'}/{job_pk}")
+        code_path = Path(f"{settings.TMP_CODE or 'tmp/code'}/{embed_task_id}")
         code_path.mkdir(exist_ok=True, parents=True)
 
         return code_path, docs_path
 
 
-    def _cleanup_tmp_dirs(self, job_pk: UUID):
+    def _cleanup_tmp_dirs(self, embed_task_id: UUID):
         """
         Recursively remove all files and subdirectories from the job-specific
         temporary directories, then attempt to remove the shared base dirs
         if no other jobs are currently using them.
 
         Args:
-            job_pk (UUID): unique ID for current ingestion job 
+            embed_task_id (UUID): unique ID for current ingestion job 
         """
         
-        logger.info(f"Cleaning up temporary directories for EmbedTask={job_pk}")
+        logger.info(f"Cleaning up temporary directories for EmbedTask={embed_task_id}")
 
         # base dirs to remove
         tmp_dir = Path(settings.TMP or "/tmp")
@@ -329,8 +326,8 @@ class EmbedTaskService:
         docs_dir = Path(settings.TMP_DOCS or "/tmp/docs")
 
         # ingestion specific dirs to fully clean (may contain nested subdirectories)
-        job_code_path = code_dir / str(job_pk)
-        job_docs_path = docs_dir / str(job_pk)
+        job_code_path = code_dir / str(embed_task_id)
+        job_docs_path = docs_dir / str(embed_task_id)
 
         # recursively remove entire job-specific directory trees (files + subdirs)
         for job_path in [job_docs_path, job_code_path]: 

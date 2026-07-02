@@ -58,19 +58,19 @@ class ConfluenceDataProvider(DocumentationDataProvider):
                 f"The specified data source URL, {self.url}, is not in the proper format: https://<domain>/spaces/<SPACE_KEY>/pages/<PAGE_ID>"
             )
 
-    async def ingest_data(self, job_pk: UUID, file_svc: FileService, touched_file_paths: list[str] | None = None):
+    async def ingest_data(self, embed_task_id: UUID, file_svc: FileService, touched_file_paths: list[str] | None = None):
         self.file_svc = file_svc
-        self.job_pk = job_pk
+        self.embed_task_id = embed_task_id
         self.new_or_modified_file_ids = []
 
-        if not self.file_svc or not self.job_pk:
+        if not self.file_svc or not self.embed_task_id:
             raise Exception("FileService and JobPK not provided when attempting to ingest data")
 
         # Download root page and its children recursively
         await self._get_page_tree(self.root_page_id)
 
         # Cleanup
-        await self.file_svc.cleanup(self.data_source.id, self.job_pk, self.new_or_modified_file_ids)
+        await self.file_svc.cleanup(self.data_source.id, self.embed_task_id, self.new_or_modified_file_ids)
 
     async def _get_page_tree(self, page_id: str):
         # 1. Download current page

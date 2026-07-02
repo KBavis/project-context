@@ -55,7 +55,7 @@ class GithubDataProvider(RepositoryDataProvider):
         self.file_download_base_url = f"https://raw.githubusercontent.com/{self.repository_owner}/{self.repository_name}/{self.branch_name}"
 
 
-    async def ingest_data(self, job_pk: UUID, file_svc: FileService, touched_file_paths: list[str] | None = None):
+    async def ingest_data(self, embed_task_id: UUID, file_svc: FileService, touched_file_paths: list[str] | None = None):
         """
         Functionality to parse our GitHub Url and invoke relevant functionality
         to DFS through repository and retrieve relevant files to store within our
@@ -63,10 +63,10 @@ class GithubDataProvider(RepositoryDataProvider):
         """
 
         self.file_svc = file_svc
-        self.job_pk = job_pk
+        self.embed_task_id = embed_task_id
         self.new_or_modified_file_ids = []
 
-        if not self.file_svc or not self.job_pk:
+        if not self.file_svc or not self.embed_task_id:
             raise Exception(f"FileService and JobPK not provided when attempting to ingest data")
 
         # NOTE: If the DataSource is `scoped_by_issues`, we only ingest files touched by the Project on DataSource (i.e touched_file_paths)
@@ -89,7 +89,7 @@ class GithubDataProvider(RepositoryDataProvider):
             await self._get_repository_data(root_url)
 
         # cleanup any files assocaited with DataSource not processed via current job
-        await self.file_svc.cleanup(self.data_source.id, self.job_pk, self.new_or_modified_file_ids)
+        await self.file_svc.cleanup(self.data_source.id, self.embed_task_id, self.new_or_modified_file_ids)
 
 
     def _get_request_headers(self) -> dict[str, str] | None:

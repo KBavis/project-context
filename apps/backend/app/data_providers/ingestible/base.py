@@ -19,7 +19,7 @@ class IngestibleDataProvider(DataProvider):
     ) -> None:
         super().__init__(data_source=data_source)
         self.file_svc: FileService | None = None
-        self.job_pk: UUID | None = None
+        self.embed_task_id: UUID | None = None
 
     @classmethod
     def from_provider(cls, data_source: DataSource) -> IngestibleDataProvider:
@@ -36,7 +36,7 @@ class IngestibleDataProvider(DataProvider):
                 )
     
     @abstractmethod
-    async def ingest_data(self, job_pk: UUID, file_svc: "FileService", touched_file_paths: list[str] | None = None):
+    async def ingest_data(self, embed_task_id: UUID, file_svc: "FileService", touched_file_paths: list[str] | None = None):
         raise NotImplementedError()
 
         

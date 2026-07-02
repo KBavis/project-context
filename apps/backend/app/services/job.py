@@ -7,10 +7,9 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.job import Job
-from app.models.embed_task import EmbedTask
-from app.models.diff_task import DiffTask
 from app.models.data_source import DataSourceType
 from app.models.record_lock import RecordType
 from app.pydantic.status import ProcessingStatus
@@ -58,10 +57,28 @@ class JobService:
             return job.id
 
     async def get_job(self, job_id: UUID) -> Job | None:
-        """Retrieve a single Job by its primary key."""
-        stmt = select(Job).where(Job.id == job_id)
+        """Retrieve a single Job by its primary key with tasks eager-loaded."""
+        stmt = (
+            select(Job)
+            .options(selectinload(Job.diff_tasks), selectinload(Job.embed_tasks))
+            .where(Job.id == job_id)
+        )
         res = await self.async_db.execute(stmt)
         return res.scalar_one_or_none()
+
+    async def get_all_jobs(self, limit: int = 50) -> list[Job]:
+        """
+        Retrieve a list of all jobs globally for system-level views,
+        with tasks eager-loaded.
+        """
+        stmt = (
+            select(Job)
+            .options(selectinload(Job.diff_tasks), selectinload(Job.embed_tasks))
+            .order_by(Job.start_time.desc())
+            .limit(limit)
+        )
+        res = await self.async_db.execute(stmt)
+        return list(res.scalars().all())
 
     async def run_project_jobs(self, project_id: UUID):
         """
@@ -114,7 +131,9 @@ class JobService:
             
             statuses = [t.status for t in diff] + [t.processing_status for t in embed]
 
-            if ProcessingStatus.FAILED in statuses:
+            if not statuses:
+                job.status = ProcessingStatus.FAILED
+            elif ProcessingStatus.FAILED in statuses:
                 job.status = ProcessingStatus.FAILED
             elif ProcessingStatus.IN_PROGRESS in statuses:
                 job.status = ProcessingStatus.IN_PROGRESS
@@ -138,12 +157,12 @@ class JobService:
         
         async def mark_diff(sess, t_id, status, reason, end_time, duration):
             if not t_id: return
-            await self.diff_svc.update_diff_task(job_id=t_id, status=status, end_time=end_time, duration=duration, session=sess, reason=reason)
+            await self.diff_svc.update_diff_task(diff_task_id=t_id, status=status, end_time=end_time, duration=duration, session=sess, reason=reason)
             
         async def mark_diff_fresh(t_id, status, reason, end_time, duration):
             if not t_id: return
             async with get_async_db_session_context() as fresh_sess:
-                await self.diff_svc.update_diff_task(job_id=t_id, status=status, end_time=end_time, duration=duration, session=fresh_sess, reason=reason, commit=True)
+                await self.diff_svc.update_diff_task(diff_task_id=t_id, status=status, end_time=end_time, duration=duration, session=fresh_sess, reason=reason, commit=True)
 
         lock_key = uuid.uuid5(uuid.NAMESPACE_OID, f"sync:{project_id}:{data_source_id}")
         await run_task(
@@ -170,12 +189,12 @@ class JobService:
 
         async def mark_embed(sess, t_id, status, reason, end_time, duration):
             if not t_id: return
-            await self.embed_task_svc.update_embed_task(job_pk=t_id, status=status, end_time=end_time, duration=duration, session=sess, reason=reason)
+            await self.embed_task_svc.update_embed_task(embed_task_id=t_id, status=status, end_time=end_time, duration=duration, session=sess, reason=reason)
             
         async def mark_embed_fresh(t_id, status, reason, end_time, duration):
             if not t_id: return
             async with get_async_db_session_context() as fresh_sess:
-                await self.embed_task_svc.update_embed_task(job_pk=t_id, status=status, end_time=end_time, duration=duration, session=fresh_sess, reason=reason, commit=True)
+                await self.embed_task_svc.update_embed_task(embed_task_id=t_id, status=status, end_time=end_time, duration=duration, session=fresh_sess, reason=reason, commit=True)
 
         await run_task(
             resource_id=data_source_id,
@@ -260,6 +279,7 @@ class JobService:
             stmt = (
                 select(Job)
                 .where(Job.data_source_id == ds.id)
+                .where(Job.project_id == project_id)
                 .order_by(Job.start_time.desc())
                 .limit(1)
             )

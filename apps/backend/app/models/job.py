@@ -29,5 +29,5 @@ class Job(Base):
     end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     total_duration: Mapped[int] = mapped_column(nullable=True)
 
-    embed_tasks: Mapped[List["EmbedTask"]] = relationship(back_populates="job", cascade="all, delete-orphan")
-    diff_tasks: Mapped[List["DiffTask"]] = relationship(back_populates="job", cascade="all, delete-orphan")
+    embed_tasks: Mapped[List["EmbedTask"]] = relationship(back_populates="job")
+    diff_tasks: Mapped[List["DiffTask"]] = relationship(back_populates="job")

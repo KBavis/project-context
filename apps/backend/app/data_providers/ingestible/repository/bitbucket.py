@@ -51,19 +51,19 @@ class BitbucketDataProvider(RepositoryDataProvider):
         self.base_api_url = f"https://{self.domain}/rest/api/1.0/projects/{self.repository_owner}/repos/{self.repository_name}"
         self.file_download_base_url = f"{self.base_api_url}/raw"
 
-    async def ingest_data(self, job_pk: UUID, file_svc: FileService, touched_file_paths: list[str] | None = None):
+    async def ingest_data(self, embed_task_id: UUID, file_svc: FileService, touched_file_paths: list[str] | None = None):
         self.file_svc = file_svc
-        self.job_pk = job_pk
+        self.embed_task_id = embed_task_id
         self.new_or_modified_file_ids = []
 
-        if not self.file_svc or not self.job_pk:
+        if not self.file_svc or not self.embed_task_id:
             raise Exception("FileService and JobPK not provided when attempting to ingest data")
 
         # Reach out to Bitbucket and recursively fetch and store documentation within our temp directory
         await self._get_repository_data(self.base_api_url, touched_file_paths)
 
         # Cleanup any files associated with DataSource not processed via current job
-        await self.file_svc.cleanup(self.data_source.id, self.job_pk, self.new_or_modified_file_ids)
+        await self.file_svc.cleanup(self.data_source.id, self.embed_task_id, self.new_or_modified_file_ids)
 
     def _get_request_headers(self) -> dict[str, str] | None:
         if settings.BITBUCKET_USERNAME and settings.BITBUCKET_SECRET_TOKEN:
@@ -83,7 +83,7 @@ class BitbucketDataProvider(RepositoryDataProvider):
             )
 
     async def _get_repository_data(self, curr_url: str, touched_file_paths: list[str] | None = None):
-        assert self.file_svc and self.job_pk
+        assert self.file_svc and self.embed_task_id
 
         # TODO: Refactor this function to be more generic for re-use across BitBucket & GitHub  
         # (https://github.com/KBavis/contextualized/issues/42)
