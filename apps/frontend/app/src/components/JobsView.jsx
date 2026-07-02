@@ -62,7 +62,7 @@ export default function JobsView() {
         }).filter(job => {
             const status = mapStatus(job.status);
             if (statusFilter !== 'all' && status !== statusFilter) return false;
-            
+
             if (dataSourceFilter !== 'all') {
                 if (dataSourceFilter === 'project' && job.data_source_id) return false;
                 if (dataSourceFilter !== 'project' && job.data_source_id !== dataSourceFilter) return false;
@@ -80,7 +80,7 @@ export default function JobsView() {
                 const now = new Date();
                 const diffMs = now - jobDateObj;
                 const diffHours = diffMs / (1000 * 60 * 60);
-                
+
                 if (timeRangeFilter === 'last_hour' && diffHours > 1) return false;
                 if (timeRangeFilter === 'last_24h' && diffHours > 24) return false;
                 if (timeRangeFilter === 'last_7d' && diffHours > 168) return false;
@@ -99,8 +99,8 @@ export default function JobsView() {
                 <div className="jobs-filters-group">
                     <div className="filter-item">
                         <label className="filter-label">Target</label>
-                        <select 
-                            className="jobs-filter-select" 
+                        <select
+                            className="jobs-filter-select"
                             value={dataSourceFilter}
                             onChange={(e) => setDataSourceFilter(e.target.value)}
                         >
@@ -114,9 +114,9 @@ export default function JobsView() {
 
                     <div className="filter-item">
                         <label className="filter-label">Date</label>
-                        <input 
-                            type="date" 
-                            className="jobs-filter-input date-input" 
+                        <input
+                            type="date"
+                            className="jobs-filter-input date-input"
                             value={dateFilter}
                             onChange={(e) => setDateFilter(e.target.value)}
                         />
@@ -124,8 +124,8 @@ export default function JobsView() {
 
                     <div className="filter-item">
                         <label className="filter-label">Time Range</label>
-                        <select 
-                            className="jobs-filter-select" 
+                        <select
+                            className="jobs-filter-select"
                             value={timeRangeFilter}
                             onChange={(e) => setTimeRangeFilter(e.target.value)}
                         >
@@ -138,8 +138,8 @@ export default function JobsView() {
 
                     <div className="filter-item">
                         <label className="filter-label">Status</label>
-                        <select 
-                            className="jobs-filter-select status-select" 
+                        <select
+                            className="jobs-filter-select status-select"
                             value={statusFilter}
                             onChange={(e) => setStatusFilter(e.target.value)}
                         >
@@ -152,9 +152,9 @@ export default function JobsView() {
                     </div>
 
                     <div className="filter-item">
-                        <label className="filter-label" style={{visibility: 'hidden'}}>Reset</label>
-                        <button 
-                            className="jobs-reset-btn" 
+                        <label className="filter-label" style={{ visibility: 'hidden' }}>Reset</label>
+                        <button
+                            className="jobs-reset-btn"
                             onClick={handleResetFilters}
                             title="Reset all filters"
                         >
@@ -182,7 +182,7 @@ export default function JobsView() {
                                     <div className="job-list-info">
                                         <div className="job-list-primary">
                                             <span className="job-list-id">#{job.id.substring(0, 8)}</span>
-                                            <span className="job-list-ds-icon" style={{display: 'flex', alignItems: 'center'}}>
+                                            <span className="job-list-ds-icon" style={{ display: 'flex', alignItems: 'center' }}>
                                                 {getDataSourceIcon(getDataSourceProvider(job.data_source_id))}
                                             </span>
                                             <span className="job-list-ds" title={getDataSourceName(job.data_source_id)}>
@@ -201,8 +201,8 @@ export default function JobsView() {
                                         <div className={`job-list-status status-${status}`}>
                                             {status}
                                         </div>
-                                        <button 
-                                            className="expand-job-btn" 
+                                        <button
+                                            className="expand-job-btn"
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 toggleExpand(job.id);
@@ -217,7 +217,7 @@ export default function JobsView() {
                                             <div className="progress-fill pulse"></div>
                                         </div>
                                     )}
-                                    
+
                                     {expandedJobs.has(job.id) && (
                                         <div className="job-nested-tasks" style={{ padding: '10px 16px', background: 'rgba(0,0,0,0.2)', borderTop: '1px solid var(--border-color)', fontSize: '0.85rem' }}>
                                             {job.diff_tasks?.length > 0 && (
@@ -227,7 +227,7 @@ export default function JobsView() {
                                                         {job.diff_tasks.map(t => (
                                                             <li key={t.id}>
                                                                 <span className={`status-${mapStatus(t.status)}`} style={{ marginRight: '6px' }}>●</span>
-                                                                {t.status} - {t.duration ? `${t.duration.toFixed(2)}s` : '...'}
+                                                                {t.status} - {t.total_duration ? `${t.total_duration.toFixed(2)}s` : '...'}
                                                                 {t.reason && <span style={{ color: 'red', marginLeft: '6px' }}>({t.reason})</span>}
                                                             </li>
                                                         ))}
@@ -241,7 +241,7 @@ export default function JobsView() {
                                                         {job.embed_tasks.map(t => (
                                                             <li key={t.id}>
                                                                 <span className={`status-${mapStatus(t.processing_status)}`} style={{ marginRight: '6px' }}>●</span>
-                                                                {t.processing_status} - {t.duration ? `${t.duration.toFixed(2)}s` : '...'}
+                                                                {t.processing_status} - {t.total_duration ? `${t.total_duration.toFixed(2)}s` : '...'}
                                                                 {t.reason && <span style={{ color: 'red', marginLeft: '6px' }}>({t.reason})</span>}
                                                             </li>
                                                         ))}
@@ -280,8 +280,8 @@ function getDataSourceIcon(provider, type) {
     );
 
     if (key === 'project') return (
-        <span style={{fontSize: '16px'}}>📁</span>
+        <span style={{ fontSize: '16px' }}>📁</span>
     );
 
-    return <span style={{fontSize: '16px'}}>📦</span>;
+    return <span style={{ fontSize: '16px' }}>📦</span>;
 }

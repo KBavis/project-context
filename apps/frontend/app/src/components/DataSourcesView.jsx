@@ -84,15 +84,15 @@ export default function DataSourcesView({ projectId }) {
 
         setConfirmModal({
             isOpen: true,
-            title: 'Refresh Data Source',
-            message: `You are about to start a Refresh Data Source for "${displayName}". This will retrieve and process the latest data from the source.`,
-            confirmLabel: 'Refresh Data Source',
+            title: 'Sync Data Source',
+            message: `You are about to start a Sync for "${displayName}". This will retrieve and process the latest data from the source.`,
+            confirmLabel: 'Sync Data Source',
             onConfirm: async () => {
                 setCreatingJob(true);
                 try {
                     await createJob(dsId);
                     setActiveJobView(dsId);
-                    showAlert('🚀 Refresh Data Source triggered!', 'success');
+                    showAlert('🚀 Sync Data Source triggered!', 'success');
                 } catch (err) {
                     showAlert('Failed to start refresh: ' + err.message, 'error');
                 } finally {
@@ -106,8 +106,8 @@ export default function DataSourcesView({ projectId }) {
     const handleRunProjectJobs = () => {
         setConfirmModal({
             isOpen: true,
-            title: 'Refresh Project Changes',
-            message: `You are about to start a Refresh Project Changes (diff-sync) for all eligible data source(s). Each repository will be synced with the latest commits.`,
+            title: 'Sync Project Changes',
+            message: `You are about to start a Sync Project Changes (diff-sync) for all eligible data source(s). Each repository will be synced with the latest commits.`,
             confirmLabel: 'Sync Project',
             onConfirm: async () => {
                 setCreatingJob(true);
@@ -425,11 +425,11 @@ export default function DataSourcesView({ projectId }) {
                                     borderTop: '1px solid var(--border-color)',
                                     marginTop: '4px',
                                 }}>
-                                    <span>Refresh Data Source</span>
+                                    <span>Last Sync</span>
                                     {latestJob ? (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <span style={{ fontSize: '0.72rem' }}>
-                                                {new Date(latestJob.start_time).toLocaleString()}
+                                                {latestStatus === 'completed' ? `Synced ${getTimeAgo(latestJob.start_time)}` : latestStatus === 'running' ? 'Syncing...' : `Sync Failed ${getTimeAgo(latestJob.start_time)}`}
                                             </span>
                                             <span className={`mini-job-status status-${latestStatus}`} style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
                                                 {latestStatus}
@@ -453,7 +453,7 @@ export default function DataSourcesView({ projectId }) {
                                         setActiveJobView(isActive ? null : ds.id);
                                     }}
                                 >
-                                    {activeJobView === ds.id ? 'Hide History' : 'View Latest Jobs'}
+                                    {activeJobView === ds.id ? 'Hide History' : 'Sync History'}
                                 </button>
                             )}
                             <button
@@ -480,7 +480,7 @@ export default function DataSourcesView({ projectId }) {
                                     onClick={() => handleRunIngestion(ds.id)}
                                     disabled={creatingJob}
                                 >
-                                    {creatingJob ? 'Starting...' : 'Refresh Data Source'}
+                                    {creatingJob ? 'Starting...' : 'Sync Data Source'}
                                 </button>
                             )}
                         </div>
@@ -861,4 +861,18 @@ function getDataSourceIcon(provider, type) {
     );
 
     return '📦';
+}
+
+function getTimeAgo(dateString) {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
 }
