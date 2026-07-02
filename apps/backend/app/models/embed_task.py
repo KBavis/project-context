@@ -27,7 +27,7 @@ class EmbedTask(Base):
     processing_status: Mapped[ProcessingStatus] = mapped_column(SQLEnum(ProcessingStatus), nullable=False)
     reason: Mapped[str | None] = mapped_column(nullable=True, comment="Detailed reason or error message")
     data_source_id: Mapped[UUID] = mapped_column(ForeignKey("data_source.id"))
-    job_id: Mapped[UUID | None] = mapped_column(ForeignKey("job.id"), nullable=True, index=True)
+    job_id: Mapped[UUID | None] = mapped_column(ForeignKey("job.id", ondelete="SET NULL"), nullable=True, index=True)
 
     job: Mapped["Job"] = relationship(back_populates="embed_tasks")
 

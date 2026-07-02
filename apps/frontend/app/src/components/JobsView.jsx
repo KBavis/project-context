@@ -10,6 +10,16 @@ export default function JobsView() {
     const [dataSourceFilter, setDataSourceFilter] = useState('all');
     const [dateFilter, setDateFilter] = useState('');
     const [timeRangeFilter, setTimeRangeFilter] = useState('all');
+    const [expandedJobs, setExpandedJobs] = useState(new Set());
+
+    const toggleExpand = (jobId) => {
+        setExpandedJobs(prev => {
+            const next = new Set(prev);
+            if (next.has(jobId)) next.delete(jobId);
+            else next.add(jobId);
+            return next;
+        });
+    };
 
     useEffect(() => {
         fetchJobs();
@@ -191,10 +201,56 @@ export default function JobsView() {
                                         <div className={`job-list-status status-${status}`}>
                                             {status}
                                         </div>
+                                        <button 
+                                            className="expand-job-btn" 
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                toggleExpand(job.id);
+                                            }}
+                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-tertiary)' }}
+                                        >
+                                            {expandedJobs.has(job.id) ? '▼' : '▶'}
+                                        </button>
                                     </div>
                                     {status === 'running' && (
                                         <div className="job-progress-bar-thin">
                                             <div className="progress-fill pulse"></div>
+                                        </div>
+                                    )}
+                                    
+                                    {expandedJobs.has(job.id) && (
+                                        <div className="job-nested-tasks" style={{ padding: '10px 16px', background: 'rgba(0,0,0,0.2)', borderTop: '1px solid var(--border-color)', fontSize: '0.85rem' }}>
+                                            {job.diff_tasks?.length > 0 && (
+                                                <div style={{ marginBottom: '8px' }}>
+                                                    <strong>Diff Tasks</strong>
+                                                    <ul style={{ paddingLeft: '20px', marginTop: '4px' }}>
+                                                        {job.diff_tasks.map(t => (
+                                                            <li key={t.id}>
+                                                                <span className={`status-${mapStatus(t.status)}`} style={{ marginRight: '6px' }}>●</span>
+                                                                {t.status} - {t.duration ? `${t.duration.toFixed(2)}s` : '...'}
+                                                                {t.reason && <span style={{ color: 'red', marginLeft: '6px' }}>({t.reason})</span>}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                            {job.embed_tasks?.length > 0 && (
+                                                <div>
+                                                    <strong>Embed Tasks</strong>
+                                                    <ul style={{ paddingLeft: '20px', marginTop: '4px' }}>
+                                                        {job.embed_tasks.map(t => (
+                                                            <li key={t.id}>
+                                                                <span className={`status-${mapStatus(t.processing_status)}`} style={{ marginRight: '6px' }}>●</span>
+                                                                {t.processing_status} - {t.duration ? `${t.duration.toFixed(2)}s` : '...'}
+                                                                {t.reason && <span style={{ color: 'red', marginLeft: '6px' }}>({t.reason})</span>}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                            {!(job.diff_tasks?.length) && !(job.embed_tasks?.length) && (
+                                                <div style={{ color: 'var(--color-text-tertiary)' }}>No sub-tasks executed for this job.</div>
+                                            )}
                                         </div>
                                     )}
                                 </div>

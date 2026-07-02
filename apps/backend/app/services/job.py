@@ -251,6 +251,7 @@ class JobService:
         """
         stmt = (
             select(Job)
+            .options(selectinload(Job.diff_tasks), selectinload(Job.embed_tasks))
             .where(Job.data_source_id == data_source_id)
             .order_by(Job.start_time.desc())
             .limit(limit)

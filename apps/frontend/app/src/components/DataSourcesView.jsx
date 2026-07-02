@@ -103,6 +103,27 @@ export default function DataSourcesView({ projectId }) {
         });
     };
 
+    const handleRunProjectJobs = () => {
+        setConfirmModal({
+            isOpen: true,
+            title: 'Refresh Project Changes',
+            message: `You are about to start a Refresh Project Changes (diff-sync) for all eligible data source(s). Each repository will be synced with the latest commits.`,
+            confirmLabel: 'Sync Project',
+            onConfirm: async () => {
+                setCreatingJob(true);
+                try {
+                    await createJob(); // No data source ID => Project-wide job
+                    showAlert('🚀 Sync Project triggered!', 'success');
+                } catch (err) {
+                    showAlert('Failed to start sync project: ' + err.message, 'error');
+                } finally {
+                    setCreatingJob(false);
+                }
+                closeConfirmModal();
+            }
+        });
+    };
+
     const handleAddDataSource = async (e) => {
         e.preventDefault();
         try {
@@ -252,7 +273,11 @@ export default function DataSourcesView({ projectId }) {
 
                             <div className="data-source-content">
                                 <div className="data-source-title-row">
-                                    <h3 className="data-source-name">{displayName}</h3>
+                                    <h3 className="data-source-name">
+                                        <a href={url.startsWith('http') ? url : `https://${url}`} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>
+                                            {displayName}
+                                        </a>
+                                    </h3>
                                     {ds.branch && (
                                         <p className="data-source-provider">
                                             <span className="data-source-branch-badge">{ds.branch}</span>
@@ -573,9 +598,16 @@ export default function DataSourcesView({ projectId }) {
         <div className="data-sources-container">
             <div className="data-sources-header">
                 <h2>Data Sources</h2>
-                <Button size="sm" onClick={() => setShowAddForm(!showAddForm)}>
-                    {showAddForm ? 'Cancel' : '+ Add Data Source'}
-                </Button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    {projectId && dataSources.filter(ds => ds.linked_projects?.includes(projectId) && ds.type === 'REPOSITORY' && ds.scope_by_issues).length > 0 && (
+                        <Button size="sm" variant="secondary" onClick={() => handleRunProjectJobs()} disabled={creatingJob}>
+                            {creatingJob ? 'Starting...' : '🔄 Sync Project'}
+                        </Button>
+                    )}
+                    <Button size="sm" onClick={() => setShowAddForm(!showAddForm)}>
+                        {showAddForm ? 'Cancel' : '+ Add Data Source'}
+                    </Button>
+                </div>
             </div>
 
             {showAddForm && (

@@ -4,7 +4,7 @@ import { useProjects, useConversations, useDataSources } from '../contexts/index
 import ChatInterface from '../components/ChatInterface';
 import CreateConversationModal from '../components/CreateConversationModal';
 import DataSourcesView from '../components/DataSourcesView';
-import DiffSyncView from '../components/DiffSyncView';
+
 import AlertContainer from '../components/Alert';
 import '../styles/Workspace.css';
 
@@ -95,11 +95,7 @@ export default function Workspace() {
                         <button onClick={() => setView('datasources')} className={view === 'datasources' ? 'active' : ''}>
                             <span className="nav-icon">📁</span> Data Sources
                         </button>
-                        {hasIssueScopedRepo && (
-                            <button onClick={() => setView('sync')} className={view === 'sync' ? 'active' : ''}>
-                                <span className="nav-icon">🔄</span> Sync Project
-                            </button>
-                        )}
+
                     </div>
                 </nav>
 
@@ -131,7 +127,7 @@ export default function Workspace() {
             <main className="workspace-main">
                 {view === 'chat' && <ChatInterface conversationId={selectedConversation?.id} />}
                 {view === 'datasources' && <DataSourcesView projectId={project.id} />}
-                {view === 'sync' && <DiffSyncView projectId={project.id} />}
+
             </main>
             <CreateConversationModal isOpen={showCreateConv} onClose={() => setShowCreateConv(false)} />
             <AlertContainer />

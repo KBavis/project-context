@@ -19,14 +19,15 @@ export function JobProvider({ children }) {
     const [error, setError] = useState(null);
 
     const fetchJobs = useCallback(async (silent = false) => {
-        if (!selectedProject) {
-            setJobs([]);
-            return;
-        }
         if (!silent) setLoading(true);
         try {
-            const data = await api.jobs.listByProject(selectedProject.id);
-            setJobs(data);
+            if (selectedProject) {
+                const data = await api.jobs.listByProject(selectedProject.id);
+                setJobs(data);
+            } else {
+                const data = await api.jobs.listAll();
+                setJobs(data);
+            }
         } catch (err) {
             if (!silent) setError(err.message);
         } finally {

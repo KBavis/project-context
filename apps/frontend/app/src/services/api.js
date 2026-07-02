@@ -201,8 +201,8 @@ export const api = {
     jobs: {
         create: async (projectId, dataSourceId = null) => {
             const url = dataSourceId 
-                ? `${API_BASE_URL}/jobs/project/${projectId}/data-source/${dataSourceId}`
-                : `${API_BASE_URL}/jobs/project/${projectId}`;
+                ? `${API_BASE_URL}/jobs/projects/${projectId}/data-sources/${dataSourceId}`
+                : `${API_BASE_URL}/jobs/projects/${projectId}`;
                 
             const response = await fetch(url, {
                 method: 'POST',
@@ -215,13 +215,18 @@ export const api = {
             return handleResponse(response);
         },
 
+        listAll: async () => {
+            const response = await fetch(`${API_BASE_URL}/jobs/?limit=50`, { cache: 'no-store' });
+            return handleResponse(response);
+        },
+
         listByProject: async (projectId) => {
-            const response = await fetch(`${API_BASE_URL}/jobs/project/${projectId}/latest`, { cache: 'no-store' });
+            const response = await fetch(`${API_BASE_URL}/jobs/projects/${projectId}`, { cache: 'no-store' });
             return handleResponse(response);
         },
 
         getLatestForSource: async (dataSourceId) => {
-            const response = await fetch(`${API_BASE_URL}/jobs/data-source/${dataSourceId}/latest`, { cache: 'no-store' });
+            const response = await fetch(`${API_BASE_URL}/jobs/data-sources/${dataSourceId}`, { cache: 'no-store' });
             return handleResponse(response);
         },
     },

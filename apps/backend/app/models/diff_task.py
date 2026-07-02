@@ -20,7 +20,7 @@ class DiffTask(Base):
     project_id: Mapped[UUID] = mapped_column(ForeignKey("project.id"), nullable=False, index=True)
     data_source_id: Mapped[UUID] = mapped_column(ForeignKey("data_source.id"), nullable=False, index=True)
     
-    job_id: Mapped[UUID | None] = mapped_column(ForeignKey("job.id"), nullable=True, index=True)
+    job_id: Mapped[UUID | None] = mapped_column(ForeignKey("job.id", ondelete="SET NULL"), nullable=True, index=True)
     job: Mapped["Job"] = relationship(back_populates="diff_tasks")
     
     status: Mapped[ProcessingStatus] = mapped_column(SQLEnum(ProcessingStatus), nullable=False)
