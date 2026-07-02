@@ -16,12 +16,11 @@ from app.models import Project, ProjectData, DataSource
 from app.models.data_source import DataSourceType
 from app.data_providers.ingestible.base import IngestibleDataProvider
 from uuid import UUID
-from app.core import get_async_db_session_context
 
 if TYPE_CHECKING:
     from app.services.diff_task import DiffTaskService
     from app.services.data_source import DataSourceService
-    from app.services.embed_task import EmbedTaskService
+    from app.services.job import JobService
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +30,14 @@ class ProjectService:
         db: Session,
         async_db: AsyncSession,
         diff_svc: DiffTaskService,
-        embed_task_svc: EmbedTaskService,
+        job_svc: JobService,
         data_source_svc: DataSourceService | None = None,
     ):
         self.db = db
         self.async_db = async_db
         self.diff_svc = diff_svc
         self.data_source_svc = data_source_svc
-        self.embed_task_svc = embed_task_svc
+        self.job_svc = job_svc
 
     # ─────────────────────────────────────────────
     # Project Readiness
@@ -80,34 +79,13 @@ class ProjectService:
     async def get_project_readiness_state(self, project_id: UUID) -> dict:
         """
         Return a combined readiness snapshot used by the /sync-status endpoint.
-
-        Returns a dict with:
-            is_ready (bool): True only when both ingestion and diff-sync are successful.
-            ingestion_status (str): ProcessingStatus value for ingestion.
-            sync_status (str): ProcessingStatus value for diff-sync.
-            overall_status (str): worst-case aggregate of the two.
-            reasons (list[str]): detailed string reasons for any pending or failed data sources.
         """
-        ingestion_state, ingestion_reasons = await self.embed_task_svc.get_project_ingestion_state(project_id)
-        diff_state, diff_reasons = await self.diff_svc.get_project_sync_state(project_id)
-
-        if ProcessingStatus.IN_PROGRESS.value in (ingestion_state, diff_state):
-            overall = ProcessingStatus.IN_PROGRESS.value
-        elif ProcessingStatus.FAILED.value in (ingestion_state, diff_state):
-            overall = ProcessingStatus.FAILED.value
-        elif ProcessingStatus.NOT_YET_SYNCED.value in (ingestion_state, diff_state):
-            overall = ProcessingStatus.NOT_YET_SYNCED.value
-        else:
-            overall = ProcessingStatus.SUCCESS.value
-
-        all_reasons = ingestion_reasons + diff_reasons
+        overall_state, reasons = await self.job_svc.get_project_sync_state(project_id)
 
         return {
-            "is_ready": overall == ProcessingStatus.SUCCESS.value,
-            "overall_status": overall,
-            "ingestion_status": ingestion_state,
-            "sync_status": diff_state,
-            "reasons": all_reasons
+            "is_ready": overall_state == ProcessingStatus.SUCCESS.value,
+            "overall_status": overall_state,
+            "reasons": reasons
         }
 
 

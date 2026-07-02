@@ -18,16 +18,15 @@ from app.models.pull_request import PullRequest
 from app.models.git_commit import GitCommit
 from app.models.diff_task import DiffTask
 from app.pydantic.status import ProcessingStatus
-from app.models.record_lock import RecordType
 from app.services.record_lock import RecordLockService
 from app.models.project_data import ProjectData
 from app.models.file import File
+from app.services.background import TaskSkipped
 from app.data_providers.fetchable.issue_tracker import IssueTrackerDataProvider
 from app.data_providers.ingestible.repository import RepositoryDataProvider
 from app.pydantic.pull_request import PullRequestDetail
 from app.pydantic.file_diff_patch import FileDiffPatch
 from app.pydantic.change_type import ChangeType
-from app.core import get_async_db_session_context
 import hashlib
 import uuid
 
@@ -55,58 +54,6 @@ class DiffTaskService:
         self.record_lock_svc = record_lock_svc
     
 
-    async def get_project_sync_state(self, project_id: UUID) -> tuple[str, list[str]]:
-        """
-        Determines the overall synchronization state of a project's repository data sources.
-        Returns: tuple(status_string, list_of_reasons)
-        """
-        linked_data_sources = await self.data_source_svc.aget_project_data_sources(project_id)
-        repo_data_sources = [ds for ds in linked_data_sources if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues]
-        
-        logger.info(f"[SyncState] project_id={project_id}: found {len(linked_data_sources)} linked data sources, {len(repo_data_sources)} are issue-scoped repositories")
-        
-        if not repo_data_sources:
-            logger.info(f"[SyncState] project_id={project_id}: no issue-scoped repos → success")
-            return ProcessingStatus.SUCCESS.value, []
-            
-        states = []
-        reasons = []
-        for ds in repo_data_sources:
-            
-            # check latest diff job
-            stmt = select(DiffTask).where(
-                DiffTask.project_id == project_id,
-                DiffTask.data_source_id == ds.id
-            ).order_by(DiffTask.start_time.desc()).limit(1)
-            res = await self.async_db.execute(stmt)
-            job = res.scalar_one_or_none()
-            
-            if job:
-                job_state = job.status.value
-                logger.info(f"[SyncState] project_id={project_id}, ds={ds.id} ({ds.name}): latest DiffTask={job.id}, status={job_state}")
-                states.append(job_state)
-                
-                if job_state == ProcessingStatus.FAILED.value:
-                    reasons.append(f"Latest diff sync job failed for repository '{ds.name}'.")
-                elif job_state == ProcessingStatus.IN_PROGRESS.value:
-                    reasons.append(f"Repository '{ds.name}' is currently being synced.")
-                elif job_state == ProcessingStatus.SKIPPED.value:
-                    reasons.append(f"Diff sync was skipped for repository '{ds.name}' due to missing configuration.")
-            else:
-                logger.info(f"[SyncState] project_id={project_id}, ds={ds.id} ({ds.name}): no DiffTask found → not yet synced")
-                states.append(ProcessingStatus.NOT_YET_SYNCED.value)
-                reasons.append(f"Repository '{ds.name}' has not yet been synced.")
-        
-        logger.info(f"[SyncState] project_id={project_id}: all states={states}")
-        
-        if ProcessingStatus.IN_PROGRESS.value in states or ProcessingStatus.SKIPPED.value in states:
-            return ProcessingStatus.IN_PROGRESS.value, reasons
-        if ProcessingStatus.FAILED.value in states:
-            return ProcessingStatus.FAILED.value, reasons
-        if ProcessingStatus.NOT_YET_SYNCED.value in states:
-            return ProcessingStatus.NOT_YET_SYNCED.value, reasons
-            
-        return ProcessingStatus.SUCCESS.value, []
 
 
     async def init_diff_task(self, project_id: UUID, data_source_id: UUID, job_id: UUID | None = None, async_session: AsyncSession | None = None) -> DiffTask:
@@ -133,12 +80,7 @@ class DiffTaskService:
         
 
 
-        # lock the resource
-        pair_lock_key = f"sync:{project_id}:{data_source_id}"
-        lock_uuid = uuid.uuid5(uuid.NAMESPACE_OID, pair_lock_key)
-        locked = await self.record_lock_svc.lock(lock_uuid, RecordType.PROJECT_DATA)
-        if not locked:
-            raise Exception(f"Failed to acquire lock for project_data: Record already locked")
+
 
         job = DiffTask(
             job_id=job_id,
@@ -183,43 +125,21 @@ class DiffTaskService:
 
     async def _validate_diff_task_preconditions(
         self,
-        job_id: UUID,
-        job_start_time: datetime,
         project: Project,
         repository_ds: DataSource,
         async_session: AsyncSession
-    ) -> bool:
+    ) -> None:
         """
         Validate whether the DiffTask should run based on the Project's configuration.
-        Returns True if preconditions are met, False if the job was skipped.
+        Raises TaskSkipped if preconditions are not met.
         """
         # Pre-condition 1: The data source must be a REPOSITORY and scoped by issues
         if repository_ds.type != DataSourceType.REPOSITORY or not repository_ds.scope_by_issues:
-            logger.info(f"DataSource={repository_ds.id} is not an issue-scoped repository — skipping DiffTask={job_id}")
-            end_time = datetime.now(timezone.utc)
-            await self.update_diff_task(
-                job_id=job_id,
-                status=ProcessingStatus.SKIPPED,
-                end_time=end_time,
-                duration=int((end_time - job_start_time).total_seconds()),
-                session=async_session,
-                commit=True
-            )
-            return False
+            raise TaskSkipped(f"DataSource={repository_ds.id} is not an issue-scoped repository")
 
         # Pre-condition 2: The Project must have available Parent Issues
         if not project.parent_issues:
-            logger.info(f"Project={project.id} has no parent_issues configured — skipping DiffTask={job_id}")
-            end_time = datetime.now(timezone.utc)
-            await self.update_diff_task(
-                job_id=job_id,
-                status=ProcessingStatus.SKIPPED,
-                end_time=end_time,
-                duration=int((end_time - job_start_time).total_seconds()),
-                session=async_session,
-                commit=True
-            )
-            return False
+            raise TaskSkipped(f"Project={project.id} has no parent_issues configured")
 
         # Pre-condition 3: validate that an ISSUE_TRACKER data source is configured for Project
         all_project_ds = await self.data_source_svc.aget_project_data_sources(
@@ -228,23 +148,7 @@ class DiffTaskService:
         )
         issue_trackers = [ds for ds in all_project_ds if ds.type == DataSourceType.ISSUE_TRACKER]
         if not issue_trackers:
-            logger.info(
-                f"No ISSUE_TRACKER configured for Project={project.id} — "
-                f"skipping DiffTask={job_id} (pre-condition not met)"
-            )
-            end_time = datetime.now(timezone.utc)
-            duration = int((end_time - job_start_time).total_seconds())
-            await self.update_diff_task(
-                job_id=job_id,
-                status=ProcessingStatus.SKIPPED,
-                end_time=end_time,
-                duration=duration,
-                session=async_session,
-                commit=True
-            )
-            return False
-            
-        return True
+            raise TaskSkipped(f"No ISSUE_TRACKER configured for Project={project.id}")
 
     async def execute_repository_sync_job(self, job_id: UUID):
         """
@@ -278,17 +182,12 @@ class DiffTaskService:
 
         job_start_time = job.start_time
 
-        # Validate job preconditions. If they aren't met, the job is cleanly skipped.
-        is_valid = await self._validate_diff_task_preconditions(
-            job_id=job_id,
-            job_start_time=job_start_time,
+        # Validate job preconditions. Will raise TaskSkipped if not met.
+        await self._validate_diff_task_preconditions(
             project=project,
             repository_ds=repository_ds,
             async_session=async_session
         )
-        
-        if not is_valid:
-            return
 
         # get the IssueTracker tied to this Project (NOTE: This is REQUIRED when scoping a Repository's changes by Issues)
         issue_tracker_ds = await self.data_source_svc.get_issue_tracker_data_source(
@@ -638,7 +537,7 @@ class DiffTaskService:
         elif file_history.change_type == ChangeType.DELETED:
             # a path the project had deleted is back -> it was modified over time
             file_history.change_type = ChangeType.MODIFIED
-        file_history.diff_task_id = diff_task_id
+        file_history.last_diff_task_id = diff_task_id
         await async_session.flush()
 
 
@@ -695,12 +594,28 @@ class DiffTaskService:
         file_count = res.scalar_one()
 
         repo_changes.file_count = file_count
-        repo_changes.diff_task_id = diff_task_id
+        repo_changes.last_diff_task_id = diff_task_id
         repo_changes.last_synced_time = datetime.now(timezone.utc)
         async_session.add(repo_changes)
         await async_session.flush()
 
 
+
+    async def get_diff_tasks_by_job_id(self, job_id: UUID, session: AsyncSession | None = None) -> list[DiffTask]:
+        """
+        Retrieve all DiffTasks associated with a specific job_id.
+
+        Args:
+            job_id (UUID): The ID of the job to retrieve the DiffTasks for.
+            session (AsyncSession, optional): The database session to use. Defaults to None.
+
+        Returns:
+            list[DiffTask]: A list of DiffTasks associated with the specified job_id.
+        """
+        db = session or self.async_db
+        stmt = select(DiffTask).where(DiffTask.job_id == job_id)
+        res = await db.execute(stmt)
+        return list(res.scalars().all())
 
     async def get_total_repository_code_changes(self, project_id: UUID, data_source_id: UUID | None = None) -> list[dict]:
         """

@@ -52,8 +52,8 @@ class ProjectRepoSummary(Base):
         primary_key=True,
         comment="Part of 1:1 PK with ProjectData",
     )
-    diff_task_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("diff_task.id"),
+    last_diff_task_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("diff_task.id", ondelete="SET NULL"),
         index=True,
         nullable=True,
         comment="Last diff sync job that updated this record",

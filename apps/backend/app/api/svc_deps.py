@@ -219,29 +219,6 @@ def get_async_embed_task_svc(
 
 
 
-
-def get_project_svc(
-        db: Session = Depends(get_sync_db_session),
-        async_db: AsyncSession = Depends(get_async_db_session),
-        diff_task_svc: DiffTaskService = Depends(get_async_diff_task_svc),
-        embed_task_svc: EmbedTaskService = Depends(get_async_embed_task_svc),
-        data_source_svc: DataSourceService = Depends(get_data_source_svc),
-):
-    """
-    Setup ProjectService dependency
-
-    Args:
-        db (Session): current DB session
-    """
-
-    return ProjectService(
-        db=db, 
-        async_db=async_db, 
-        diff_svc=diff_task_svc, 
-        embed_task_svc=embed_task_svc,
-        data_source_svc=data_source_svc,
-    )
-
 def get_job_svc(
         async_db: AsyncSession = Depends(get_async_db_session),
         diff_task_svc: DiffTaskService = Depends(get_async_diff_task_svc),
@@ -256,6 +233,29 @@ def get_job_svc(
         diff_svc=diff_task_svc,
         embed_task_svc=embed_task_svc,
         data_source_svc=data_source_svc
+    )
+
+
+def get_project_svc(
+        db: Session = Depends(get_sync_db_session),
+        async_db: AsyncSession = Depends(get_async_db_session),
+        diff_task_svc: DiffTaskService = Depends(get_async_diff_task_svc),
+        data_source_svc: DataSourceService = Depends(get_data_source_svc),
+        job_svc: JobService = Depends(get_job_svc),
+):
+    """
+    Setup ProjectService dependency
+
+    Args:
+        db (Session): current DB session
+    """
+
+    return ProjectService(
+        db=db, 
+        async_db=async_db, 
+        diff_svc=diff_task_svc, 
+        data_source_svc=data_source_svc,
+        job_svc=job_svc,
     )
 
 

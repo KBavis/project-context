@@ -2,24 +2,20 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from .data_source import router as data_source_router
-from .embed_task import router as embed_task_router
 from .project import router as project_router
 from .conversation import router as conversation_router
 from .chroma import router as chroma_router
 from .message import router as message_router
 from .mcp import router as mcp_router
-from .diff_task import router as diff_task_router
 from .job import router as job_router
 
 app_router = APIRouter(prefix="/api")
 app_router.include_router(data_source_router)
-app_router.include_router(embed_task_router)
 app_router.include_router(project_router)
 app_router.include_router(conversation_router)
 app_router.include_router(chroma_router)
 app_router.include_router(message_router)
 app_router.include_router(mcp_router)
-app_router.include_router(diff_task_router)
 app_router.include_router(job_router)
 
 __all__ = ["app_router"]

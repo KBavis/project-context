@@ -80,8 +80,8 @@ class ProjectAffectedFile(Base):
                 "removed a pre-existing file. Seeded by the first per-PR diff.",
     )
 
-    diff_task_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("diff_task.id"),
+    last_diff_task_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("diff_task.id", ondelete="SET NULL"),
         index=True,
         nullable=True,
         comment="Job that last wrote this row; used to determine last time this path was synced",

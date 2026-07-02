@@ -2,7 +2,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from uuid import UUID, uuid4
 import shutil
 from typing import TYPE_CHECKING
@@ -13,14 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.data_source import DataSourceType
 
-from app.models import DataSource, EmbedTask, ProcessingStatus, RecordType, ProjectData
-from app.core import settings, get_async_db_session_context, ChromaClientManager
+from app.models import DataSource, EmbedTask, ProcessingStatus, ProjectData
+from app.core import settings, ChromaClientManager
 from app.services.record_lock import RecordLockService
 from app.services.file import FileService
 from app.services.chroma import ChromaService
 from app.services.chunk_insertion import ChunkInsertionService
 from app.data_providers.ingestible.base import IngestibleDataProvider
 from app.services.diff_task import DiffTaskService
+from app.core.background import get_current_session
+from app.exceptions import TaskSkipped
 
 if TYPE_CHECKING:
     from app.services.data_source import DataSourceService
@@ -75,65 +76,6 @@ class EmbedTaskService:
         )
         return file_svc, chunk_insertion_svc
 
-    async def get_project_ingestion_state(self, project_id: UUID) -> tuple[str, list[str]]:
-        """
-        Determine whether every ingestible DataSource (REPOSITORY, DOCUMENTATION)
-        for this project has a successful EmbedTask.
-
-        Returns a tuple: (ProcessingStatus string value, list of detailed reasons for failure/in_progress).
-        """
-        ingestible = await self.data_source_svc.get_ingestible_data_sources(project_id, self.db)
-
-        if not ingestible:
-            logger.info(f"[IngestionState] project_id={project_id}: no ingestible sources → success")
-            return ProcessingStatus.SUCCESS.value, []
-
-        states = []
-        reasons = []
-        for ds in ingestible:
-            stmt = (
-                select(EmbedTask)
-                .where(EmbedTask.data_source_id == ds.id)
-                .order_by(EmbedTask.start_time.desc())
-                .limit(1)
-            )
-            res = await self.db.execute(stmt)
-            latest_job = res.scalar_one_or_none()
-
-            if not latest_job:
-                logger.info(
-                    f"[IngestionState] project_id={project_id}, ds={ds.id} ({ds.name}): "
-                    "no EmbedTask found → not yet synced"
-                )
-                states.append(ProcessingStatus.NOT_YET_SYNCED.value)
-                reasons.append(f"Data source '{ds.name}' has not yet been ingested.")
-                continue
-
-            job_state = latest_job.processing_status.value
-            logger.info(
-                f"[IngestionState] project_id={project_id}, ds={ds.id} ({ds.name}): "
-                f"latest EmbedTask={latest_job.id}, status={job_state}"
-            )
-            states.append(ProcessingStatus.FAILED.value if job_state == ProcessingStatus.SKIPPED.value else job_state)
-            
-            if job_state == ProcessingStatus.FAILED.value:
-                reasons.append(f"Latest ingestion job failed for data source '{ds.name}'.")
-            elif job_state == ProcessingStatus.IN_PROGRESS.value:
-                reasons.append(f"Data source '{ds.name}' is currently being ingested.")
-            elif job_state == ProcessingStatus.SKIPPED.value:
-                reasons.append(f"Ingestion was skipped for data source '{ds.name}'.")
-
-        logger.info(f"[IngestionState] project_id={project_id}: states={states}")
-
-        if ProcessingStatus.IN_PROGRESS.value in states:
-            return ProcessingStatus.IN_PROGRESS.value, reasons
-        if ProcessingStatus.FAILED.value in states:
-            return ProcessingStatus.FAILED.value, reasons
-        if ProcessingStatus.NOT_YET_SYNCED.value in states:
-            return ProcessingStatus.NOT_YET_SYNCED.value, reasons
-        return ProcessingStatus.SUCCESS.value, []
-
-
 
     
 
@@ -163,12 +105,7 @@ class EmbedTaskService:
             logger.error(f"Failed to find DataSource corresponding to ID={data_source_id}")
             raise Exception("Invalid specified Data Source ID to ingest data from")
         
-        # lock specified DataSource 
-        locked = await self.record_lock_svc.lock(data_source.id, RecordType.DATA_SOURCE)
-        if not locked:
-            raise Exception(f"Failed to acquire lock for DataSource={data_source_id}: Record already locked")
-            
-        
+
         # generate current EmbedTask id & persist inital record
         task_pk = uuid4() 
         await self.create_embed_task(job_pk=task_pk, data_source_id=data_source_id, start_time=job_start_time, job_id=job_id, async_session=async_session)
@@ -200,7 +137,6 @@ class EmbedTaskService:
             data_source (DataSource): the data source being ingested
             project_id (Optional[UUID]): unused; reserved for future project-scoped filtering
         """
-        from app.services.background import get_current_session
         async_session = get_current_session()
 
         data_source_id = data_source.id
@@ -210,20 +146,7 @@ class EmbedTaskService:
         try:
             provider = IngestibleDataProvider.from_provider(data_source)
         except Exception as e:
-            logger.info(
-                f"Skipping ingestion for DataSource={data_source_id}: "
-                f"type={data_source.type} is not ingestible. Reason: {e}"
-            )
-            job_end_time = datetime.now(ZoneInfo("America/New_York"))
-            duration = job_end_time - job_start_time
-            await self.update_embed_task(
-                job_pk=job_pk,
-                status=ProcessingStatus.SKIPPED,
-                end_time=job_end_time,
-                duration=duration.seconds,
-                session=async_session
-            )
-            return
+            raise TaskSkipped(f"{data_source.type} is not ingestible: {e}")
 
         # use data source information to fetch relevant data & store in temp directory
         code_path, docs_path = await self._retrieve_data(provider, job_pk, file_svc, async_session)
@@ -249,20 +172,8 @@ class EmbedTaskService:
         
         self._cleanup_tmp_dirs(job_pk)
 
-        job_end_time = datetime.now(ZoneInfo("America/New_York"))
-        duration = job_end_time - job_start_time
-
-        # update EmbedTask status to be SUCCESS
-        await self.update_embed_task(
-            job_pk=job_pk, 
-            status=ProcessingStatus.SUCCESS,
-            end_time=job_end_time,
-            duration=duration.seconds,
-            session=async_session # use background task's session
-        )
-
         logger.info(
-            f"Ingestion Job for DataSource={data_source_id} completed successfully in {duration.seconds} seconds"
+            f"Ingestion Job for DataSource={data_source_id} completed successfully"
         )
 
 
@@ -328,6 +239,22 @@ class EmbedTaskService:
 
         db.add(embed_task)
         await db.flush()
+
+    async def get_embed_tasks_by_job_id(self, job_id: UUID, session: AsyncSession | None = None) -> list[EmbedTask]:
+        """
+        Retrieve all EmbedTasks associated with a specific job_id.
+
+        Args:
+            job_id (UUID): The ID of the job to retrieve the EmbedTasks for.
+            session (AsyncSession, optional): The database session to use. Defaults to None.
+
+        Returns:
+            list[EmbedTask]: A list of EmbedTasks associated with the specified job_id.
+        """
+        db = session or self.db
+        stmt = select(EmbedTask).where(EmbedTask.job_id == job_id)
+        res = await db.execute(stmt)
+        return list(res.scalars().all())
 
     async def get_all_embed_tasks(self) -> list[EmbedTask]:
         """

@@ -1,6 +1,6 @@
 from __future__ import annotations
 import logging
-from tkinter import E
+import uuid
 from uuid import UUID
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING 
@@ -10,11 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.job import Job
 from app.models.embed_task import EmbedTask
+from app.models.diff_task import DiffTask
 from app.models.data_source import DataSourceType
 from app.models.record_lock import RecordType
 from app.pydantic.status import ProcessingStatus
 from app.core import get_async_db_session_context
-from app.services.background import run_task
+from app.core.background import run_task, get_current_session
 import asyncio
 
 if TYPE_CHECKING:
@@ -43,17 +44,18 @@ class JobService:
         self.embed_task_svc = embed_task_svc
         self.data_source_svc = data_source_svc
 
-    async def create_job(self, project_id: UUID, data_source_id: UUID) -> Job:
-        """Create a new Job record with IN_PROGRESS status."""
-        job = Job(
-            project_id=project_id,
-            data_source_id=data_source_id,
-            status=ProcessingStatus.IN_PROGRESS,
-            start_time=datetime.now(timezone.utc),
-        )
-        self.async_db.add(job)
-        await self.async_db.flush()
-        return job
+    async def create_job(self, project_id: UUID, data_source_id: UUID) -> UUID:
+        """Create a new Job record with IN_PROGRESS status and return its ID."""
+        async with get_async_db_session_context() as session:
+            job = Job(
+                project_id=project_id,
+                data_source_id=data_source_id,
+                status=ProcessingStatus.IN_PROGRESS,
+                start_time=datetime.now(timezone.utc),
+            )
+            session.add(job)
+            await session.commit()
+            return job.id
 
     async def get_job(self, job_id: UUID) -> Job | None:
         """Retrieve a single Job by its primary key."""
@@ -82,91 +84,103 @@ class JobService:
         """
         job_start_time = datetime.now(timezone.utc)
         
-        # 1. Create Job & Tasks using a fresh session
         async with get_async_db_session_context() as session:
             ds = await self.data_source_svc.aget_data_source_by_id_with_session(data_source_id, session)
             if not ds:
                 return
-            
-            job = Job(
-                project_id=project_id,
-                data_source_id=data_source_id,
-                status=ProcessingStatus.IN_PROGRESS,
-                start_time=job_start_time,
-            )
-            session.add(job)
-            await session.flush()
-            
-            diff_task_id = None
-            if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues:
-                dt = await self.diff_svc.init_diff_task(project_id, data_source_id, job_id=job.id, async_session=session)
-                diff_task_id = dt.id
-                
-            _, embed_task_id = await self.embed_task_svc.init_embed_task(data_source_id, job_start_time, job_id=job.id, async_session=session)
-            await session.commit()
-            
-            job_id = job.id
+            is_repo = ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues
 
+        # 1. Create Job 
+        job_id = await self.create_job(project_id, data_source_id)
+            
         # 2. Run DiffTask (if applicable)
-        if diff_task_id:
-            await self._run_diff_task(project_id, diff_task_id)
+        if is_repo:
+            await self._run_diff_task(project_id, data_source_id, job_id)
 
         # 3. Run EmbedTask
-        await self._run_embed_task(project_id, data_source_id, embed_task_id, job_start_time)
+        await self._run_embed_task(project_id, data_source_id, job_id, job_start_time)
         
         # 4. Update Job Status
+        await self.update_job_status(job_id)
+        
+    async def update_job_status(self, job_id: UUID):
         async with get_async_db_session_context() as session:
-            et = await session.get(EmbedTask, embed_task_id)
-            final_job = await session.get(Job, job_id)
-
-            if not final_job:
+            job = await session.get(Job, job_id)
+            if not job:
                 raise Exception(f"No job found with JobID={job_id}")
-            if not et:
-                raise Exception(f"No embed task found with EmbedTaskID={embed_task_id}")
 
-            # The job status matches the embed task status, as embed is the final step
-            final_job.status = et.processing_status
-            final_job.end_time = datetime.now(timezone.utc)
+            diff = await self.diff_svc.get_diff_tasks_by_job_id(job_id, session)
+            embed = await self.embed_task_svc.get_embed_tasks_by_job_id(job_id, session)
+            
+            statuses = [t.status for t in diff] + [t.processing_status for t in embed]
+
+            if ProcessingStatus.FAILED in statuses:
+                job.status = ProcessingStatus.FAILED
+            elif ProcessingStatus.IN_PROGRESS in statuses:
+                job.status = ProcessingStatus.IN_PROGRESS
+            elif ProcessingStatus.SKIPPED in statuses and not any(s == ProcessingStatus.SUCCESS for s in statuses):
+                job.status = ProcessingStatus.SKIPPED
+            else:
+                job.status = ProcessingStatus.SUCCESS
+
+            job.end_time = datetime.now(timezone.utc)
+            job.total_duration = int((job.end_time - job.start_time).total_seconds())
             await session.commit()
 
-    async def _run_diff_task(self, project_id: UUID, diff_task_id: UUID):
-        async def execute_diff():
-            await self.diff_svc.execute_repository_sync_job(diff_task_id)
-        
-        async def mark_diff(sess, t_id, status, reason):
-            await self.diff_svc.update_diff_task(job_id=t_id, status=status, end_time=datetime.now(timezone.utc), duration=0, session=sess, reason=reason)
-            
-        async def mark_diff_fresh(t_id, status, reason):
-            async with get_async_db_session_context() as fresh_sess:
-                await self.diff_svc.update_diff_task(job_id=t_id, status=status, end_time=datetime.now(timezone.utc), duration=0, session=fresh_sess, reason=reason, commit=True)
+    async def _run_diff_task(self, project_id: UUID, data_source_id: UUID, job_id: UUID):
+        async def init_task():
+            sess = get_current_session()
+            dt = await self.diff_svc.init_diff_task(project_id, data_source_id, job_id=job_id, async_session=sess)
+            return dt.id
 
+        async def execute_diff(task_id: UUID):
+            await self.diff_svc.execute_repository_sync_job(task_id)
+        
+        async def mark_diff(sess, t_id, status, reason, end_time, duration):
+            if not t_id: return
+            await self.diff_svc.update_diff_task(job_id=t_id, status=status, end_time=end_time, duration=duration, session=sess, reason=reason)
+            
+        async def mark_diff_fresh(t_id, status, reason, end_time, duration):
+            if not t_id: return
+            async with get_async_db_session_context() as fresh_sess:
+                await self.diff_svc.update_diff_task(job_id=t_id, status=status, end_time=end_time, duration=duration, session=fresh_sess, reason=reason, commit=True)
+
+        lock_key = uuid.uuid5(uuid.NAMESPACE_OID, f"sync:{project_id}:{data_source_id}")
         await run_task(
-            task_id=diff_task_id,
-            resource_id=project_id,
+            resource_id=lock_key,
             resource_type=RecordType.PROJECT_DATA,
+            init_task=init_task,
             execute=execute_diff,
             mark_task=mark_diff,
             mark_task_fresh=mark_diff_fresh
         )
 
-    async def _run_embed_task(self, project_id: UUID, data_source_id: UUID, embed_task_id: UUID, job_start_time: datetime):
-        async def execute_embed():
-            from app.services.background import get_current_session
+    async def _run_embed_task(self, project_id: UUID, data_source_id: UUID, job_id: UUID, job_start_time: datetime):
+        async def init_task():
+            sess = get_current_session()
+            _, dt_id = await self.embed_task_svc.init_embed_task(data_source_id, job_start_time, job_id=job_id, async_session=sess)
+            return dt_id
+
+        async def execute_embed(task_id: UUID):
             sess = get_current_session()
             fresh_ds = await self.data_source_svc.aget_data_source_by_id_with_session(data_source_id, sess)
-            await self.embed_task_svc.run_embed_task(embed_task_id, job_start_time, fresh_ds, project_id)
+            if not fresh_ds:
+                raise Exception(f"DataSource {data_source_id} not found!")
+            await self.embed_task_svc.run_embed_task(task_id, job_start_time, fresh_ds, project_id)
 
-        async def mark_embed(sess, t_id, status, reason):
-            await self.embed_task_svc.update_embed_task(job_pk=t_id, status=status, end_time=datetime.now(timezone.utc), duration=0, session=sess, reason=reason)
+        async def mark_embed(sess, t_id, status, reason, end_time, duration):
+            if not t_id: return
+            await self.embed_task_svc.update_embed_task(job_pk=t_id, status=status, end_time=end_time, duration=duration, session=sess, reason=reason)
             
-        async def mark_embed_fresh(t_id, status, reason):
+        async def mark_embed_fresh(t_id, status, reason, end_time, duration):
+            if not t_id: return
             async with get_async_db_session_context() as fresh_sess:
-                await self.embed_task_svc.update_embed_task(job_pk=t_id, status=status, end_time=datetime.now(timezone.utc), duration=0, session=fresh_sess, reason=reason, commit=True)
+                await self.embed_task_svc.update_embed_task(job_pk=t_id, status=status, end_time=end_time, duration=duration, session=fresh_sess, reason=reason, commit=True)
 
         await run_task(
-            task_id=embed_task_id,
             resource_id=data_source_id,
             resource_type=RecordType.DATA_SOURCE,
+            init_task=init_task,
             execute=execute_embed,
             mark_task=mark_embed,
             mark_task_fresh=mark_embed_fresh
@@ -224,3 +238,53 @@ class JobService:
         )
         res = await self.async_db.execute(stmt)
         return list(res.scalars().all())
+
+    async def get_project_sync_state(self, project_id: UUID) -> tuple[str, list[str]]:
+        """
+        Calculates the project-wide sync state by aggregating
+        the latest Job status for each ingestible data source.
+        Returns:
+            (aggregate_status, blocked_reasons)
+            where aggregate_status is one of NOT_YET_SYNCED, IN_PROGRESS, FAILED, SUCCESS.
+        """
+        data_sources = await self.data_source_svc.aget_project_data_sources(project_id)
+        applicable_ds = [ds for ds in data_sources if ds.type != DataSourceType.ISSUE_TRACKER]
+
+        if not applicable_ds:
+            return ProcessingStatus.SUCCESS.value, []
+
+        blocked_reasons = []
+        statuses = []
+        
+        for ds in applicable_ds:
+            stmt = (
+                select(Job)
+                .where(Job.data_source_id == ds.id)
+                .order_by(Job.start_time.desc())
+                .limit(1)
+            )
+            res = await self.async_db.execute(stmt)
+            latest_job = res.scalar_one_or_none()
+            
+            if not latest_job:
+                statuses.append(ProcessingStatus.NOT_YET_SYNCED.value)
+                blocked_reasons.append(f"Data source {ds.id} is not yet synced.")
+            elif latest_job.status == ProcessingStatus.FAILED:
+                statuses.append(ProcessingStatus.FAILED.value)
+                blocked_reasons.append(f"Data source {ds.id} sync failed.")
+            elif latest_job.status == ProcessingStatus.IN_PROGRESS:
+                statuses.append(ProcessingStatus.IN_PROGRESS.value)
+            elif latest_job.status == ProcessingStatus.SKIPPED:
+                statuses.append(ProcessingStatus.SUCCESS.value)
+            elif latest_job.status == ProcessingStatus.SUCCESS:
+                statuses.append(ProcessingStatus.SUCCESS.value)
+                    
+        # Aggregate precedence: IN_PROGRESS -> FAILED -> NOT_YET_SYNCED -> SUCCESS
+        if ProcessingStatus.IN_PROGRESS.value in statuses:
+            return ProcessingStatus.IN_PROGRESS.value, blocked_reasons
+        if ProcessingStatus.FAILED.value in statuses:
+            return ProcessingStatus.FAILED.value, blocked_reasons
+        if ProcessingStatus.NOT_YET_SYNCED.value in statuses:
+            return ProcessingStatus.NOT_YET_SYNCED.value, blocked_reasons
+        
+        return ProcessingStatus.SUCCESS.value, []
