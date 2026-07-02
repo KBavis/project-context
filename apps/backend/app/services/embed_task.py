@@ -20,7 +20,7 @@ from app.services.file import FileService
 from app.services.chroma import ChromaService
 from app.services.chunk_insertion import ChunkInsertionService
 from app.data_providers.ingestible.base import IngestibleDataProvider
-from app.services.diff import DiffService
+from app.services.diff_task import DiffTaskService
 
 if TYPE_CHECKING:
     from app.services.data_source import DataSourceService
@@ -34,7 +34,7 @@ class EmbedTaskService:
             db: AsyncSession, 
             record_lock_svc: RecordLockService,
             data_source_svc: DataSourceService,
-            diff_svc: DiffService
+            diff_task_svc: DiffTaskService
     ):
         """
         Initialize EmbedTaskService with necessary dependencies
@@ -47,7 +47,7 @@ class EmbedTaskService:
         self.db: AsyncSession = db
         self.record_lock_svc: RecordLockService = record_lock_svc
         self.data_source_svc: DataSourceService = data_source_svc
-        self.diff_svc: DiffService = diff_svc
+        self.diff_task_svc: DiffTaskService = diff_task_svc
 
     @staticmethod
     def _build_ingestion_services(
@@ -420,7 +420,7 @@ class EmbedTaskService:
 
         touched_file_paths = None
         if provider.data_source.type == DataSourceType.REPOSITORY and provider.data_source.scope_by_issues:
-            touched_file_paths = await self.diff_svc.get_project_touched_file_paths(provider.data_source.id, async_session=async_session)
+            touched_file_paths = await self.diff_task_svc.get_project_touched_file_paths(provider.data_source.id, async_session=async_session)
             logger.info(f"DataSource {provider.data_source.id} is scoped by issues. Fetched {len(touched_file_paths)} touched file paths across projects.")
 
         await provider.ingest_data(job_pk=job_pk, file_svc=file_svc, touched_file_paths=touched_file_paths) 

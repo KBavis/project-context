@@ -36,4 +36,4 @@ class EmbedTask(Base):
     end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True, comment="End time of EmbedTask processing")
     total_duration: Mapped[int] = mapped_column(nullable=True, comment="Total duration of EmbedTask in seconds")
 
-    data_source: Mapped["DataSource"] = relationship(back_populates="ingestion_jobs")
+    data_source: Mapped["DataSource"] = relationship(back_populates="embed_tasks")

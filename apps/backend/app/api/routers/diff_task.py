@@ -37,7 +37,7 @@ async def get_repository_code_changes(
         )
 
 @router.post("/sync/{project_id}/{data_source_id}", status_code=status.HTTP_202_ACCEPTED)
-async def trigger_diff_sync(
+async def trigger_diff_task(
     project_id: UUID,
     data_source_id: UUID,
     background_tasks: BackgroundTasks,
@@ -53,7 +53,7 @@ async def trigger_diff_sync(
 
 
 @router.get("/sync/jobs/{project_id}/{data_source_id}")
-async def get_diff_sync_jobs(
+async def get_diff_tasks(
     project_id: UUID,
     data_source_id: UUID,
     svc: DiffTaskService = Depends(get_async_diff_task_svc)

@@ -56,7 +56,7 @@ class FileService:
 
         
 
-        # Step 4. Mark this File's "last_ingestion_job_id" with relevant ingestion_job that is currently being ran (if needed)
+        # Step 4. Mark this File's "last_embed_task_id" with relevant embed_task that is currently being ran (if needed)
         if status != FileProcesingStatus.NEW:
             await self.update_last_seen_job_pk(job_pk, data_source.id, [persisted_file])
         
@@ -282,12 +282,12 @@ class FileService:
 
 
     
-    async def update_last_seen_job_pk(self, ingestion_job_id: UUID, data_source_id: UUID, files: List["File"]):
+    async def update_last_seen_job_pk(self, embed_task_id: UUID, data_source_id: UUID, files: List["File"]):
         """
         Update all processed files during EmbedTask "last_seen_by" column to reference current EmbedTask PK 
 
         Args:
-            ingestion_job_id (UUID): PK of the current ingestion job 
+            embed_task_id (UUID): PK of the current ingestion job 
             files (List["File"]): list of files we processed 
         """
 
@@ -302,26 +302,26 @@ class FileService:
                 File.data_source_id == data_source_id,
                 File.id.in_(file_ids)
             )
-            .values(last_ingestion_job_id = ingestion_job_id)
+            .values(last_embed_task_id = embed_task_id)
         )
 
         _ = await session.execute(stmt)
         await session.flush()
     
 
-    async def get_stale_files(self, data_source_id: UUID, ingestion_job_id: UUID) -> list[UUID] | None: 
+    async def get_stale_files(self, data_source_id: UUID, embed_task_id: UUID) -> list[UUID] | None: 
         """
         Retrieve files from database that we did not see/process during EmbedTask (i.e stale files that we should remove)
 
 
         Args:
             data_source_id (UUID): PK of the data source this file corresponds to
-            ingestion_job_id (UUID): PK of the current ingestion job
+            embed_task_id (UUID): PK of the current ingestion job
         """
         
         select_stmt = (
             select(File)
-            .where(File.data_source_id == data_source_id, File.last_ingestion_job_id != ingestion_job_id)
+            .where(File.data_source_id == data_source_id, File.last_embed_task_id != embed_task_id)
         )
         res = await self.session.execute(select_stmt)
         stale_files = res.scalars().all() 
@@ -469,7 +469,7 @@ class FileService:
             name=file.file_name,
             path=file.path,
             data_source_id=data_source.id,
-            last_ingestion_job_id=job_pk,
+            last_embed_task_id=job_pk,
             file_url=file.file_url
         )
 

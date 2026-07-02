@@ -361,7 +361,7 @@ class DataSourceService:
             select(DataSource)
             .options(
                 selectinload(DataSource.project_data).selectinload(ProjectData.project).selectinload(Project.project_data).selectinload(ProjectData.data_source),
-                selectinload(DataSource.ingestion_jobs),
+                selectinload(DataSource.embed_tasks),
                 selectinload(DataSource.chroma_collection),
             )
             .where(DataSource.id == data_source_id)
@@ -408,7 +408,7 @@ class DataSourceService:
         # Extract file_ids before we drop the records so the background job can scrub them from Chroma/DocStore
         file_ids = list(self.db.execute(select(File.id).where(File.data_source_id == data_source_id)).scalars())
 
-        # Delete the data source (cascades handle ingestion_jobs, files, mcp_configs, chroma_collection)
+        # Delete the data source (cascades handle embed_tasks, files, mcp_configs, chroma_collection)
         self.db.delete(ds)
         self.db.flush()
         

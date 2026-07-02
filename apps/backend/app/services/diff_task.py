@@ -181,7 +181,7 @@ class DiffTaskService:
         if commit:
             await session.commit()
 
-    async def _validate_diff_sync_preconditions(
+    async def _validate_diff_task_preconditions(
         self,
         job_id: UUID,
         job_start_time: datetime,
@@ -284,7 +284,7 @@ class DiffTaskService:
 
             try:
                 # Validate job preconditions. If they aren't met, the job is cleanly skipped.
-                is_valid = await self._validate_diff_sync_preconditions(
+                is_valid = await self._validate_diff_task_preconditions(
                     job_id=job_id,
                     job_start_time=job_start_time,
                     project=project,
@@ -308,7 +308,7 @@ class DiffTaskService:
                     project=project,
                     repository_ds=repository_ds,
                     issue_tracker_ds=issue_tracker_ds,
-                    diff_sync_job_id=job_id,
+                    diff_task_id=job_id,
                     async_session=async_session,
                 )
 
@@ -362,7 +362,7 @@ class DiffTaskService:
         project: Project,
         repository_ds: DataSource,
         issue_tracker_ds: DataSource,
-        diff_sync_job_id: UUID,
+        diff_task_id: UUID,
         async_session: AsyncSession,
     ) -> dict[str, int]:
         """
@@ -380,7 +380,7 @@ class DiffTaskService:
 
         # ensure the aggregate record exists before persisting PRs (composite FK target)
         repo_changes = await self._ensure_project_repo_summary(
-            project.id, repository_ds.id, diff_sync_job_id, async_session
+            project.id, repository_ds.id, diff_task_id, async_session
         )
 
         if not child_issues:
@@ -389,7 +389,7 @@ class DiffTaskService:
                 f"-- nothing to sync for DataSource={repository_ds.id}"
             )
             await self._update_repository_changes_summary(
-                repo_changes, project.id, repository_ds.id, diff_sync_job_id, async_session
+                repo_changes, project.id, repository_ds.id, diff_task_id, async_session
             )
             return {"resolved_prs": 0, "new_prs": 0, "files_touched": repo_changes.file_count}
 
@@ -410,7 +410,7 @@ class DiffTaskService:
                 f"Project={project.id} and DataSource={repository_ds.id} -- up to date"
             )
             await self._update_repository_changes_summary(
-                repo_changes, project.id, repository_ds.id, diff_sync_job_id, async_session
+                repo_changes, project.id, repository_ds.id, diff_task_id, async_session
             )
             return {
                 "resolved_prs": len(resolved_prs),
@@ -434,14 +434,14 @@ class DiffTaskService:
                 patches=patches,
                 project_id=project.id,
                 repository_data_source_id=repository_ds.id,
-                diff_sync_job_id=diff_sync_job_id,
+                diff_task_id=diff_task_id,
                 async_session=async_session,
             )
 
 
 
         await self._update_repository_changes_summary(
-            repo_changes, project.id, repository_ds.id, diff_sync_job_id, async_session
+            repo_changes, project.id, repository_ds.id, diff_task_id, async_session
         )
 
         return {
@@ -467,7 +467,7 @@ class DiffTaskService:
         self,
         project_id: UUID,
         repository_data_source_id: UUID,
-        diff_sync_job_id: UUID,
+        diff_task_id: UUID,
         async_session: AsyncSession,
     ) -> ProjectRepoSummary:
         """Get the ProjectRepoSummary row, creating an empty one on first sync."""
@@ -480,7 +480,7 @@ class DiffTaskService:
             repo_changes = ProjectRepoSummary(
                 project_id=project_id,
                 data_source_id=repository_data_source_id,
-                diff_sync_job_id=diff_sync_job_id,
+                diff_task_id=diff_task_id,
                 file_count=0,
             )
             async_session.add(repo_changes)
@@ -533,7 +533,7 @@ class DiffTaskService:
         patches: list[FileDiffPatch],
         project_id: UUID,
         repository_data_source_id: UUID,
-        diff_sync_job_id: UUID,
+        diff_task_id: UUID,
         async_session: AsyncSession,
     ):
         """
@@ -552,7 +552,7 @@ class DiffTaskService:
                 pr_record=pr_record,
                 project_id=project_id,
                 repository_data_source_id=repository_data_source_id,
-                diff_sync_job_id=diff_sync_job_id,
+                diff_task_id=diff_task_id,
                 async_session=async_session,
             )
 
@@ -614,7 +614,7 @@ class DiffTaskService:
         pr_record: PullRequest,
         project_id: UUID,
         repository_data_source_id: UUID,
-        diff_sync_job_id: UUID,
+        diff_task_id: UUID,
         async_session: AsyncSession,
     ):
         """
@@ -648,7 +648,7 @@ class DiffTaskService:
                 data_source_id=repository_data_source_id,
                 file_path=file_path,
                 change_type=change_type,
-                diff_sync_job_id=diff_sync_job_id,
+                diff_task_id=diff_task_id,
             )
             async_session.add(file_history)
             await async_session.flush()
@@ -679,7 +679,7 @@ class DiffTaskService:
         elif file_history.change_type == ChangeType.DELETED:
             # a path the project had deleted is back -> it was modified over time
             file_history.change_type = ChangeType.MODIFIED
-        file_history.diff_sync_job_id = diff_sync_job_id
+        file_history.diff_task_id = diff_task_id
         await async_session.flush()
 
 
@@ -724,7 +724,7 @@ class DiffTaskService:
         repo_changes: ProjectRepoSummary,
         project_id: UUID,
         repository_data_source_id: UUID,
-        diff_sync_job_id: UUID,
+        diff_task_id: UUID,
         async_session: AsyncSession,
     ):
         """Refresh the denormalized counts / sync metadata."""
@@ -737,7 +737,7 @@ class DiffTaskService:
         file_count = res.scalar_one()
 
         repo_changes.file_count = file_count
-        repo_changes.diff_sync_job_id = diff_sync_job_id
+        repo_changes.diff_task_id = diff_task_id
         repo_changes.last_synced_time = datetime.now(timezone.utc)
         async_session.add(repo_changes)
         await async_session.flush()
