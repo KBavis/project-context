@@ -36,35 +36,4 @@ async def get_repository_code_changes(
             detail=f"{str(e)}",
         )
 
-@router.post("/sync/{project_id}/{data_source_id}", status_code=status.HTTP_202_ACCEPTED)
-async def trigger_diff_task(
-    project_id: UUID,
-    data_source_id: UUID,
-    background_tasks: BackgroundTasks,
-    svc: DiffTaskService = Depends(get_async_diff_task_svc)
-):
-    try:
-        job = await svc.init_diff_task(project_id, data_source_id)
-        background_tasks.add_task(svc.execute_repository_sync_job, job.id)
-        return {"job_id": job.id, "status": job.status.value}
-    except Exception as e:
-        logger.error(f"Error triggering diff sync: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.get("/sync/jobs/{project_id}/{data_source_id}")
-async def get_diff_tasks(
-    project_id: UUID,
-    data_source_id: UUID,
-    svc: DiffTaskService = Depends(get_async_diff_task_svc)
-):
-    try:
-        stmt = select(DiffTask).where(
-            DiffTask.project_id == project_id,
-            DiffTask.data_source_id == data_source_id
-        ).order_by(DiffTask.start_time.desc()).limit(10)
-        res = await svc.async_db.execute(stmt)
-        return res.scalars().all()
-    except Exception as e:
-        logger.error(f"Error fetching diff sync jobs: {e}")
-        raise HTTPException(status_code=500, detail=str(e))

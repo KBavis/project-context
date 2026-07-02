@@ -250,111 +250,70 @@ class DiffTaskService:
         """
         Execute an initalized DiffTask keyed by the specified JobID. This job will be ran in 
         a FastAPI.BackgroundTask and will be responsbile for syncing the code changes introduced
-        to a particular Repository DataSource by a specific Project. The associated PROJECT_DATA
-        record is locked to prohibit parallel DiffTask's running at once, and will be unlocked
-        following its completetion
+        to a particular Repository DataSource by a specific Project. 
 
         Args:
             job_id (UUID): the DiffTask PK to execute 
         """
+        from app.services.background import get_current_session
+        async_session = get_current_session()
 
-        async with get_async_db_session_context() as async_session:
+        # retrieve the initalized DiffTask
+        stmt = select(DiffTask).where(DiffTask.id == job_id)
+        res = await async_session.execute(stmt)
+        job = res.scalar_one_or_none()
+        
+        if not job:
+            logger.error(f"No DiffTask found for ID: {job_id}")
+            raise Exception(f"No DiffTask found for ID: {job_id}")
 
-            # retrieve the initalized DiffTask
-            stmt = select(DiffTask).where(DiffTask.id == job_id)
-            res = await async_session.execute(stmt)
-            job = res.scalar_one_or_none()
-            
-            if not job:
-                logger.error(f"No DiffTask found for ID: {job_id}")
-                raise Exception(f"No DiffTask found for ID: {job_id}")
+        # Fetch the associated Project and DataSource inside this session
+        stmt = select(Project).where(Project.id == job.project_id)
+        res = await async_session.execute(stmt)
+        project = res.scalars().one()
+        
+        stmt = select(DataSource).where(DataSource.id == job.data_source_id)
+        res = await async_session.execute(stmt)
+        repository_ds = res.scalars().one()
 
-            # Fetch the associated Project and DataSource inside this session
-            stmt = select(Project).where(Project.id == job.project_id)
-            res = await async_session.execute(stmt)
-            project = res.scalars().one()
-            
-            stmt = select(DataSource).where(DataSource.id == job.data_source_id)
-            res = await async_session.execute(stmt)
-            repository_ds = res.scalars().one()
+        job_start_time = job.start_time
 
-            pair_lock_key = f"sync:{job.project_id}:{job.data_source_id}"
-            lock_uuid = uuid.uuid5(uuid.NAMESPACE_OID, pair_lock_key)
-            job_start_time = job.start_time
+        # Validate job preconditions. If they aren't met, the job is cleanly skipped.
+        is_valid = await self._validate_diff_task_preconditions(
+            job_id=job_id,
+            job_start_time=job_start_time,
+            project=project,
+            repository_ds=repository_ds,
+            async_session=async_session
+        )
+        
+        if not is_valid:
+            return
 
-            try:
-                # Validate job preconditions. If they aren't met, the job is cleanly skipped.
-                is_valid = await self._validate_diff_task_preconditions(
-                    job_id=job_id,
-                    job_start_time=job_start_time,
-                    project=project,
-                    repository_ds=repository_ds,
-                    async_session=async_session
-                )
-                
-                if not is_valid:
-                    return
+        # get the IssueTracker tied to this Project (NOTE: This is REQUIRED when scoping a Repository's changes by Issues)
+        issue_tracker_ds = await self.data_source_svc.get_issue_tracker_data_source(
+            project_id=job.project_id,
+            async_session=async_session
+        )
 
-                # get the IssueTracker tied to this Project (NOTE: This is REQUIRED when scoping a Repository's changes by Issues)
-                issue_tracker_ds = await self.data_source_svc.get_issue_tracker_data_source(
-                    project_id=job.project_id,
-                    async_session=async_session
-                )
+        # resolve the merged pull requests linked to this project's issues, then
+        # persist any that have not been processed yet (merged PRs are immutable,
+        # so previously-processed PRs never need recomputing).
+        metrics = await self.sync_project_pull_requests(
+            project=project,
+            repository_ds=repository_ds,
+            issue_tracker_ds=issue_tracker_ds,
+            diff_task_id=job_id,
+            async_session=async_session,
+        )
 
-                # resolve the merged pull requests linked to this project's issues, then
-                # persist any that have not been processed yet (merged PRs are immutable,
-                # so previously-processed PRs never need recomputing).
-                metrics = await self.sync_project_pull_requests(
-                    project=project,
-                    repository_ds=repository_ds,
-                    issue_tracker_ds=issue_tracker_ds,
-                    diff_task_id=job_id,
-                    async_session=async_session,
-                )
-
-                # update DiffTask status as successful
-                end_time = datetime.now(timezone.utc)
-                duration = int((end_time - job_start_time).total_seconds())
-                await self.update_diff_task(
-                    job_id=job_id,
-                    status=ProcessingStatus.SUCCESS,
-                    end_time=end_time,
-                    duration=duration,
-                    session=async_session,
-                    commit=True
-                )
-
-                logger.info(
-                    f"DiffTask {job_id} completed successfully in {duration}s for "
-                    f"Project={project.id} (Repository DataSource={repository_ds.id}): "
-                    f"{metrics['new_prs']} new pull request(s) processed of "
-                    f"{metrics['resolved_prs']} linked, {metrics['files_touched']} file(s) "
-                    f"now tracked in the repository change history."
-                )
-
-            except Exception as e:
-                logger.error(f"Error during execute_repository_sync_job for job {job_id}: {e}", exc_info=True)
-                
-                # update the DiffTask with appropaite status and error message when failing 
-                # NOTE: This is done in seperate session as all other changes will be rolled back
-                async with get_async_db_session_context() as session:
-                    fail_end_time = datetime.now(timezone.utc)
-                    fail_duration = int((fail_end_time - job_start_time).total_seconds())
-                    await self.update_diff_task(
-                        job_id=job_id,
-                        status=ProcessingStatus.FAILED,
-                        end_time=fail_end_time,
-                        duration=fail_duration,
-                        session=session,
-                        reason=str(e),
-                        commit=True
-                    )
-
-                # re-raise so changes are rolled back
-                raise
-            finally:
-                # always unlock ProjectData record after job completes
-                await self.record_lock_svc.unlock(lock_uuid, record_type=RecordType.PROJECT_DATA)
+        logger.info(
+            f"DiffTask {job_id} completed successfully for "
+            f"Project={project.id} (Repository DataSource={repository_ds.id}): "
+            f"{metrics['new_prs']} new pull request(s) processed of "
+            f"{metrics['resolved_prs']} linked, {metrics['files_touched']} file(s) "
+            f"now tracked in the repository change history."
+        )
 
 
     async def sync_project_pull_requests(
@@ -856,26 +815,7 @@ class DiffTaskService:
             for ds_id, file_ids in result.all()
         }
 
-    async def run_diff_task_pipeline(
-        self, project_id: UUID, data_source_id: UUID
-    ) -> None:
-        """
-        Run diff-sync (Refresh Project Changes) for a single scoped repo.
-        Opens its own background session lifecycle so failures are isolated.
-        """
-        try:
-            async with get_async_db_session_context() as async_session:
-                job = await self.init_diff_task(project_id, data_source_id, async_session=async_session)
-                await async_session.commit()
 
-            # execute in its own session (execute_repository_sync_job opens get_async_db_session_context internally)
-            await self.execute_repository_sync_job(job.id)
-
-        except Exception as e:
-            logger.error(
-                f"[SyncProject] Stage 1 failed for DataSource={data_source_id}: {e}",
-                exc_info=True,
-            )
 
 
     async def get_file_diff_string(self, project_id: UUID, data_source_id: UUID, file_path: str) -> str:

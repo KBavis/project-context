@@ -52,7 +52,21 @@ class DataSourceService:
 
         return data_source
 
-    
+    async def aget_data_source_by_id_with_session(
+        self, data_source_id: UUID, session: AsyncSession
+    ) -> DataSource | None:
+        """
+        Retrieve a DataSource by ID using an explicitly provided async session.
+        Used by background tasks that manage their own session lifecycle.
+
+        Args:
+            data_source_id (UUID): the data source to retrieve
+            session (AsyncSession): the caller-managed async session
+        """
+        stmt = select(DataSource).where(DataSource.id == data_source_id)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_issue_tracker_data_source(
         self, 
         project_id: UUID, 

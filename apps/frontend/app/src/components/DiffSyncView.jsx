@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useDataSources, useAlert, useProjects, useIngestionJobs } from '../contexts/index';
+import { useDataSources, useAlert, useProjects, useJobs } from '../contexts/index';
 import api from '../services/api';
 import Button from './Button';
 import Modal from './Modal';
@@ -8,11 +8,9 @@ import '../styles/DiffSyncView.css';
 export default function DiffSyncView({ projectId }) {
     const { dataSources } = useDataSources();
     const { syncingProjects, startPolling } = useProjects();
-    const { ingestionJobs } = useIngestionJobs();
+    const { jobs, fetchJobs } = useJobs();
     const { showAlert } = useAlert();
 
-    const [diffSyncJobs, setDiffSyncJobs] = useState({});
-    const [loadingJobs, setLoadingJobs] = useState(false);
     const [triggeringSync, setTriggeringSync] = useState(false);
     const [syncingProject, setSyncingProject] = useState(false);
 
@@ -37,41 +35,19 @@ export default function DiffSyncView({ projectId }) {
         return status.toLowerCase();
     };
 
-    // Get latest ingestion job for a data source
-    const getLatestIngestionJob = (dsId) => {
-        return ingestionJobs
+    // Get jobs for a specific data source
+    const getJobsForDataSource = (dsId) => {
+        return jobs
             .filter(job => job.data_source_id === dsId)
-            .sort((a, b) => new Date(b.start_time || b.created_at) - new Date(a.start_time || a.created_at))[0] || null;
+            .sort((a, b) => new Date(b.start_time || b.created_at) - new Date(a.start_time || a.created_at));
     };
-
-    // Fetch diff sync jobs for all eligible sources
-    const fetchAllJobs = async () => {
-        if (!projectId || eligibleSources.length === 0) return;
-        setLoadingJobs(true);
-        try {
-            const jobsByDs = {};
-            for (const ds of eligibleSources) {
-                const jobs = await api.diff.getSyncJobs(projectId, ds.id);
-                jobsByDs[ds.id] = jobs;
-            }
-            setDiffSyncJobs(jobsByDs);
-        } catch (err) {
-            console.error('Failed to fetch diff sync jobs', err);
-        } finally {
-            setLoadingJobs(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchAllJobs();
-    }, [projectId, dataSources.length]);
 
     // Refetch jobs when polling finishes so we get the final status (SUCCESS or FAILED)
     useEffect(() => {
         if (syncState && !syncState.isSyncing) {
-            fetchAllJobs();
+            fetchJobs(true);
         }
-    }, [syncState?.isSyncing]);
+    }, [syncState?.isSyncing, fetchJobs]);
 
     // ── Sync Project (full orchestrator) ──
     const handleSyncProject = () => {
@@ -84,10 +60,10 @@ export default function DiffSyncView({ projectId }) {
                 setSyncingProject(true);
                 closeConfirmModal();
                 try {
-                    await api.projects.sync(projectId);
+                    await api.jobs.create(projectId);
                     startPolling(projectId);
                     showAlert('🚀 Sync Project triggered! All stages running in background.', 'success');
-                    setTimeout(fetchAllJobs, 3000);
+                    setTimeout(() => fetchJobs(true), 3000);
                 } catch (err) {
                     showAlert('Failed to trigger Sync Project: ' + err.message, 'error');
                 } finally {
@@ -108,11 +84,11 @@ export default function DiffSyncView({ projectId }) {
                 closeConfirmModal();
                 try {
                     for (const ds of eligibleSources) {
-                        await api.diff.triggerSync(projectId, ds.id);
+                        await api.jobs.create(projectId, ds.id);
                     }
                     startPolling(projectId);
-                    showAlert('🚀 Refresh Project Changes triggered!', 'success');
-                    setTimeout(fetchAllJobs, 2000);
+                    showAlert('🚀 Sync triggered for all eligible sources!', 'success');
+                    setTimeout(() => fetchJobs(true), 2000);
                 } catch (err) {
                     showAlert('Failed to trigger sync: ' + err.message, 'error');
                 } finally {
@@ -132,10 +108,10 @@ export default function DiffSyncView({ projectId }) {
                 setTriggeringSync(true);
                 closeConfirmModal();
                 try {
-                    await api.diff.triggerSync(projectId, ds.id);
+                    await api.jobs.create(projectId, ds.id);
                     startPolling(projectId);
-                    showAlert(`🚀 Refresh Project Changes triggered for "${ds.name}"!`, 'success');
-                    setTimeout(fetchAllJobs, 2000);
+                    showAlert(`🚀 Sync triggered for "${ds.name}"!`, 'success');
+                    setTimeout(() => fetchJobs(true), 2000);
                 } catch (err) {
                     showAlert('Failed to trigger sync: ' + err.message, 'error');
                 } finally {
@@ -207,9 +183,8 @@ export default function DiffSyncView({ projectId }) {
 
             <div className="diff-sync-sources">
                 {eligibleSources.map(ds => {
-                    const jobs = diffSyncJobs[ds.id] || [];
-                    const latestIngestion = getLatestIngestionJob(ds.id);
-                    const latestIngestionStatus = latestIngestion ? mapStatus(latestIngestion.processing_status) : null;
+                    const dsJobs = getJobsForDataSource(ds.id);
+                    const latestJob = dsJobs.length > 0 ? dsJobs[0] : null;
 
                     return (
                         <div key={ds.id} className="sync-source-card">
@@ -231,33 +206,7 @@ export default function DiffSyncView({ projectId }) {
                                 </Button>
                             </div>
 
-                            {/* Per-source Refresh Data Source activity indicator */}
-                            {latestIngestion && (
-                                <div className="sync-source-activity" style={{
-                                    padding: '8px 12px',
-                                    margin: '0 16px 8px',
-                                    borderRadius: '8px',
-                                    background: 'var(--surface-color)',
-                                    border: '1px solid var(--border-color)',
-                                    fontSize: '0.8rem',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                }}>
-                                    <span style={{ color: 'var(--color-text-secondary)' }}>
-                                        Refresh Data Source
-                                    </span>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <span style={{ color: 'var(--color-text-tertiary)', fontSize: '0.75rem' }}>
-                                            {new Date(latestIngestion.start_time).toLocaleString()}
-                                        </span>
-                                        <span className={`mini-job-status status-${latestIngestionStatus}`}>
-                                            {latestIngestionStatus}
-                                        </span>
-                                    </div>
-                                </div>
-                            )}
-                            {!latestIngestion && ds.scope_by_issues && (
+                            {!latestJob && ds.scope_by_issues && (
                                 <div style={{
                                     padding: '8px 12px',
                                     margin: '0 16px 8px',
@@ -272,14 +221,12 @@ export default function DiffSyncView({ projectId }) {
                             )}
 
                             <div className="sync-jobs-section">
-                                <h4>Recent Refresh Project Changes</h4>
-                                {loadingJobs ? (
-                                    <p className="sync-jobs-loading">Loading...</p>
-                                ) : jobs.length === 0 ? (
+                                <h4>Recent Sync Jobs</h4>
+                                {dsJobs.length === 0 ? (
                                     <p className="sync-jobs-empty">No sync jobs found for this source.</p>
                                 ) : (
                                     <div className="sync-jobs-list">
-                                        {jobs.slice(0, 5).map(job => {
+                                        {dsJobs.slice(0, 5).map(job => {
                                             const status = mapStatus(job.status);
                                             return (
                                                 <div key={job.id} className="sync-job-row">

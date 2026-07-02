@@ -178,33 +178,7 @@ class EmbedTaskService:
 
 
 
-    async def run_ingestion_pipeline(
-        self, data_source: DataSource, project_id: UUID | None = None
-    ) -> None:
-        """
-        Run ingestion (Refresh Data Source) for a single data source.
-        Mirrors EmbedTaskService session lifecycle: init in one session,
-        run in a background session.
-        """
-        try:
-            job_start_time = datetime.now(ZoneInfo("America/New_York"))
-            
-            async with get_async_db_session_context() as async_session:
-                data_source_obj, job_pk = await self.init_embed_task(
-                    data_source.id, job_start_time, async_session=async_session
-                )
-                await async_session.commit()
 
-            # run_embed_task creates its own sessions for chroma/db
-            await self.run_embed_task(
-                job_pk, job_start_time, data_source_obj, project_id=project_id
-            )
-        except Exception as e:
-            logger.error(
-                f"[SyncProject] Ingestion failed for DataSource={data_source.id} "
-                f"({data_source.name}): {e}",
-                exc_info=True,
-            )
 
     async def run_embed_task(
             self, 
@@ -220,119 +194,76 @@ class EmbedTaskService:
         Since Chroma and DocStore are each 1-1 with a DataSource, all ingested nodes
         belong exclusively to this data source's collection and namespace.
 
-        TODO: Fairly wasteful to completly roll back 100000 files just because the 
-        99999 file failed ingestion; consider looking into batching this job or doing 
-        per-file download, chunk, and store logic: https://github.com/KBavis/contextualized/issues/40
-
         Args:
             job_pk (UUID): unique ID of the current ingestion job
             job_start_time (datetime): wall-clock time the job was initiated
             data_source (DataSource): the data source being ingested
             project_id (Optional[UUID]): unused; reserved for future project-scoped filtering
         """
+        from app.services.background import get_current_session
+        async_session = get_current_session()
 
         data_source_id = data_source.id
 
+        file_svc, chunk_insertion_svc = self._build_ingestion_services(async_session)
+
         try:
-            # NOTE: Need to leverage new Async DB Session outside of FastAPI request lifecycle 
-            # in order to prevent deadlocks and ensure that the database connection is not 
-            # prematurely closed when the HTTP response is returned.
-            async with get_async_db_session_context() as async_session:
+            provider = IngestibleDataProvider.from_provider(data_source)
+        except Exception as e:
+            logger.info(
+                f"Skipping ingestion for DataSource={data_source_id}: "
+                f"type={data_source.type} is not ingestible. Reason: {e}"
+            )
+            job_end_time = datetime.now(ZoneInfo("America/New_York"))
+            duration = job_end_time - job_start_time
+            await self.update_embed_task(
+                job_pk=job_pk,
+                status=ProcessingStatus.SKIPPED,
+                end_time=job_end_time,
+                duration=duration.seconds,
+                session=async_session
+            )
+            return
 
-                file_svc, chunk_insertion_svc = self._build_ingestion_services(async_session)
+        # use data source information to fetch relevant data & store in temp directory
+        code_path, docs_path = await self._retrieve_data(provider, job_pk, file_svc, async_session)
 
-                try:
-                    provider = IngestibleDataProvider.from_provider(data_source)
-                except Exception as e:
-                    logger.info(
-                        f"Skipping ingestion for DataSource={data_source_id}: "
-                        f"type={data_source.type} is not ingestible. Reason: {e}"
-                    )
-                    job_end_time = datetime.now(ZoneInfo("America/New_York"))
-                    duration = job_end_time - job_start_time
-                    await self.update_embed_task(
-                        job_pk=job_pk,
-                        status=ProcessingStatus.SKIPPED,
-                        end_time=job_end_time,
-                        duration=duration.seconds,
-                        session=async_session
-                    )
-                    return
+        # determine which data source types were downloaded
+        has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(code_path)
 
-                try:
+        # validate retrieval resulted in some data being processed
+        if not has_docs and not has_code:
+            logger.warning("No new files ingested, skipping ingestion")
+        
+        # documentation files were ingested
+        if has_docs:
+            logger.info(f"EmbedTask for DataSource={data_source_id} has ingested relevant docs files; chunking & saving to ChromaDB")
 
-                    # use data source information to fetch relevant data & store in temp directory
-                    code_path, docs_path = await self._retrieve_data(provider, job_pk, file_svc, async_session)
+            # run Docling conversion, chunking, and ChromaDB persistence 
+            await chunk_insertion_svc.docs_convert_chunk_and_store(data_source, job_pk)
 
-                    # determine which data source types were downloaded
-                    has_docs, has_code = self.is_dir_not_empty(docs_path), self.is_dir_not_empty(code_path)
+        # code files were ingested 
+        if has_code:
+            logger.info(f"EmbedTask for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
+            await chunk_insertion_svc.code_chunk_and_store(data_source, job_pk)
+        
+        self._cleanup_tmp_dirs(job_pk)
 
-                    # validate retrieval resulted in some data being processed
-                    if not has_docs and not has_code:
-                        logger.warning("No new files ingested, skipping ingestion")
-                    
-                    # documentation files were ingested
-                    if has_docs:
-                        logger.info(f"EmbedTask for DataSource={data_source_id} has ingested relevant docs files; chunking & saving to ChromaDB")
+        job_end_time = datetime.now(ZoneInfo("America/New_York"))
+        duration = job_end_time - job_start_time
 
-                        #  TODO: How can we update this logic to intelligently use images/graphs/tables/charts that may be on documents? 
+        # update EmbedTask status to be SUCCESS
+        await self.update_embed_task(
+            job_pk=job_pk, 
+            status=ProcessingStatus.SUCCESS,
+            end_time=job_end_time,
+            duration=duration.seconds,
+            session=async_session # use background task's session
+        )
 
-                        # TODO: Consider thread pool based on available resources to user (CPU cores, GPU, etc)
-                        # run Docling conversion, chunking, and ChromaDB persistence 
-                        await chunk_insertion_svc.docs_convert_chunk_and_store(data_source, job_pk)
-
-
-                    # code files were ingested 
-                    if has_code:
-                        logger.info(f"EmbedTask for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
-                        await chunk_insertion_svc.code_chunk_and_store(data_source, job_pk)
-                    
-                    self._cleanup_tmp_dirs(job_pk)
-
-                    job_end_time = datetime.now(ZoneInfo("America/New_York"))
-                    duration = job_end_time - job_start_time
-
-                    # update EmbedTask status to be SUCCESS
-                    await self.update_embed_task(
-                        job_pk=job_pk, 
-                        status=ProcessingStatus.SUCCESS,
-                        end_time=job_end_time,
-                        duration=duration.seconds,
-                        session=async_session # use background task's session
-                    )
-
-                    logger.info(
-                        f"Ingestion Job for DataSource={data_source_id} completed successfully in {duration.seconds} seconds"
-                    )
-
-                except Exception as e:
-                    logger.error(
-                        f"Failure occurred while performing EmbedTask={job_pk}: "
-                        f"{type(e).__name__}: {str(e)}",
-                        exc_info=True,
-                    )
-
-                    job_fail_time = datetime.now(ZoneInfo("America/New_York"))
-                    duration=(job_fail_time - job_start_time).seconds
-
-                    # NOTE: seperate session required in order to ensure status update is not rolled back
-                    async with get_async_db_session_context() as session:
-
-                        # update EmbedTask with status/duration
-                        await self.update_embed_task(
-                            job_pk=job_pk,
-                            status=ProcessingStatus.FAILED,
-                            end_time=job_fail_time,
-                            duration=duration,
-                            session=session
-                        )
-                    
-                    # Re-raise so that `get_async_db_session_context` knows to rollback the transaction
-                    raise
-
-        finally:
-            # unlock DataSource after processing 
-            await self.record_lock_svc.unlock(data_source_id, record_type=RecordType.DATA_SOURCE)
+        logger.info(
+            f"Ingestion Job for DataSource={data_source_id} completed successfully in {duration.seconds} seconds"
+        )
 
 
     async def update_embed_task(
@@ -341,7 +272,9 @@ class EmbedTaskService:
             status: ProcessingStatus,
             end_time: datetime, 
             duration: int, 
-            session: AsyncSession
+            session: AsyncSession,
+            reason: str | None = None,
+            commit: bool = False
         ):
         """
         Update existing EmbedTask with relevant status, end_time, and duration
@@ -351,6 +284,9 @@ class EmbedTaskService:
             status (ProcessingStatus): the status of the EmbedTask
             end_time (datetime): time of completion for EmbedTask 
             duration (int): total amount of time it took to complete ingestion job
+            session (AsyncSession): the DB session to use
+            reason (str | None): an optional string describing the failure or status
+            commit (bool): whether to commit the transaction (default False)
         """
 
         embed_task = await session.get(EmbedTask, job_pk)
@@ -360,10 +296,15 @@ class EmbedTaskService:
         embed_task.processing_status = status
         embed_task.end_time = end_time
         embed_task.total_duration = duration 
+        
+        if reason is not None:
+            embed_task.reason = reason
 
         session.add(embed_task)
         await session.flush()
-        await session.commit()
+        
+        if commit:
+            await session.commit()
 
     
     async def create_embed_task(self, job_pk: UUID, data_source_id: UUID, start_time: datetime, job_id: UUID | None = None, async_session: AsyncSession | None = None):

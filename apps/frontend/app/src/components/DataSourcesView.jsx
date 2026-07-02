@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useDataSources, useIngestionJobs, useAlert, useProjects } from '../contexts/index';
+import { useDataSources, useJobs, useAlert, useProjects } from '../contexts/index';
 import Button from './Button';
 import Modal from './Modal';
 import '../styles/DataSourcesView.css';
@@ -8,7 +8,7 @@ import '../styles/IngestionJobsView.css';
 export default function DataSourcesView({ projectId }) {
     const { projects } = useProjects();
     const { dataSources, loading: dsLoading, error, deleteDataSource, createDataSource, updateDataSource, mcpConfigs, linkProjectToDataSource, unlinkProjectFromDataSource, linkMcpToDataSource } = useDataSources();
-    const { ingestionJobs, createIngestionJob } = useIngestionJobs();
+    const { jobs, createJob } = useJobs();
     const { showAlert } = useAlert();
 
     const [activeJobView, setActiveJobView] = useState(null); // dataSourceId
@@ -51,7 +51,7 @@ export default function DataSourcesView({ projectId }) {
     const [isUnlinkDragOver, setIsUnlinkDragOver] = useState(false);
 
     const getLatestJobsForDataSource = (dsId) => {
-        return ingestionJobs
+        return jobs
             .filter(job => job.data_source_id === dsId)
             .sort((a, b) => new Date(b.created_at || b.start_time) - new Date(a.created_at || a.start_time))
             .slice(0, 3);
@@ -90,7 +90,7 @@ export default function DataSourcesView({ projectId }) {
             onConfirm: async () => {
                 setCreatingJob(true);
                 try {
-                    await createIngestionJob(dsId);
+                    await createJob(dsId);
                     setActiveJobView(dsId);
                     showAlert('🚀 Refresh Data Source triggered!', 'success');
                 } catch (err) {

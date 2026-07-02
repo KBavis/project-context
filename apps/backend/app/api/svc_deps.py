@@ -14,6 +14,7 @@ from app.services import (
     MCPService,
     AgentService,
     DiffTaskService,
+    JobService,
 )
 
 from app.core import (
@@ -213,7 +214,7 @@ def get_async_embed_task_svc(
         db=db, 
         record_lock_svc=record_lock_svc,
         data_source_svc=data_source_svc,
-        diff_svc=diff_task_svc
+        diff_task_svc=diff_task_svc
     )
 
 
@@ -239,6 +240,22 @@ def get_project_svc(
         diff_svc=diff_task_svc, 
         embed_task_svc=embed_task_svc,
         data_source_svc=data_source_svc,
+    )
+
+def get_job_svc(
+        async_db: AsyncSession = Depends(get_async_db_session),
+        diff_task_svc: DiffTaskService = Depends(get_async_diff_task_svc),
+        embed_task_svc: EmbedTaskService = Depends(get_async_embed_task_svc),
+        data_source_svc: DataSourceService = Depends(get_data_source_svc),
+):
+    """
+    Setup JobService dependency
+    """
+    return JobService(
+        async_db=async_db,
+        diff_svc=diff_task_svc,
+        embed_task_svc=embed_task_svc,
+        data_source_svc=data_source_svc
     )
 
 

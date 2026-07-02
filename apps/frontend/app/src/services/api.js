@@ -119,12 +119,7 @@ export const api = {
             return handleResponse(response);
         },
 
-        sync: async (projectId) => {
-            const response = await fetch(`${API_BASE_URL}/projects/${projectId}/sync`, {
-                method: 'POST',
-            });
-            return handleResponse(response);
-        },
+
     },
 
     // Data Source endpoints
@@ -202,38 +197,32 @@ export const api = {
         },
     },
 
-    // Ingestion Job endpoints
-    ingestion: {
-        create: async (dataSourceId) => {
-            const url = `${API_BASE_URL}/ingestion/jobs/${dataSourceId}`;
+    // Job endpoints
+    jobs: {
+        create: async (projectId, dataSourceId = null) => {
+            const url = dataSourceId 
+                ? `${API_BASE_URL}/jobs/projects/${projectId}/data-sources/${dataSourceId}`
+                : `${API_BASE_URL}/jobs/projects/${projectId}`;
+                
             const response = await fetch(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({}), // No body required by backend params
             });
             return handleResponse(response);
         },
 
-        getStatus: async (jobId) => {
-            // Backend currently doesn't have specific get-status endpoint, use list or assume missing
-            const response = await fetch(`${API_BASE_URL}/ingestion/jobs/${jobId}`);
+        get: async (jobId) => {
+            const response = await fetch(`${API_BASE_URL}/jobs/${jobId}`);
             return handleResponse(response);
         },
 
-        list: async () => {
-            // Backend has GET /ingestion/jobs/ (all)
-            // Ignoring projectId for now as backend returns all
-            const response = await fetch(`${API_BASE_URL}/ingestion/jobs/`, { cache: 'no-store' });
+        listByProject: async (projectId) => {
+            const response = await fetch(`${API_BASE_URL}/jobs/projects/${projectId}/latest`, { cache: 'no-store' });
             return handleResponse(response);
         },
 
-        getJobStatusForSource: async (dataSourceId) => {
-            // Returns all ingestion jobs, filtered client-side for this source
-            const response = await fetch(`${API_BASE_URL}/ingestion/jobs/`, { cache: 'no-store' });
-            const jobs = await handleResponse(response);
-            return jobs
-                .filter(j => j.data_source_id === dataSourceId)
-                .sort((a, b) => new Date(b.start_time) - new Date(a.start_time))[0] || null;
+        getLatestForSource: async (dataSourceId) => {
+            const response = await fetch(`${API_BASE_URL}/jobs/data-sources/${dataSourceId}/latest`, { cache: 'no-store' });
+            return handleResponse(response);
         },
     },
     // Diff endpoints
@@ -247,17 +236,8 @@ export const api = {
                 status: data.overall_status
             };
         },
-        getSyncJobs: async (projectId, dataSourceId) => {
-            const response = await fetch(`${API_BASE_URL}/diff/sync/jobs/${projectId}/${dataSourceId}`);
-            return handleResponse(response);
-        },
-        triggerSync: async (projectId, dataSourceId) => {
-            const response = await fetch(`${API_BASE_URL}/diff/sync/${projectId}/${dataSourceId}`, {
-                method: 'POST',
-            });
-            return handleResponse(response);
-        }
     },
 };
 
 export default api;
+

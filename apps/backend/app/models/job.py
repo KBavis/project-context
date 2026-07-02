@@ -21,7 +21,7 @@ class Job(Base):
         primary_key=True, index=True, server_default=text("gen_random_uuid()")
     )
     project_id: Mapped["UUID"] = mapped_column(ForeignKey("project.id"), nullable=False, index=True)
-    data_source_id: Mapped["UUID"] = mapped_column(ForeignKey("data_source.id"), nullable=False, index=True)
+    data_source_id: Mapped[UUID] = mapped_column(ForeignKey("data_source.id"), nullable=False, index=True)
     
     status: Mapped["ProcessingStatus"] = mapped_column(SQLEnum(ProcessingStatus), nullable=False)
 

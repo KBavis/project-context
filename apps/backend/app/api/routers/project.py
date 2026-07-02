@@ -1,16 +1,15 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from typing import List
+from uuid import UUID
+import logging
 
 from app.services import ProjectService
 from app.pydantic import ProjectRequest
 from app.models.data_source import DataSourceType
-from ..svc_deps import get_project_svc, get_async_diff_task_svc, get_data_source_svc
 from app.services.diff_task import DiffTaskService
 from app.services.data_source import DataSourceService
-
-from typing import List
-from uuid import UUID
-import logging
+from app.api.svc_deps import get_project_svc, get_async_diff_task_svc, get_data_source_svc 
 
 router = APIRouter(prefix="/projects")
 
@@ -142,34 +141,4 @@ async def get_project_sync_status(
         logger.error(f"Error checking project sync status for Project={project_id}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
-
-@router.post("/{project_id}/sync", status_code=status.HTTP_202_ACCEPTED, summary="Sync Project")
-async def sync_project(
-    project_id: UUID,
-    background_tasks: BackgroundTasks,
-    svc: ProjectService = Depends(get_project_svc),
-):
-    """
-    Orchestrate a full Sync Project: fan out across all configured data sources,
-    run Refresh Project Changes (Stage 1) then Refresh Data Source (Stage 2) in
-    the correct order.
-
-    Returns 202 immediately — the orchestrator runs as a background task.
-    """
-    try:
-        # Validate project exists
-        project = await svc.aget_project_by_id(project_id)
-        logger.info(f"Sync Project triggered for Project={project_id} ({project.project_name})")
-
-        background_tasks.add_task(svc.sync_project, project_id)
-
-        return {
-            "message": "Sync Project kicked off successfully",
-            "project_id": str(project_id),
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error triggering Sync Project for Project={project_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 

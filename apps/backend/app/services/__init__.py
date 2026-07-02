@@ -13,6 +13,7 @@ from .mcp import MCPService
 from .agent import AgentService
 from .diff_task import DiffTaskService
 from .execution_token_usage import ExecutionTokenUsageService
+from .job import JobService
 
 __all__ = [
     "DataSourceService", 
@@ -29,4 +30,5 @@ __all__ = [
     "AgentService",
     "DiffTaskService",
     "ExecutionTokenUsageService",
+    "JobService",
 ]
