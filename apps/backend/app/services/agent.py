@@ -18,7 +18,7 @@ from app.llm import LLMBase
 from app.services.mcp import MCPService
 from app.services.data_source import DataSourceService
 from app.services.chunk_retrieval import ChunkRetrievalService
-from app.services.diff import DiffService
+from app.services.diff_task import DiffTaskService
 from app.models.data_source import DataSource, DataSourceType
 
 from llama_index.core.tools import FunctionTool
@@ -48,7 +48,7 @@ class AgentService:
         mcp_svc: MCPService,
         data_source_svc: DataSourceService,
         chunk_retrieval_svc: ChunkRetrievalService,
-        diff_svc: DiffService | None = None,
+        diff_svc: DiffTaskService | None = None,
     ) -> None:
 
         self.db = db

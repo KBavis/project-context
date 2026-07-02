@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from app.services import DataSourceService, ProjectService, FileService
 from app.pydantic import DataSourceRequest
 from app.models.data_source import DataSourceType
-from app.services.diff import DiffService
-from ..svc_deps import get_data_source_svc, get_async_diff_svc, get_project_svc, get_async_file_svc
+from app.services.diff_task import DiffTaskService
+from ..svc_deps import get_data_source_svc, get_async_diff_task_svc, get_project_svc, get_async_file_svc
 
 from uuid import UUID
 from app.pydantic import DataSourceRequest, DataSourceUpdateRequest
@@ -36,7 +36,7 @@ async def create_datasource(
     request: DataSourceRequest, 
     background_tasks: BackgroundTasks,
     svc: DataSourceService = Depends(get_data_source_svc),
-    diff_svc: DiffService = Depends(get_async_diff_svc),
+    diff_svc: DiffTaskService = Depends(get_async_diff_task_svc),
     project_svc: ProjectService = Depends(get_project_svc)
 ):
     """
