@@ -17,7 +17,7 @@ from app.models.project_file_diff import ProjectFileDiff
 from app.models.pull_request import PullRequest
 from app.models.git_commit import GitCommit
 from app.models.diff_task import DiffTask
-from app.models.embed_task import ProcessingStatus
+from app.pydantic.status import ProcessingStatus
 from app.models.record_lock import RecordType
 from app.services.record_lock import RecordLockService
 from app.models.project_data import ProjectData
@@ -27,7 +27,7 @@ from app.data_providers.ingestible.repository import RepositoryDataProvider
 from app.pydantic.pull_request import PullRequestDetail
 from app.pydantic.file_diff_patch import FileDiffPatch
 from app.pydantic.change_type import ChangeType
-from app.core import get_async_db_session_context, get_async_session_maker
+from app.core import get_async_db_session_context
 import hashlib
 import uuid
 
@@ -728,7 +728,6 @@ class DiffTaskService:
         async_session: AsyncSession,
     ):
         """Refresh the denormalized counts / sync metadata."""
-        from sqlalchemy import func
         stmt = select(func.count()).select_from(ProjectAffectedFile).where(
             ProjectAffectedFile.project_id == project_id,
             ProjectAffectedFile.data_source_id == repository_data_source_id,
@@ -753,6 +752,7 @@ class DiffTaskService:
             project_id (UUID): The ID of the Project for which to retrieve the changes.
             data_source_id (UUID | None): The ID of the Data Source to filter the changes by.
         """
+        return []
 
 
     async def get_project_repo_summary(
