@@ -17,7 +17,7 @@ from .base import Base
 from app.pydantic.change_type import ChangeType
 
 if TYPE_CHECKING:
-    from .diff_sync_job import DiffSyncJob
+    from .diff_task import DiffTask
     from .project_repo_summary import ProjectRepoSummary
     from .project_file_diff import ProjectFileDiff
 
@@ -80,8 +80,8 @@ class ProjectAffectedFile(Base):
                 "removed a pre-existing file. Seeded by the first per-PR diff.",
     )
 
-    diff_sync_job_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("diff_sync_job.id"),
+    diff_task_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("diff_task.id"),
         index=True,
         nullable=True,
         comment="Job that last wrote this row; used to determine last time this path was synced",
@@ -90,7 +90,7 @@ class ProjectAffectedFile(Base):
     project_repo_summary: Mapped["ProjectRepoSummary"] = relationship(
         back_populates="file_histories",
     )
-    diff_sync_job: Mapped["DiffSyncJob"] = relationship()
+    diff_task: Mapped["DiffTask"] = relationship()
 
     pr_diffs: Mapped[List["ProjectFileDiff"]] = relationship(
         back_populates="file_history",

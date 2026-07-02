@@ -10,7 +10,7 @@ from app.llm import LLMBase
 from app.models.data_source import DataSource, DataSourceType
 from app.services.chunk_retrieval import ChunkRetrievalService
 from app.services.data_source import DataSourceService
-from app.services.diff import DiffService
+from app.services.diff_task import DiffTaskService
 from app.data_providers.ingestible.base import IngestibleDataProvider
 
 import logging
@@ -38,7 +38,7 @@ class Tools:
         chunk_retrieval_svc: ChunkRetrievalService,
         data_source_svc: DataSourceService,
         scope_map: dict[str, list[str]],
-        diff_svc: DiffService | None = None,
+        diff_svc: DiffTaskService | None = None,
     ):
         self.data_sources = data_sources
         self.project_id = project_id

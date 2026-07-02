@@ -16,8 +16,8 @@ from app.models.project_affected_file import ProjectAffectedFile
 from app.models.project_file_diff import ProjectFileDiff
 from app.models.pull_request import PullRequest
 from app.models.git_commit import GitCommit
-from app.models.diff_sync_job import DiffSyncJob
-from app.models.ingestion_job import ProcessingStatus
+from app.models.diff_task import DiffTask
+from app.models.embed_task import ProcessingStatus
 from app.models.record_lock import RecordType
 from app.services.record_lock import RecordLockService
 from app.models.project_data import ProjectData
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 MAX_DIFF_BYTES = 256 * 1024
 
 
-class DiffService:
+class DiffTaskService:
     """
     Service responsible for handling all operations related 
     to `Repository Code Changes` for a particular Project 
@@ -74,16 +74,16 @@ class DiffService:
         for ds in repo_data_sources:
             
             # check latest diff job
-            stmt = select(DiffSyncJob).where(
-                DiffSyncJob.project_id == project_id,
-                DiffSyncJob.data_source_id == ds.id
-            ).order_by(DiffSyncJob.start_time.desc()).limit(1)
+            stmt = select(DiffTask).where(
+                DiffTask.project_id == project_id,
+                DiffTask.data_source_id == ds.id
+            ).order_by(DiffTask.start_time.desc()).limit(1)
             res = await self.async_db.execute(stmt)
             job = res.scalar_one_or_none()
             
             if job:
                 job_state = job.status.value
-                logger.info(f"[SyncState] project_id={project_id}, ds={ds.id} ({ds.name}): latest DiffSyncJob={job.id}, status={job_state}")
+                logger.info(f"[SyncState] project_id={project_id}, ds={ds.id} ({ds.name}): latest DiffTask={job.id}, status={job_state}")
                 states.append(job_state)
                 
                 if job_state == ProcessingStatus.FAILED.value:
@@ -93,7 +93,7 @@ class DiffService:
                 elif job_state == ProcessingStatus.SKIPPED.value:
                     reasons.append(f"Diff sync was skipped for repository '{ds.name}' due to missing configuration.")
             else:
-                logger.info(f"[SyncState] project_id={project_id}, ds={ds.id} ({ds.name}): no DiffSyncJob found → not yet synced")
+                logger.info(f"[SyncState] project_id={project_id}, ds={ds.id} ({ds.name}): no DiffTask found → not yet synced")
                 states.append(ProcessingStatus.NOT_YET_SYNCED.value)
                 reasons.append(f"Repository '{ds.name}' has not yet been synced.")
         
@@ -109,7 +109,7 @@ class DiffService:
         return ProcessingStatus.SUCCESS.value, []
 
 
-    async def init_diff_sync_job(self, project_id: UUID, data_source_id: UUID, async_session: AsyncSession | None = None) -> DiffSyncJob:
+    async def init_diff_task(self, project_id: UUID, data_source_id: UUID, job_id: UUID | None = None, async_session: AsyncSession | None = None) -> DiffTask:
         """
         Validate ProjectData and create initial diff sync job with IN_PROGRESS status
 
@@ -119,7 +119,7 @@ class DiffService:
             async_session: optional background session
 
         Returns:
-            DiffSyncJob: the initialized DiffSyncJob
+            DiffTask: the initialized DiffTask
         """
         db = async_session or self.async_db
         
@@ -140,7 +140,8 @@ class DiffService:
         if not locked:
             raise Exception(f"Failed to acquire lock for project_data: Record already locked")
 
-        job = DiffSyncJob(
+        job = DiffTask(
+            job_id=job_id,
             project_id=project_id,
             data_source_id=data_source_id,
             status=ProcessingStatus.IN_PROGRESS,
@@ -151,28 +152,28 @@ class DiffService:
         
         return job
 
-    async def update_diff_sync_job(
+    async def update_diff_task(
         self,
         job_id: UUID,
         status: ProcessingStatus,
         end_time: datetime,
         duration: int,
         session: AsyncSession,
-        error_message: str | None = None,
+        reason: str | None = None,
         commit: bool = False
     ):
         """
-        Update existing DiffSyncJob with relevant status, end_time, and duration.
+        Update existing DiffTask with relevant status, end_time, and duration.
         """
-        job = await session.get(DiffSyncJob, job_id)
+        job = await session.get(DiffTask, job_id)
         if not job:
-            raise Exception(f"Failed to find DiffSyncJob by ID={job_id}")
+            raise Exception(f"Failed to find DiffTask by ID={job_id}")
 
         job.status = status
         job.end_time = end_time
         job.total_duration = duration
-        if error_message is not None:
-            job.error_message = error_message
+        if reason is not None:
+            job.reason = reason
 
         session.add(job)
         await session.flush()
@@ -189,14 +190,14 @@ class DiffService:
         async_session: AsyncSession
     ) -> bool:
         """
-        Validate whether the DiffSyncJob should run based on the Project's configuration.
+        Validate whether the DiffTask should run based on the Project's configuration.
         Returns True if preconditions are met, False if the job was skipped.
         """
         # Pre-condition 1: The data source must be a REPOSITORY and scoped by issues
         if repository_ds.type != DataSourceType.REPOSITORY or not repository_ds.scope_by_issues:
-            logger.info(f"DataSource={repository_ds.id} is not an issue-scoped repository — skipping DiffSyncJob={job_id}")
+            logger.info(f"DataSource={repository_ds.id} is not an issue-scoped repository — skipping DiffTask={job_id}")
             end_time = datetime.now(timezone.utc)
-            await self.update_diff_sync_job(
+            await self.update_diff_task(
                 job_id=job_id,
                 status=ProcessingStatus.SKIPPED,
                 end_time=end_time,
@@ -208,9 +209,9 @@ class DiffService:
 
         # Pre-condition 2: The Project must have available Parent Issues
         if not project.parent_issues:
-            logger.info(f"Project={project.id} has no parent_issues configured — skipping DiffSyncJob={job_id}")
+            logger.info(f"Project={project.id} has no parent_issues configured — skipping DiffTask={job_id}")
             end_time = datetime.now(timezone.utc)
-            await self.update_diff_sync_job(
+            await self.update_diff_task(
                 job_id=job_id,
                 status=ProcessingStatus.SKIPPED,
                 end_time=end_time,
@@ -229,11 +230,11 @@ class DiffService:
         if not issue_trackers:
             logger.info(
                 f"No ISSUE_TRACKER configured for Project={project.id} — "
-                f"skipping DiffSyncJob={job_id} (pre-condition not met)"
+                f"skipping DiffTask={job_id} (pre-condition not met)"
             )
             end_time = datetime.now(timezone.utc)
             duration = int((end_time - job_start_time).total_seconds())
-            await self.update_diff_sync_job(
+            await self.update_diff_task(
                 job_id=job_id,
                 status=ProcessingStatus.SKIPPED,
                 end_time=end_time,
@@ -247,26 +248,26 @@ class DiffService:
 
     async def execute_repository_sync_job(self, job_id: UUID):
         """
-        Execute an initalized DiffSyncJob keyed by the specified JobID. This job will be ran in 
+        Execute an initalized DiffTask keyed by the specified JobID. This job will be ran in 
         a FastAPI.BackgroundTask and will be responsbile for syncing the code changes introduced
         to a particular Repository DataSource by a specific Project. The associated PROJECT_DATA
-        record is locked to prohibit parallel DiffSyncJob's running at once, and will be unlocked
+        record is locked to prohibit parallel DiffTask's running at once, and will be unlocked
         following its completetion
 
         Args:
-            job_id (UUID): the DiffSyncJob PK to execute 
+            job_id (UUID): the DiffTask PK to execute 
         """
 
         async with get_async_db_session_context() as async_session:
 
-            # retrieve the initalized DiffSyncJob
-            stmt = select(DiffSyncJob).where(DiffSyncJob.id == job_id)
+            # retrieve the initalized DiffTask
+            stmt = select(DiffTask).where(DiffTask.id == job_id)
             res = await async_session.execute(stmt)
             job = res.scalar_one_or_none()
             
             if not job:
-                logger.error(f"No DiffSyncJob found for ID: {job_id}")
-                raise Exception(f"No DiffSyncJob found for ID: {job_id}")
+                logger.error(f"No DiffTask found for ID: {job_id}")
+                raise Exception(f"No DiffTask found for ID: {job_id}")
 
             # Fetch the associated Project and DataSource inside this session
             stmt = select(Project).where(Project.id == job.project_id)
@@ -311,10 +312,10 @@ class DiffService:
                     async_session=async_session,
                 )
 
-                # update DiffSyncJob status as successful
+                # update DiffTask status as successful
                 end_time = datetime.now(timezone.utc)
                 duration = int((end_time - job_start_time).total_seconds())
-                await self.update_diff_sync_job(
+                await self.update_diff_task(
                     job_id=job_id,
                     status=ProcessingStatus.SUCCESS,
                     end_time=end_time,
@@ -324,7 +325,7 @@ class DiffService:
                 )
 
                 logger.info(
-                    f"DiffSyncJob {job_id} completed successfully in {duration}s for "
+                    f"DiffTask {job_id} completed successfully in {duration}s for "
                     f"Project={project.id} (Repository DataSource={repository_ds.id}): "
                     f"{metrics['new_prs']} new pull request(s) processed of "
                     f"{metrics['resolved_prs']} linked, {metrics['files_touched']} file(s) "
@@ -334,18 +335,18 @@ class DiffService:
             except Exception as e:
                 logger.error(f"Error during execute_repository_sync_job for job {job_id}: {e}", exc_info=True)
                 
-                # update the DiffSyncJob with appropaite status and error message when failing 
+                # update the DiffTask with appropaite status and error message when failing 
                 # NOTE: This is done in seperate session as all other changes will be rolled back
                 async with get_async_db_session_context() as session:
                     fail_end_time = datetime.now(timezone.utc)
                     fail_duration = int((fail_end_time - job_start_time).total_seconds())
-                    await self.update_diff_sync_job(
+                    await self.update_diff_task(
                         job_id=job_id,
                         status=ProcessingStatus.FAILED,
                         end_time=fail_end_time,
                         duration=fail_duration,
                         session=session,
-                        error_message=str(e),
+                        reason=str(e),
                         commit=True
                     )
 
@@ -855,7 +856,7 @@ class DiffService:
             for ds_id, file_ids in result.all()
         }
 
-    async def run_diff_sync_pipeline(
+    async def run_diff_task_pipeline(
         self, project_id: UUID, data_source_id: UUID
     ) -> None:
         """
@@ -864,7 +865,7 @@ class DiffService:
         """
         try:
             async with get_async_db_session_context() as async_session:
-                job = await self.init_diff_sync_job(project_id, data_source_id, async_session=async_session)
+                job = await self.init_diff_task(project_id, data_source_id, async_session=async_session)
                 await async_session.commit()
 
             # execute in its own session (execute_repository_sync_job opens get_async_db_session_context internally)

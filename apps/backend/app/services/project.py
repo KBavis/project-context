@@ -19,9 +19,9 @@ from uuid import UUID
 from app.core import get_async_db_session_context
 
 if TYPE_CHECKING:
-    from app.services.diff import DiffService
+    from app.services.diff_task import DiffTaskService
     from app.services.data_source import DataSourceService
-    from app.services.ingestion_job import IngestionJobService
+    from app.services.embed_task import EmbedTaskService
 
 logger = logging.getLogger(__name__)
 
@@ -30,15 +30,15 @@ class ProjectService:
         self,
         db: Session,
         async_db: AsyncSession,
-        diff_svc: DiffService,
-        ingestion_job_svc: IngestionJobService,
+        diff_svc: DiffTaskService,
+        embed_task_svc: EmbedTaskService,
         data_source_svc: DataSourceService | None = None,
     ):
         self.db = db
         self.async_db = async_db
         self.diff_svc = diff_svc
         self.data_source_svc = data_source_svc
-        self.ingestion_job_svc = ingestion_job_svc
+        self.embed_task_svc = embed_task_svc
 
     # ─────────────────────────────────────────────
     # Project Readiness
@@ -48,9 +48,9 @@ class ProjectService:
         """
         Gate for conversation message sending. Raises HTTP 412 if:
           - Any ingestible data source (REPOSITORY, DOCUMENTATION) has not completed
-            a successful IngestionJob, OR
+            a successful EmbedTask, OR
           - Any issue-scoped Repository data source has not completed a successful
-            DiffSyncJob (i.e. ProjectRepoSummary record not yet created).
+            DiffTask (i.e. ProjectRepoSummary record not yet created).
 
         Fetchable-only sources (ISSUE_TRACKER) are ignored for both checks.
         """
@@ -88,7 +88,7 @@ class ProjectService:
             overall_status (str): worst-case aggregate of the two.
             reasons (list[str]): detailed string reasons for any pending or failed data sources.
         """
-        ingestion_state, ingestion_reasons = await self.ingestion_job_svc.get_project_ingestion_state(project_id)
+        ingestion_state, ingestion_reasons = await self.embed_task_svc.get_project_ingestion_state(project_id)
         diff_state, diff_reasons = await self.diff_svc.get_project_sync_state(project_id)
 
         if ProcessingStatus.IN_PROGRESS.value in (ingestion_state, diff_state):
@@ -127,7 +127,7 @@ class ProjectService:
           Wave 2: scoped_repos Stage 2 (consumes touched-file allowlist from Stage 1)
 
         Each per-source pipeline opens its own background-scoped AsyncSession (via
-        IngestionJobService._build_ingestion_services) so one source's failure cannot
+        EmbedTaskService._build_ingestion_services) so one source's failure cannot
         poison the rest.  Already-locked resources are caught and skipped.
         """
         # Resolve all data sources linked to this project
@@ -168,7 +168,7 @@ class ProjectService:
         for ds in direct_ingest:
             wave1_tasks.append(
                 asyncio.create_task(
-                    self.ingestion_job_svc.run_ingestion_pipeline(ds),
+                    self.embed_task_svc.run_embed_task_pipeline(ds),
                     name=f"direct-ingest-{ds.id}",
                 )
             )
@@ -177,7 +177,7 @@ class ProjectService:
         for ds in scoped_repos:
             wave1_tasks.append(
                 asyncio.create_task(
-                    self.diff_svc.run_diff_sync_pipeline(project_id, ds.id),
+                    self.diff_svc.run_diff_task_pipeline(project_id, ds.id),
                     name=f"stage1-diffsync-{ds.id}",
                 )
             )
@@ -200,7 +200,7 @@ class ProjectService:
         for ds in scoped_repos:
             wave2_tasks.append(
                 asyncio.create_task(
-                    self.ingestion_job_svc.run_ingestion_pipeline(ds, project_id=project_id),
+                    self.embed_task_svc.run_embed_task_pipeline(ds, project_id=project_id),
                     name=f"stage2-ingest-{ds.id}",
                 )
             )
@@ -360,7 +360,7 @@ class ProjectService:
                 data_source_id=data_source_id
             )
             self.db.add(association)
-            self.db.commit() # NOTE: We commit here so that the downstream DiffSyncJob can successfully leverage the PROJECT_DATA record
+            self.db.commit() # NOTE: We commit here so that the downstream DiffTask can successfully leverage the PROJECT_DATA record
             
             return {
                 "message": f"Successfully linked data source {data_source_id} to project {project_id}",

@@ -42,7 +42,7 @@ async def create_datasource(
     """
     Connect application to an external datasource in order to ingest data from.
     If the new data source is a REPOSITORY with scope_by_issues=True and is linked
-    to projects at creation time, a DiffSyncJob will be kicked off for each linked project.
+    to projects at creation time, a DiffTask will be kicked off for each linked project.
     """
 
     try:
@@ -60,13 +60,13 @@ async def create_datasource(
 
         result = svc.create_data_source(request)
 
-        # Kick off DiffSyncJobs for linked projects if this is an issue-scoped repository
+        # Kick off DiffTasks for linked projects if this is an issue-scoped repository
         if request.type == DataSourceType.REPOSITORY and request.scope_by_issues and request.project_ids:
             data_source_id = result["id"]
             for project_id in request.project_ids:
                 logger.info(
                     f"[CreateDataSource] DataSource={data_source_id} is REPOSITORY with scope_by_issues=True: "
-                    f"kicking off DiffSyncJob for Project={project_id}"
+                    f"kicking off DiffTask for Project={project_id}"
                 )
                 job = await diff_svc.init_diff_sync_job(project_id, data_source_id)
                 background_tasks.add_task(diff_svc.execute_repository_sync_job, job.id)

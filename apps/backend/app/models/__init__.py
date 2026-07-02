@@ -1,8 +1,9 @@
 from __future__ import annotations
 from .base import Base
 from .data_source import DataSource
-from .ingestion_job import IngestionJob, ProcessingStatus
-from .diff_sync_job import DiffSyncJob
+from .embed_task import EmbedTask, ProcessingStatus
+from .diff_task import DiffTask
+from .job import Job
 from .project import Project
 from .project_data import ProjectData
 from .project_repo_summary import ProjectRepoSummary
@@ -22,8 +23,9 @@ from .execution_token_usage import ExecutionTokenUsage
 __all__ = [
     "Base",
     "DataSource",
-    "IngestionJob",
-    "DiffSyncJob",
+    "EmbedTask",
+    "DiffTask",
+    "Job",
     "Project",
     "ProjectData",
     "ProjectRepoSummary",

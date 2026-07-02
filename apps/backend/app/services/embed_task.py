@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.data_source import DataSourceType
 
-from app.models import DataSource, IngestionJob, ProcessingStatus, RecordType, ProjectData
+from app.models import DataSource, EmbedTask, ProcessingStatus, RecordType, ProjectData
 from app.core import settings, get_async_db_session_context, ChromaClientManager
 from app.services.record_lock import RecordLockService
 from app.services.file import FileService
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-class IngestionJobService:
+class EmbedTaskService:
 
     def __init__(
             self, 
@@ -37,7 +37,7 @@ class IngestionJobService:
             diff_svc: DiffService
     ):
         """
-        Initialize IngestionJobService with necessary dependencies
+        Initialize EmbedTaskService with necessary dependencies
 
         Args:
             db (AsyncSession): Database session for ORM operations
@@ -78,7 +78,7 @@ class IngestionJobService:
     async def get_project_ingestion_state(self, project_id: UUID) -> tuple[str, list[str]]:
         """
         Determine whether every ingestible DataSource (REPOSITORY, DOCUMENTATION)
-        for this project has a successful IngestionJob.
+        for this project has a successful EmbedTask.
 
         Returns a tuple: (ProcessingStatus string value, list of detailed reasons for failure/in_progress).
         """
@@ -92,9 +92,9 @@ class IngestionJobService:
         reasons = []
         for ds in ingestible:
             stmt = (
-                select(IngestionJob)
-                .where(IngestionJob.data_source_id == ds.id)
-                .order_by(IngestionJob.start_time.desc())
+                select(EmbedTask)
+                .where(EmbedTask.data_source_id == ds.id)
+                .order_by(EmbedTask.start_time.desc())
                 .limit(1)
             )
             res = await self.db.execute(stmt)
@@ -103,7 +103,7 @@ class IngestionJobService:
             if not latest_job:
                 logger.info(
                     f"[IngestionState] project_id={project_id}, ds={ds.id} ({ds.name}): "
-                    "no IngestionJob found → not yet synced"
+                    "no EmbedTask found → not yet synced"
                 )
                 states.append(ProcessingStatus.NOT_YET_SYNCED.value)
                 reasons.append(f"Data source '{ds.name}' has not yet been ingested.")
@@ -112,7 +112,7 @@ class IngestionJobService:
             job_state = latest_job.processing_status.value
             logger.info(
                 f"[IngestionState] project_id={project_id}, ds={ds.id} ({ds.name}): "
-                f"latest IngestionJob={latest_job.id}, status={job_state}"
+                f"latest EmbedTask={latest_job.id}, status={job_state}"
             )
             states.append(ProcessingStatus.FAILED.value if job_state == ProcessingStatus.SKIPPED.value else job_state)
             
@@ -137,7 +137,7 @@ class IngestionJobService:
 
     
 
-    async def init_ingestion_job(self, data_source_id: UUID, job_start_time: datetime, async_session: AsyncSession | None = None): 
+    async def init_embed_task(self, data_source_id: UUID, job_start_time: datetime, job_id: UUID | None = None, async_session: AsyncSession | None = None): 
         """
         Validate Datasource & create inital ingestion job with IN_PROGRESS status 
 
@@ -169,12 +169,12 @@ class IngestionJobService:
             raise Exception(f"Failed to acquire lock for DataSource={data_source_id}: Record already locked")
             
         
-        # generate current IngestionJob id & persist inital record
-        job_pk = uuid4() 
-        await self.create_ingestion_job(job_pk=job_pk, data_source_id=data_source_id, start_time=job_start_time, async_session=async_session)
+        # generate current EmbedTask id & persist inital record
+        task_pk = uuid4() 
+        await self.create_embed_task(job_pk=task_pk, data_source_id=data_source_id, start_time=job_start_time, job_id=job_id, async_session=async_session)
 
-        logger.info(f"Successfully created inital IngestionJob with ID={job_pk}")
-        return data_source, job_pk
+        logger.info(f"Successfully created inital EmbedTask with ID={task_pk}")
+        return data_source, task_pk
 
 
 
@@ -183,20 +183,20 @@ class IngestionJobService:
     ) -> None:
         """
         Run ingestion (Refresh Data Source) for a single data source.
-        Mirrors IngestionJobService session lifecycle: init in one session,
+        Mirrors EmbedTaskService session lifecycle: init in one session,
         run in a background session.
         """
         try:
             job_start_time = datetime.now(ZoneInfo("America/New_York"))
             
             async with get_async_db_session_context() as async_session:
-                data_source_obj, job_pk = await self.init_ingestion_job(
+                data_source_obj, job_pk = await self.init_embed_task(
                     data_source.id, job_start_time, async_session=async_session
                 )
                 await async_session.commit()
 
-            # run_ingestion_job creates its own sessions for chroma/db
-            await self.run_ingestion_job(
+            # run_embed_task creates its own sessions for chroma/db
+            await self.run_embed_task(
                 job_pk, job_start_time, data_source_obj, project_id=project_id
             )
         except Exception as e:
@@ -206,7 +206,7 @@ class IngestionJobService:
                 exc_info=True,
             )
 
-    async def run_ingestion_job(
+    async def run_embed_task(
             self, 
             job_pk: UUID, 
             job_start_time: datetime, 
@@ -250,7 +250,7 @@ class IngestionJobService:
                     )
                     job_end_time = datetime.now(ZoneInfo("America/New_York"))
                     duration = job_end_time - job_start_time
-                    await self.update_ingestion_job(
+                    await self.update_embed_task(
                         job_pk=job_pk,
                         status=ProcessingStatus.SKIPPED,
                         end_time=job_end_time,
@@ -273,7 +273,7 @@ class IngestionJobService:
                     
                     # documentation files were ingested
                     if has_docs:
-                        logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant docs files; chunking & saving to ChromaDB")
+                        logger.info(f"EmbedTask for DataSource={data_source_id} has ingested relevant docs files; chunking & saving to ChromaDB")
 
                         #  TODO: How can we update this logic to intelligently use images/graphs/tables/charts that may be on documents? 
 
@@ -284,7 +284,7 @@ class IngestionJobService:
 
                     # code files were ingested 
                     if has_code:
-                        logger.info(f"IngestionJob for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
+                        logger.info(f"EmbedTask for DataSource={data_source_id} has ingested relevant code files; chunking & saving to ChromaDB")
                         await chunk_insertion_svc.code_chunk_and_store(data_source, job_pk)
                     
                     self._cleanup_tmp_dirs(job_pk)
@@ -292,8 +292,8 @@ class IngestionJobService:
                     job_end_time = datetime.now(ZoneInfo("America/New_York"))
                     duration = job_end_time - job_start_time
 
-                    # update IngestionJob status to be SUCCESS
-                    await self.update_ingestion_job(
+                    # update EmbedTask status to be SUCCESS
+                    await self.update_embed_task(
                         job_pk=job_pk, 
                         status=ProcessingStatus.SUCCESS,
                         end_time=job_end_time,
@@ -307,7 +307,7 @@ class IngestionJobService:
 
                 except Exception as e:
                     logger.error(
-                        f"Failure occurred while performing IngestionJob={job_pk}: "
+                        f"Failure occurred while performing EmbedTask={job_pk}: "
                         f"{type(e).__name__}: {str(e)}",
                         exc_info=True,
                     )
@@ -318,8 +318,8 @@ class IngestionJobService:
                     # NOTE: seperate session required in order to ensure status update is not rolled back
                     async with get_async_db_session_context() as session:
 
-                        # update IngestionJob with status/duration
-                        await self.update_ingestion_job(
+                        # update EmbedTask with status/duration
+                        await self.update_embed_task(
                             job_pk=job_pk,
                             status=ProcessingStatus.FAILED,
                             end_time=job_fail_time,
@@ -335,7 +335,7 @@ class IngestionJobService:
             await self.record_lock_svc.unlock(data_source_id, record_type=RecordType.DATA_SOURCE)
 
 
-    async def update_ingestion_job(
+    async def update_embed_task(
             self, 
             job_pk: UUID, 
             status: ProcessingStatus,
@@ -344,59 +344,60 @@ class IngestionJobService:
             session: AsyncSession
         ):
         """
-        Update existing IngestionJob with relevant status, end_time, and duration
+        Update existing EmbedTask with relevant status, end_time, and duration
 
         Args:
-            job_pk (UUID): PK of IngestionJob
-            status (ProcessingStatus): the status of the IngestionJob
-            end_time (datetime): time of completion for IngestionJob 
+            job_pk (UUID): PK of EmbedTask
+            status (ProcessingStatus): the status of the EmbedTask
+            end_time (datetime): time of completion for EmbedTask 
             duration (int): total amount of time it took to complete ingestion job
         """
 
-        ingestion_job = await session.get(IngestionJob, job_pk)
-        if not ingestion_job:
-            raise Exception(f"Failed to find IngestionJob by PK={job_pk}")
+        embed_task = await session.get(EmbedTask, job_pk)
+        if not embed_task:
+            raise Exception(f"Failed to find EmbedTask by PK={job_pk}")
 
-        ingestion_job.processing_status = status
-        ingestion_job.end_time = end_time
-        ingestion_job.total_duration = duration 
+        embed_task.processing_status = status
+        embed_task.end_time = end_time
+        embed_task.total_duration = duration 
 
-        session.add(ingestion_job)
+        session.add(embed_task)
         await session.flush()
         await session.commit()
 
     
-    async def create_ingestion_job(self, job_pk: UUID, data_source_id: UUID, start_time: datetime, async_session: AsyncSession | None = None):
+    async def create_embed_task(self, job_pk: UUID, data_source_id: UUID, start_time: datetime, job_id: UUID | None = None, async_session: AsyncSession | None = None):
         """
-        Persist a new IngestionJob that we are kicking off for a particular DataSource
+        Persist a new EmbedTask that we are kicking off for a particular DataSource
 
         Args:
             job_pk (UUID): PK for current ingestion job 
             data_source_id (UUID): data source this ingestion job is being ran for 
-            start_time (datetime): start time of the IngestionJob
+            start_time (datetime): start time of the EmbedTask
             async_session (AsyncSession?): optional background session
         """
         db = async_session or self.db
-        ingestion_job = IngestionJob(
+        embed_task = EmbedTask(
             id=job_pk, 
             processing_status=ProcessingStatus.IN_PROGRESS, 
             data_source_id=data_source_id,
+            job_id=job_id,
             start_time=start_time
         )
 
-        db.add(ingestion_job)
+        db.add(embed_task)
         await db.flush()
 
-    async def get_all_ingestion_jobs(self) -> list[IngestionJob]:
+    async def get_all_embed_tasks(self) -> list[EmbedTask]:
         """
         Functionality to retrieve all persisted ingestion jobs
         """
         stmt = (
-            select(IngestionJob)
-            .order_by(IngestionJob.start_time.desc())
+            select(EmbedTask)
+            .order_by(EmbedTask.start_time.desc())
         )
-        ingestion_jobs = await self.db.execute(stmt)
-        return list(ingestion_jobs.scalars().all())
+        embed_tasks = await self.db.execute(stmt)
+        return list(embed_tasks.scalars().all())
     
 
     async def _retrieve_data(
@@ -452,7 +453,7 @@ class IngestionJobService:
             job_pk (UUID): unique ID for current ingestion job 
         """
         
-        logger.info(f"Cleaning up temporary directories for IngestionJob={job_pk}")
+        logger.info(f"Cleaning up temporary directories for EmbedTask={job_pk}")
 
         # base dirs to remove
         tmp_dir = Path(settings.TMP or "/tmp")

@@ -1,10 +1,10 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from uuid import UUID
-from app.services import DiffService
-from app.models.diff_sync_job import DiffSyncJob
+from app.services import DiffTaskService
+from app.models.diff_task import DiffTask
 from sqlalchemy import select
-from ..svc_deps import get_async_diff_svc
+from ..svc_deps import get_async_diff_task_svc
 import logging
 
 router = APIRouter(prefix="/diff")
@@ -20,7 +20,7 @@ async def get_repository_code_changes(
         None,
         description="Optional data source ID to filter repository code changes",
     ),
-    svc: DiffService = Depends(get_async_diff_svc),
+    svc: DiffTaskService = Depends(get_async_diff_task_svc),
 ):
     """
     Retrieve repository code change totals for the requested project.
@@ -41,10 +41,10 @@ async def trigger_diff_sync(
     project_id: UUID,
     data_source_id: UUID,
     background_tasks: BackgroundTasks,
-    svc: DiffService = Depends(get_async_diff_svc)
+    svc: DiffTaskService = Depends(get_async_diff_task_svc)
 ):
     try:
-        job = await svc.init_diff_sync_job(project_id, data_source_id)
+        job = await svc.init_diff_task(project_id, data_source_id)
         background_tasks.add_task(svc.execute_repository_sync_job, job.id)
         return {"job_id": job.id, "status": job.status.value}
     except Exception as e:
@@ -56,13 +56,13 @@ async def trigger_diff_sync(
 async def get_diff_sync_jobs(
     project_id: UUID,
     data_source_id: UUID,
-    svc: DiffService = Depends(get_async_diff_svc)
+    svc: DiffTaskService = Depends(get_async_diff_task_svc)
 ):
     try:
-        stmt = select(DiffSyncJob).where(
-            DiffSyncJob.project_id == project_id,
-            DiffSyncJob.data_source_id == data_source_id
-        ).order_by(DiffSyncJob.start_time.desc()).limit(10)
+        stmt = select(DiffTask).where(
+            DiffTask.project_id == project_id,
+            DiffTask.data_source_id == data_source_id
+        ).order_by(DiffTask.start_time.desc()).limit(10)
         res = await svc.async_db.execute(stmt)
         return res.scalars().all()
     except Exception as e:
