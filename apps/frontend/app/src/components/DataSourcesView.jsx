@@ -149,7 +149,7 @@ export default function DataSourcesView({ projectId }) {
         setConfirmModal({
             isOpen: true,
             title: 'Sync Project',
-            message: `This will sync every data source configured for this project. For each source we'll fetch the latest content and re-embed it, and for issue-scoped repositories we'll also refresh the project's tracked code changes first. This runs in the background.`,
+            message: `Sync each Data Source configured for this Project so the Agent has the most up-to-date context.`,
             confirmLabel: 'Sync Project',
             onConfirm: async () => {
                 setCreatingJob(true);
