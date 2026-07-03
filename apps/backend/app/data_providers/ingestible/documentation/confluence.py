@@ -104,7 +104,7 @@ class ConfluenceDataProvider(DocumentationDataProvider):
             await self._get_page_tree(child_id)
 
     async def _download_page(self, page_id: str, title: str):
-        assert self.file_svc and self.job_pk
+        assert self.file_svc and self.embed_task_id
 
         # Safe filename
         safe_title = "".join(c if c.isalnum() else "_" for c in title)
@@ -151,12 +151,12 @@ class ConfluenceDataProvider(DocumentationDataProvider):
                 hash=hashed_content,
                 file_url=url
             )
-            file_status = await self.file_svc.process_file(file, self.data_source, self.job_pk, self.new_or_modified_file_ids)
+            file_status = await self.file_svc.process_file(file, self.data_source, self.embed_task_id, self.new_or_modified_file_ids)
 
             if file_status == FileProcesingStatus.UNCHANGED:
                 return 
 
-            dir_path = f"{settings.TMP_DOCS}/{self.job_pk}"
+            dir_path = f"{settings.TMP_DOCS}/{self.embed_task_id}"
             full_path = Path(f"{dir_path}/{file_path}")
             
             await asyncio.to_thread(self._write_file, full_path, buffer)
@@ -238,12 +238,12 @@ class ConfluenceDataProvider(DocumentationDataProvider):
             logger.error(f"Failure listing directory={path} with exception={str(e)}")
             raise Exception(f"Failure occurred while attempt to list directory: {path}", e)
 
-    async def generate_citation(self, path: str) -> str:
+    async def generate_citation(self, file_path: str) -> str:
         # Path format: confluence/safe_title_pageId.md
         try:
-            page_id = path.split("_")[-1].split(".")[0]
+            page_id = file_path.split("_")[-1].split(".")[0]
             url = f"{self.base_url}{page_id}"
-            return f"[{path}]({url})"
+            return f"[{file_path}]({url})"
         except Exception as e:
-            logger.error(f"Failure generating citation for path={path} with exception={str(e)}")
-            raise Exception(f"Failure occurred while attempt to generate citation for path: {path}", e)
+            logger.error(f"Failure generating citation for file_path={file_path} with exception={str(e)}")
+            raise Exception(f"Failure occurred while attempt to generate citation for file_path: {file_path}", e)

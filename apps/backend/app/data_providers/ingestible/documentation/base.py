@@ -43,14 +43,14 @@ class DocumentationDataProvider(IngestibleDataProvider):
         raise NotImplementedError()
         
     @abstractmethod
-    async def _get_page_tree(self, curr_url: str, file_svc: FileService, job_pk: UUID):
+    async def _get_page_tree(self, curr_url: str, file_svc: FileService, embed_task_id: UUID):
         """
         Recursively pull down the documentation page tree.
         """
         raise NotImplementedError()
         
     @abstractmethod
-    async def _download_page(self, page_id: str, title: str, file_svc: FileService, job_pk: UUID):
+    async def _download_page(self, page_id: str, title: str, file_svc: FileService, embed_task_id: UUID):
         """
         Download a page and save it as Markdown.
         """

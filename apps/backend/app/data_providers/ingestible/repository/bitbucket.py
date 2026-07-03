@@ -191,7 +191,7 @@ class BitbucketDataProvider(RepositoryDataProvider):
     async def _download_file(
         self, client: httpx.AsyncClient, url: str, file_name: str, file_path: str, persist_lock: asyncio.Lock
     ):
-        assert self.file_svc and self.job_pk
+        assert self.file_svc and self.embed_task_id
 
         if not file_name or "." not in file_name:
             logger.warning(f"Skipping attempt to download file from URL={url} and file_name={file_name}")
@@ -233,12 +233,12 @@ class BitbucketDataProvider(RepositoryDataProvider):
             # The session backing FileService is shared across concurrent downloads,
             # so serialize all session access through the lock.
             async with persist_lock:
-                file_status = await self.file_svc.process_file(file, self.data_source, self.job_pk, self.new_or_modified_file_ids)
+                file_status = await self.file_svc.process_file(file, self.data_source, self.embed_task_id, self.new_or_modified_file_ids)
 
             if file_status == FileProcesingStatus.UNCHANGED:
                 return 
 
-            dir = f"{settings.TMP_DOCS}/{self.job_pk}" if file_type == "DOCS" else f"{settings.TMP_CODE}/{self.job_pk}"
+            dir = f"{settings.TMP_DOCS}/{self.embed_task_id}" if file_type == "DOCS" else f"{settings.TMP_CODE}/{self.embed_task_id}"
             full_path = Path(f"{dir}/{file_path}")
             
             await asyncio.to_thread(self._write_file, full_path, buffer)

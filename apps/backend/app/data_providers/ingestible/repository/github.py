@@ -127,7 +127,7 @@ class GithubDataProvider(RepositoryDataProvider):
         Args:
             curr_url (str) - current URL to retrieve content from
         """
-        assert self.file_svc and self.job_pk
+        assert self.file_svc and self.embed_task_id
 
         # make request to retrieve content from specific directory
         content = None
@@ -163,7 +163,7 @@ class GithubDataProvider(RepositoryDataProvider):
         Helper function to download a file and store within relevant temporary directory
 
         """
-        assert self.file_svc and self.job_pk
+        assert self.file_svc and self.embed_task_id
 
         # ensure valid file name
         if not file_name or "." not in file_name:
@@ -210,14 +210,14 @@ class GithubDataProvider(RepositoryDataProvider):
                 hash=hashed_content,
                 file_url=url
             )
-            file_status = await self.file_svc.process_file(file, self.data_source, self.job_pk, self.new_or_modified_file_ids)
+            file_status = await self.file_svc.process_file(file, self.data_source, self.embed_task_id, self.new_or_modified_file_ids)
 
             # skip files already processed & unchanged 
             if file_status == FileProcesingStatus.UNCHANGED:
                 return 
 
             # write file to temporary directory if needed
-            dir = f"{settings.TMP_DOCS}/{self.job_pk}" if file_type == "DOCS" else f"{settings.TMP_CODE}/{self.job_pk}"
+            dir = f"{settings.TMP_DOCS}/{self.embed_task_id}" if file_type == "DOCS" else f"{settings.TMP_CODE}/{self.embed_task_id}"
             
             # create parent directories if they don't exist
             full_path = Path(f"{dir}/{file_path}")

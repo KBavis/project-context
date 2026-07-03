@@ -105,13 +105,13 @@ class JobService:
             ds = await self.data_source_svc.aget_data_source_by_id_with_session(data_source_id, session)
             if not ds:
                 return
-            is_repo = ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues
+            is_scoped_repo = ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues
 
         # 1. Create Job 
         job_id = await self.create_job(project_id, data_source_id)
             
         # 2. Run DiffTask (if applicable)
-        if is_repo:
+        if is_scoped_repo:
             await self._run_diff_task(project_id, data_source_id, job_id)
 
         # 3. Run EmbedTask
