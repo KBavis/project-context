@@ -11,6 +11,16 @@ export default function JobsView() {
     const [dateFilter, setDateFilter] = useState('');
     const [timeRangeFilter, setTimeRangeFilter] = useState('all');
     const [expandedJobs, setExpandedJobs] = useState(new Set());
+    const [expandedDetails, setExpandedDetails] = useState(new Set());
+
+    const toggleDetail = (taskId) => {
+        setExpandedDetails(prev => {
+            const next = new Set(prev);
+            if (next.has(taskId)) next.delete(taskId);
+            else next.add(taskId);
+            return next;
+        });
+    };
 
     const toggleExpand = (jobId) => {
         setExpandedJobs(prev => {
@@ -64,8 +74,7 @@ export default function JobsView() {
             if (statusFilter !== 'all' && status !== statusFilter) return false;
 
             if (dataSourceFilter !== 'all') {
-                if (dataSourceFilter === 'project' && job.data_source_id) return false;
-                if (dataSourceFilter !== 'project' && job.data_source_id !== dataSourceFilter) return false;
+                if (job.data_source_id !== dataSourceFilter) return false;
             }
 
             const jobStartTime = job.start_time || job.created_at;
@@ -94,18 +103,17 @@ export default function JobsView() {
         <div className="jobs-container">
             <div className="jobs-header-section">
                 <div className="jobs-header">
-                    <h2>Job History</h2>
+                    <h2>Sync History</h2>
                 </div>
                 <div className="jobs-filters-group">
                     <div className="filter-item">
-                        <label className="filter-label">Target</label>
+                        <label className="filter-label">Data Source</label>
                         <select
                             className="jobs-filter-select"
                             value={dataSourceFilter}
                             onChange={(e) => setDataSourceFilter(e.target.value)}
                         >
-                            <option value="all">All Targets</option>
-                            <option value="project">Entire Project</option>
+                            <option value="all">All Data Sources</option>
                             {dataSources.map(ds => (
                                 <option key={ds.id} value={ds.id}>{ds.name || ds.url || ds.id}</option>
                             ))}
@@ -167,7 +175,7 @@ export default function JobsView() {
             {jobs.length === 0 && !loading ? (
                 <div className="jobs-empty">
                     <div className="empty-icon">⚙️</div>
-                    <h3>No Job History</h3>
+                    <h3>No Sync History</h3>
                     <p>Job runs will appear here once triggered from the Data Sources view or via Sync Project</p>
                 </div>
             ) : (
@@ -207,9 +215,8 @@ export default function JobsView() {
                                                 e.stopPropagation();
                                                 toggleExpand(job.id);
                                             }}
-                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-tertiary)' }}
                                         >
-                                            {expandedJobs.has(job.id) ? '▼' : '▶'}
+                                            {expandedJobs.has(job.id) ? '▼' : '›'}
                                         </button>
                                     </div>
                                     {status === 'running' && (
@@ -219,37 +226,41 @@ export default function JobsView() {
                                     )}
 
                                     {expandedJobs.has(job.id) && (
-                                        <div className="job-nested-tasks" style={{ padding: '10px 16px', background: 'rgba(0,0,0,0.2)', borderTop: '1px solid var(--border-color)', fontSize: '0.85rem' }}>
-                                            {job.diff_tasks?.length > 0 && (
-                                                <div style={{ marginBottom: '8px' }}>
-                                                    <strong>Diff Tasks</strong>
-                                                    <ul style={{ paddingLeft: '20px', marginTop: '4px' }}>
-                                                        {job.diff_tasks.map(t => (
-                                                            <li key={t.id}>
-                                                                <span className={`status-${mapStatus(t.status)}`} style={{ marginRight: '6px' }}>●</span>
-                                                                {t.status} - {t.total_duration ? `${t.total_duration.toFixed(2)}s` : '...'}
-                                                                {t.reason && <span style={{ color: 'red', marginLeft: '6px' }}>({t.reason})</span>}
-                                                            </li>
-                                                        ))}
-                                                    </ul>
+                                        <div className="job-nested-tasks">
+                                            <div className="task-row header">
+                                                <div className="task-col-type">Type</div>
+                                                <div className="task-col-status">Status</div>
+                                                <div className="task-col-duration">Duration</div>
+                                                <div className="task-col-detail">Details / Error</div>
+                                            </div>
+                                            
+                                            {[...(job.diff_tasks || []).map(t => ({ ...t, _type: 'Diff' })), ...(job.embed_tasks || []).map(t => ({ ...t, _type: 'Embed' }))].map(t => {
+                                                const tStatus = t._type === 'Diff' ? mapStatus(t.status) : mapStatus(t.processing_status);
+                                                const isExp = expandedDetails.has(t.id);
+                                                return (
+                                                    <div key={t.id} className="task-row">
+                                                        <div className="task-col-type">{t._type}</div>
+                                                        <div>
+                                                            <span className={`job-list-status status-${tStatus}`}>{tStatus}</span>
+                                                        </div>
+                                                        <div className="task-col-duration">
+                                                            {t.total_duration ? `${t.total_duration.toFixed(2)}s` : '-'}
+                                                        </div>
+                                                        <div 
+                                                            className={`task-col-detail ${isExp ? 'expanded' : ''}`}
+                                                            onClick={() => t.reason ? toggleDetail(t.id) : null}
+                                                            title={t.reason || 'No errors'}
+                                                        >
+                                                            {t.reason || '-'}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                            
+                                            {(!job.diff_tasks?.length && !job.embed_tasks?.length) && (
+                                                <div className="task-row empty">
+                                                    No sub-tasks recorded for this job.
                                                 </div>
-                                            )}
-                                            {job.embed_tasks?.length > 0 && (
-                                                <div>
-                                                    <strong>Embed Tasks</strong>
-                                                    <ul style={{ paddingLeft: '20px', marginTop: '4px' }}>
-                                                        {job.embed_tasks.map(t => (
-                                                            <li key={t.id}>
-                                                                <span className={`status-${mapStatus(t.processing_status)}`} style={{ marginRight: '6px' }}>●</span>
-                                                                {t.processing_status} - {t.total_duration ? `${t.total_duration.toFixed(2)}s` : '...'}
-                                                                {t.reason && <span style={{ color: 'red', marginLeft: '6px' }}>({t.reason})</span>}
-                                                            </li>
-                                                        ))}
-                                                    </ul>
-                                                </div>
-                                            )}
-                                            {!(job.diff_tasks?.length) && !(job.embed_tasks?.length) && (
-                                                <div style={{ color: 'var(--color-text-tertiary)' }}>No sub-tasks executed for this job.</div>
                                             )}
                                         </div>
                                     )}

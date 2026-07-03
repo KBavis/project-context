@@ -49,7 +49,7 @@ export default function Home({ view }) {
                         onClick={() => setCurrentView('ingestion')}
                     >
                         <span className="nav-icon">⚙️</span>
-                        <span>Refresh History</span>
+                        <span>Sync History</span>
                     </button>
 
                     <button

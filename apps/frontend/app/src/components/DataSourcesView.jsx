@@ -415,6 +415,35 @@ export default function DataSourcesView({ projectId }) {
                             const latestStatus = latestJob ? mapStatus(latestJob.processing_status) : null;
                             const noJobsAndScoped = !latestJob && ds.scope_by_issues && ds.type === 'REPOSITORY';
                             return (
+                            const running = latestStatus === 'running';
+                            const syncedJob = latestJobs.find(j => ['completed', 'skipped'].includes(mapStatus(j.status || j.processing_status)));
+                            
+                            // Never successfully synced -- warning badge (no "Last Sync" row)
+                            if (!running && !syncedJob) {
+                                return (
+                                    <div style={{
+                                        padding: '6px 16px',
+                                        borderTop: '1px solid var(--border-color)',
+                                        marginTop: '4px'
+                                    }}>
+                                        <span style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '5px',
+                                            fontSize: '0.72rem',
+                                            fontWeight: 600,
+                                            color: 'var(--color-warning, #f0ad4e)',
+                                            background: 'rgba(240, 173, 78, 0.12)',
+                                            padding: '2px 8px',
+                                            borderRadius: '10px'
+                                        }}>
+                                            ⚠️ Not Synced
+                                        </span>
+                                    </div>
+                                );
+                            }
+
+                            return (
                                 <div style={{
                                     padding: '6px 16px 6px',
                                     display: 'flex',
@@ -425,21 +454,10 @@ export default function DataSourcesView({ projectId }) {
                                     borderTop: '1px solid var(--border-color)',
                                     marginTop: '4px',
                                 }}>
-                                    <span>Last Sync</span>
-                                    {latestJob ? (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <span style={{ fontSize: '0.72rem' }}>
-                                                {latestStatus === 'completed' ? `Synced ${getTimeAgo(latestJob.start_time)}` : latestStatus === 'running' ? 'Syncing...' : `Sync Failed ${getTimeAgo(latestJob.start_time)}`}
-                                            </span>
-                                            <span className={`mini-job-status status-${latestStatus}`} style={{ fontSize: '0.7rem', padding: '1px 6px' }}>
-                                                {latestStatus}
-                                            </span>
-                                        </div>
-                                    ) : noJobsAndScoped ? (
-                                        <span style={{ color: 'rgba(255, 193, 7, 0.85)', fontSize: '0.72rem' }}>⚠️ Not yet synced</span>
-                                    ) : (
-                                        <span style={{ fontSize: '0.72rem' }}>—</span>
-                                    )}
+                                    <span style={{ fontWeight: 600, color: 'var(--color-text-secondary)' }}>Last Synced</span>
+                                    <span style={{ fontSize: '0.72rem', color: 'var(--color-text-tertiary)' }}>
+                                        {running ? 'Syncing...' : (syncedJob ? getTimeAgo(syncedJob.end_time || syncedJob.start_time || syncedJob.created_at) : '')}
+                                    </span>
                                 </div>
                             );
                         })()}
@@ -480,7 +498,7 @@ export default function DataSourcesView({ projectId }) {
                                     onClick={() => handleRunIngestion(ds.id)}
                                     disabled={creatingJob}
                                 >
-                                    {creatingJob ? 'Starting...' : 'Sync Data Source'}
+                                    {creatingJob ? 'Starting...' : 'Sync'}
                                 </button>
                             )}
                         </div>
@@ -488,11 +506,12 @@ export default function DataSourcesView({ projectId }) {
                         {activeJobView === ds.id && (
                             <div className="data-source-jobs-mini fade-in">
                                 <div className="mini-jobs-header">
-                                    <span>Data Source Refresh History</span>
+                                    <span>Sync History</span>
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--color-text-tertiary)', fontWeight: 400 }}> - this project</span>
                                     {getLatestJobsForDataSource(ds.id).length > 0 && <span className="jobs-count">{getLatestJobsForDataSource(ds.id).length}/3</span>}
                                 </div>
                                 {getLatestJobsForDataSource(ds.id).length === 0 ? (
-                                    <p className="no-jobs-text">No jobs found.</p>
+                                    <div className="mini-jobs-empty">No Sync History</div>
                                 ) : (
                                     <div className="mini-jobs-list">
                                         {getLatestJobsForDataSource(ds.id).map(job => {
@@ -600,9 +619,9 @@ export default function DataSourcesView({ projectId }) {
                 <h2>Data Sources</h2>
                 <div style={{ display: 'flex', gap: '10px' }}>
                     {projectId && dataSources.filter(ds => ds.linked_projects?.includes(projectId) && ds.type === 'REPOSITORY' && ds.scope_by_issues).length > 0 && (
-                        <Button size="sm" variant="secondary" onClick={() => handleRunProjectJobs()} disabled={creatingJob}>
+                        <button className="sync-project-btn" onClick={() => handleRunProjectJobs()} disabled={creatingJob}>
                             {creatingJob ? 'Starting...' : '🔄 Sync Project'}
-                        </Button>
+                        </button>
                     )}
                     <Button size="sm" onClick={() => setShowAddForm(!showAddForm)}>
                         {showAddForm ? 'Cancel' : '+ Add Data Source'}
