@@ -1,6 +1,9 @@
 from __future__ import annotations
+import asyncio
 import logging
 from typing import TYPE_CHECKING
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,15 +12,16 @@ from fastapi import HTTPException
 
 from app.pydantic import ProjectRequest
 from app.pydantic.status import ProcessingStatus
-from app.models import Project, ProjectData, DataSource, IngestionJob, ProjectRepositoryChanges
+from app.models import Project, ProjectData, DataSource 
 from app.models.data_source import DataSourceType
 from app.data_providers.ingestible.base import IngestibleDataProvider
+
 from uuid import UUID
 
 if TYPE_CHECKING:
-    from app.services.diff import DiffService
+    from app.services.diff_task import DiffTaskService
     from app.services.data_source import DataSourceService
-    from app.services.ingestion_job import IngestionJobService
+    from app.services.job import JobService
 
 logger = logging.getLogger(__name__)
 
@@ -26,15 +30,13 @@ class ProjectService:
         self,
         db: Session,
         async_db: AsyncSession,
-        diff_svc: DiffService,
-        ingestion_job_svc: IngestionJobService,
+        job_svc: JobService,
         data_source_svc: DataSourceService | None = None,
     ):
         self.db = db
         self.async_db = async_db
-        self.diff_svc = diff_svc
         self.data_source_svc = data_source_svc
-        self.ingestion_job_svc = ingestion_job_svc
+        self.job_svc = job_svc
 
     # ─────────────────────────────────────────────
     # Project Readiness
@@ -44,9 +46,9 @@ class ProjectService:
         """
         Gate for conversation message sending. Raises HTTP 412 if:
           - Any ingestible data source (REPOSITORY, DOCUMENTATION) has not completed
-            a successful IngestionJob, OR
+            a successful EmbedTask, OR
           - Any issue-scoped Repository data source has not completed a successful
-            DiffSyncJob (i.e. ProjectRepositoryChanges record not yet created).
+            DiffTask (i.e. ProjectRepoSummary record not yet created).
 
         Fetchable-only sources (ISSUE_TRACKER) are ignored for both checks.
         """
@@ -63,7 +65,11 @@ class ProjectService:
                 status_code=412,
                 detail=f"Project synchronization is in progress. {reasons_str}"
             )
-
+        if readiness["overall_status"] == ProcessingStatus.NOT_YET_SYNCED.value:
+            raise HTTPException(
+                status_code=412,
+                detail=f"Project has not yet been synced. {reasons_str}"
+            )
         raise HTTPException(
             status_code=412,
             detail=f"Project synchronization failed or is incomplete. {reasons_str}"
@@ -72,33 +78,16 @@ class ProjectService:
     async def get_project_readiness_state(self, project_id: UUID) -> dict:
         """
         Return a combined readiness snapshot used by the /sync-status endpoint.
-
-        Returns a dict with:
-            is_ready (bool): True only when both ingestion and diff-sync are successful.
-            ingestion_status (str): ProcessingStatus value for ingestion.
-            sync_status (str): ProcessingStatus value for diff-sync.
-            overall_status (str): worst-case aggregate of the two.
-            reasons (list[str]): detailed string reasons for any pending or failed data sources.
         """
-        ingestion_state, ingestion_reasons = await self.ingestion_job_svc.get_project_ingestion_state(project_id)
-        diff_state, diff_reasons = await self.diff_svc.get_project_sync_state(project_id)
-
-        if ProcessingStatus.IN_PROGRESS.value in (ingestion_state, diff_state):
-            overall = ProcessingStatus.IN_PROGRESS.value
-        elif ProcessingStatus.FAILED.value in (ingestion_state, diff_state):
-            overall = ProcessingStatus.FAILED.value
-        else:
-            overall = ProcessingStatus.SUCCESS.value
-
-        all_reasons = ingestion_reasons + diff_reasons
+        overall_state, reasons = await self.job_svc.get_project_sync_state(project_id)
 
         return {
-            "is_ready": overall == ProcessingStatus.SUCCESS.value,
-            "overall_status": overall,
-            "ingestion_status": ingestion_state,
-            "sync_status": diff_state,
-            "reasons": all_reasons
+            "is_ready": overall_state == ProcessingStatus.SUCCESS.value,
+            "overall_status": overall_state,
+            "reasons": reasons
         }
+
+
 
 
     def create_project(self, request: ProjectRequest) -> dict:
@@ -245,7 +234,7 @@ class ProjectService:
                 data_source_id=data_source_id
             )
             self.db.add(association)
-            self.db.commit() # NOTE: We commit here so that the downstream DiffSyncJob can successfully leverage the PROJECT_DATA record
+            self.db.commit() # NOTE: We commit here so that the downstream DiffTask can successfully leverage the PROJECT_DATA record
             
             return {
                 "message": f"Successfully linked data source {data_source_id} to project {project_id}",
@@ -294,8 +283,8 @@ class ProjectService:
                             "Unlink those repositories first."
                         )
 
-            # Delete the ProjectRepositoryChanges explicitly to cascade its children using diff_svc
-            await self.diff_svc.adelete_project_repository_changes(project_id, data_source_id)
+            # Delete the ProjectRepoSummary explicitly to cascade its children using diff_svc
+            await self.diff_svc.adelete_project_repo_summary(project_id, data_source_id)
 
             # Finally, delete the association
             self.db.delete(association)

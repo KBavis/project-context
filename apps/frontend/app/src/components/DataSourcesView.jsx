@@ -1,14 +1,20 @@
-import { useState, useMemo } from 'react';
-import { useDataSources, useIngestionJobs, useAlert, useProjects } from '../contexts/index';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useDataSources, useJobs, useAlert, useProjects } from '../contexts/index';
 import Button from './Button';
 import Modal from './Modal';
+import api from '../services/api';
 import '../styles/DataSourcesView.css';
 import '../styles/IngestionJobsView.css';
+
+// Issue-scoped repositories produce project-specific jobs (diff work is per-project).
+// Every other ingestible source is embed-once / global, so its jobs are shared across 
+// projects.
+const isIssueScopedRepo = (ds) => ds.type === 'REPOSITORY' && !!ds.scope_by_issues;
 
 export default function DataSourcesView({ projectId }) {
     const { projects } = useProjects();
     const { dataSources, loading: dsLoading, error, deleteDataSource, createDataSource, updateDataSource, mcpConfigs, linkProjectToDataSource, unlinkProjectFromDataSource, linkMcpToDataSource } = useDataSources();
-    const { ingestionJobs, createIngestionJob } = useIngestionJobs();
+    const { jobs, createJob } = useJobs();
     const { showAlert } = useAlert();
 
     const [activeJobView, setActiveJobView] = useState(null); // dataSourceId
@@ -23,7 +29,6 @@ export default function DataSourcesView({ projectId }) {
         name: '',
         branch: '',
         scope_by_issues: false,
-        ingest_paths: '',
         projectIds: projectId ? [projectId] : []
     });
 
@@ -51,9 +56,45 @@ export default function DataSourcesView({ projectId }) {
     const closeConfirmModal = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
     const [isUnlinkDragOver, setIsUnlinkDragOver] = useState(false);
 
-    const getLatestJobsForDataSource = (dsId) => {
-        return ingestionJobs
-            .filter(job => job.data_source_id === dsId)
+    // Global (cross-project) jobs for non-scoped sources (embed-once corpora). Issue-scoped
+    // repos use the project-scoped 'jobs' from context instead.
+    const [globalJobs, setGlobalJobs] = useState({});
+
+    const nonScopedIds = useMemo(
+        () => dataSources
+            .filter(ds => ds.type !== 'ISSUE_TRACKER' && !(isIssueScopedRepo(ds)))
+            .map(ds => ds.id),
+        [dataSources]
+    );
+
+    const refreshGlobalJobs = useCallback(async () => {
+        if (nonScopedIds.length === 0) {
+            setGlobalJobs({});
+            return;
+        }
+        const results = await Promise.all(
+            nonScopedIds.map(async (id) => {
+                try {
+                    return [id, await api.jobs.getLatestForSource(id)];
+                } catch {
+                    return [id, []];
+                }
+            })
+        );
+        setGlobalJobs(Object.fromEntries(results));
+    }, [nonScopedIds]);
+
+    // Refresh on mount / data-source change, and whenever the project-scoped jobs update
+    // (context polls every 5s while a sync is in progress) so shared corpora stay fresh.
+    useEffect(() => {
+        refreshGlobalJobs();
+    }, [refreshGlobalJobs, jobs]);
+
+    const getLatestJobsForDataSource = (ds) => {
+        const source = isIssueScopedRepo(ds)
+            ? jobs.filter(job => job.data_source_id === ds.id)
+            : (globalJobs[ds.id] || []);
+        return [...source]
             .sort((a, b) => new Date(b.created_at || b.start_time) - new Date(a.created_at || a.start_time))
             .slice(0, 3);
     };
@@ -85,17 +126,38 @@ export default function DataSourcesView({ projectId }) {
 
         setConfirmModal({
             isOpen: true,
-            title: 'Run Ingestion',
-            message: `You are about to start a new ingestion job for "${displayName}". This will retrieve and process the latest data from the source.`,
-            confirmLabel: 'Start Ingestion',
+            title: 'Sync Data Source',
+            message: `You are about to start a Sync for "${displayName}". This will retrieve and process the latest data from the source.`,
+            confirmLabel: 'Sync Data Source',
             onConfirm: async () => {
                 setCreatingJob(true);
                 try {
-                    await createIngestionJob(dsId);
+                    await createJob(dsId);
                     setActiveJobView(dsId);
-                    showAlert('🚀 Ingestion job successfully triggered!', 'success');
+                    showAlert('🚀 Sync Data Source triggered!', 'success');
                 } catch (err) {
-                    showAlert('Failed to start ingestion job: ' + err.message, 'error');
+                    showAlert('Failed to start refresh: ' + err.message, 'error');
+                } finally {
+                    setCreatingJob(false);
+                }
+                closeConfirmModal();
+            }
+        });
+    };
+
+    const handleRunProjectJobs = () => {
+        setConfirmModal({
+            isOpen: true,
+            title: 'Sync Project',
+            message: `Sync each Data Source configured for this Project so the Agent has the most up-to-date context.`,
+            confirmLabel: 'Sync Project',
+            onConfirm: async () => {
+                setCreatingJob(true);
+                try {
+                    await createJob(); // No data source ID => Project-wide job
+                    showAlert('🚀 Sync Project triggered!', 'success');
+                } catch (err) {
+                    showAlert('Failed to start sync project: ' + err.message, 'error');
                 } finally {
                     setCreatingJob(false);
                 }
@@ -107,18 +169,15 @@ export default function DataSourcesView({ projectId }) {
     const handleAddDataSource = async (e) => {
         e.preventDefault();
         try {
-            const parsedIngestPaths = newDS.ingest_paths.map(p => p.trim()).filter(p => p);
-            
             await createDataSource(
-                newDS.provider, 
-                { 
-                    type: newDS.type, 
-                    url: newDS.url, 
-                    name: newDS.name, 
-                    branch: newDS.branch, 
-                    scope_by_issues: newDS.scope_by_issues,
-                    ingest_paths: parsedIngestPaths
-                }, 
+                newDS.provider,
+                {
+                    type: newDS.type,
+                    url: newDS.url,
+                    name: newDS.name,
+                    branch: newDS.branch,
+                    scope_by_issues: newDS.scope_by_issues
+                },
                 newDS.projectIds
             );
             setShowAddForm(false);
@@ -129,7 +188,6 @@ export default function DataSourcesView({ projectId }) {
                 name: '',
                 branch: '',
                 scope_by_issues: false,
-                ingest_paths: [],
                 projectIds: projectId ? [projectId] : []
             });
             showAlert('Data source added successfully', 'success');
@@ -139,7 +197,7 @@ export default function DataSourcesView({ projectId }) {
     };
 
     const mapStatus = (status) => {
-        if (!status) return 'pending';
+        if (!status) return 'unknown';
         const s = status.toUpperCase();
         if (s === 'IN_PROGRESS' || s === 'RUNNING') return 'running';
         if (s === 'SUCCESS' || s === 'COMPLETED') return 'completed';
@@ -257,7 +315,11 @@ export default function DataSourcesView({ projectId }) {
 
                             <div className="data-source-content">
                                 <div className="data-source-title-row">
-                                    <h3 className="data-source-name">{displayName}</h3>
+                                    <h3 className="data-source-name">
+                                        <a href={url.startsWith('http') ? url : `https://${url}`} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>
+                                            {displayName}
+                                        </a>
+                                    </h3>
                                     {ds.branch && (
                                         <p className="data-source-provider">
                                             <span className="data-source-branch-badge">{ds.branch}</span>
@@ -328,74 +390,117 @@ export default function DataSourcesView({ projectId }) {
                                     {!projectId && (
                                         <div className="meta-section">
                                             <span className="meta-section-label">MCP Server</span>
-                                        <div className="meta-section-tags">
-                                            {ds.mcp_configs && ds.mcp_configs.length > 0 ? (
-                                                ds.mcp_configs.map(mcp => (
-                                                    <div key={mcp.id} className="mcp-badge linked" title={`Connected to MCP: ${mcp.name}`}>
-                                                        <span className="mcp-icon">⚡</span>
-                                                        <span className="mcp-name">{mcp.name}</span>
-                                                    </div>
-                                                ))
-                                            ) : ds.mcp_config ? (
-                                                <div className="mcp-badge linked" title={`Connected to MCP: ${ds.mcp_config.name}`}>
-                                                    <span className="mcp-icon">⚡</span>
-                                                    <span className="mcp-name">{ds.mcp_config.name}</span>
-                                                </div>
-                                            ) : (
-                                                <div className="mcp-badge none" title="This data source is not currently linked to an MCP protocol server">
-                                                    <span className="mcp-icon">⚙️</span>
-                                                    <span>None</span>
-                                                </div>
-                                            )}
-
-                                            {(() => {
-                                                const linkedMcpIds = ds.mcp_configs ? ds.mcp_configs.map(mcp => mcp.id) : (ds.mcp_config ? [ds.mcp_config.id] : []);
-                                                const unlinked = mcpConfigs.filter(mcp => !linkedMcpIds.includes(mcp.id));
-                                                if (unlinked.length > 0) {
-                                                    return (
-                                                        <select
-                                                            className="link-selector mcp-link-select"
-                                                            defaultValue=""
-                                                            onChange={async (e) => {
-                                                                const val = e.target.value;
-                                                                if (!val) return;
-                                                                try {
-                                                                    await linkMcpToDataSource(ds.id, val);
-                                                                    showAlert('MCP server linked successfully', 'success');
-                                                                } catch (err) {
-                                                                    showAlert('Failed to link MCP server: ' + err.message, 'error');
-                                                                }
-                                                                e.target.value = "";
-                                                            }}
-                                                        >
-                                                            <option value="" disabled>+ Link</option>
-                                                            {unlinked.map(mcp => (
-                                                                <option key={mcp.id} value={mcp.id}>
-                                                                    {mcp.name}
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                    );
-                                                }
-                                                return null;
-                                            })()}
-                                        </div>
-                                        </div>
-                                    )}
-
-                                    {ds.type === 'REPOSITORY' && ds.ingest_paths && ds.ingest_paths.length > 0 && (
-                                        <div className="meta-section">
-                                            <span className="meta-section-label">Paths Included</span>
                                             <div className="meta-section-tags">
-                                                {ds.ingest_paths.map((p, i) => (
-                                                    <span key={i} className="project-tag active">{p}</span>
-                                                ))}
+                                                {ds.mcp_configs && ds.mcp_configs.length > 0 ? (
+                                                    ds.mcp_configs.map(mcp => (
+                                                        <div key={mcp.id} className="mcp-badge linked" title={`Connected to MCP: ${mcp.name}`}>
+                                                            <span className="mcp-icon">⚡</span>
+                                                            <span className="mcp-name">{mcp.name}</span>
+                                                        </div>
+                                                    ))
+                                                ) : ds.mcp_config ? (
+                                                    <div className="mcp-badge linked" title={`Connected to MCP: ${ds.mcp_config.name}`}>
+                                                        <span className="mcp-icon">⚡</span>
+                                                        <span className="mcp-name">{ds.mcp_config.name}</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="mcp-badge none" title="This data source is not currently linked to an MCP protocol server">
+                                                        <span className="mcp-icon">⚙️</span>
+                                                        <span>None</span>
+                                                    </div>
+                                                )}
+
+                                                {(() => {
+                                                    const linkedMcpIds = ds.mcp_configs ? ds.mcp_configs.map(mcp => mcp.id) : (ds.mcp_config ? [ds.mcp_config.id] : []);
+                                                    const unlinked = mcpConfigs.filter(mcp => !linkedMcpIds.includes(mcp.id));
+                                                    if (unlinked.length > 0) {
+                                                        return (
+                                                            <select
+                                                                className="link-selector mcp-link-select"
+                                                                defaultValue=""
+                                                                onChange={async (e) => {
+                                                                    const val = e.target.value;
+                                                                    if (!val) return;
+                                                                    try {
+                                                                        await linkMcpToDataSource(ds.id, val);
+                                                                        showAlert('MCP server linked successfully', 'success');
+                                                                    } catch (err) {
+                                                                        showAlert('Failed to link MCP server: ' + err.message, 'error');
+                                                                    }
+                                                                    e.target.value = "";
+                                                                }}
+                                                            >
+                                                                <option value="" disabled>+ Link</option>
+                                                                {unlinked.map(mcp => (
+                                                                    <option key={mcp.id} value={mcp.id}>
+                                                                        {mcp.name}
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
                                             </div>
                                         </div>
                                     )}
+
+
                                 </div>
                             </div>
                         </div>
+
+                        {/* Per-source last sync indicator */}
+                        {ds.type !== 'ISSUE_TRACKER' && (() => {
+                            const latestJobs = getLatestJobsForDataSource(ds);
+
+                            const running = latestJobs.some(j => mapStatus(j.status) === 'running');
+                            // A skipped embed (already up-to-date / embed-once) still counts as synced
+                            const syncedJob = latestJobs.find(j => ['completed', 'skipped'].includes(mapStatus(j.status)));
+
+                            // Never successfully synced -> warning badge (no "Last Sync" row)
+                            if (!running && !syncedJob) {
+                                return (
+                                    <div style={{
+                                        padding: '8px 16px',
+                                        borderTop: '1px solid var(--border-color)',
+                                        marginTop: '4px'
+                                    }}>
+                                        <span style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'baseline',
+                                            gap: '5px',
+                                            fontSize: '0.72rem',
+                                            fontWeight: 600,
+                                            color: 'var(--color-warning, #f0ad4e)',
+                                            background: 'rgba(240, 173, 78, 0.12)',
+                                            padding: '2px 8px',
+                                            borderRadius: '10px'
+                                        }}>
+                                            ⚠️ Not Synced
+                                        </span>
+                                    </div>
+                                );
+                            }
+
+                            return (
+                                <div style={{
+                                    padding: '8px 16px 8px',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'baseline',
+                                    fontSize: '0.78rem',
+                                    color: 'var(--color-text-tertiary)',
+                                    borderTop: '1px solid var(--border-color)',
+                                    marginTop: '4px',
+                                }}>
+                                    <span style={{ fontWeight: 600, color: 'var(--color-text-secondary)' }}>Last Synced:</span>
+                                    <span style={{ fontSize: '0.72rem', color: 'var(--color-text-tertiary)' }}>
+                                        {running ? 'Syncing...' : (syncedJob ? getTimeAgo(syncedJob.end_time || syncedJob.start_time || syncedJob.created_at) : '—')}
+                                    </span>
+                                </div>
+                            );
+                        })()}
 
                         <div className="data-source-actions-flat">
                             {ds.type !== 'ISSUE_TRACKER' && (
@@ -406,7 +511,7 @@ export default function DataSourcesView({ projectId }) {
                                         setActiveJobView(isActive ? null : ds.id);
                                     }}
                                 >
-                                    {activeJobView === ds.id ? 'Hide History' : 'View Latest Jobs'}
+                                    {activeJobView === ds.id ? 'Hide History' : 'Sync History'}
                                 </button>
                             )}
                             <button
@@ -419,8 +524,7 @@ export default function DataSourcesView({ projectId }) {
                                         url: ds.config?.url || ds.url,
                                         name: ds.name,
                                         branch: ds.branch || '',
-                                        scope_by_issues: !!ds.scope_by_issues,
-                                        ingest_paths: ds.ingest_paths ? [...ds.ingest_paths] : [],
+                                        scope_by_issues: !!ds.scope_by_issues
                                     });
                                     setIsConfirmingEdit(false);
                                     setEditModalOpen(true);
@@ -434,7 +538,7 @@ export default function DataSourcesView({ projectId }) {
                                     onClick={() => handleRunIngestion(ds.id)}
                                     disabled={creatingJob}
                                 >
-                                    {creatingJob ? 'Starting...' : 'Run Ingestion'}
+                                    {creatingJob ? 'Starting...' : 'Sync'}
                                 </button>
                             )}
                         </div>
@@ -442,15 +546,16 @@ export default function DataSourcesView({ projectId }) {
                         {activeJobView === ds.id && (
                             <div className="data-source-jobs-mini fade-in">
                                 <div className="mini-jobs-header">
-                                    <span>Latest Activity</span>
-                                    {getLatestJobsForDataSource(ds.id).length > 0 && <span className="jobs-count">{getLatestJobsForDataSource(ds.id).length}/3</span>}
+                                    <span>Sync History</span>
+                                    {isIssueScopedRepo(ds) && <span style={{ fontSize: '0.7rem', color: 'var(--color-text-tertiary)', fontWeight: 400 }}> - this project</span>}
+                                    {getLatestJobsForDataSource(ds).length > 0 && <span className="jobs-count">{getLatestJobsForDataSource(ds).length}/3</span>}
                                 </div>
-                                {getLatestJobsForDataSource(ds.id).length === 0 ? (
-                                    <p className="no-jobs-text">No jobs found.</p>
+                                {getLatestJobsForDataSource(ds).length === 0 ? (
+                                    <div className="mini-jobs-empty">No Sync History found.</div>
                                 ) : (
                                     <div className="mini-jobs-list">
-                                        {getLatestJobsForDataSource(ds.id).map(job => {
-                                            const status = mapStatus(job.processing_status);
+                                        {getLatestJobsForDataSource(ds).map(job => {
+                                            const status = mapStatus(job.status);
                                             return (
                                                 <div key={job.id} className="mini-job-item">
                                                     <div className="mini-job-info">
@@ -498,7 +603,7 @@ export default function DataSourcesView({ projectId }) {
                     <div className="ds-section-header">
                         <span className="ds-section-label">🔗 Linked to {currentProject?.project_name || 'This Project'}</span>
                         <span className="ds-section-count">{linkedDS.length}</span>
-                        <span className="drag-drop-tip" style={{marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--color-text-tertiary)', fontStyle: 'italic'}}>💡 Drag and drop Data Sources to link or unlink from Project</span>
+                        <span className="drag-drop-tip" style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>💡 Drag and drop Data Sources to link or unlink from Project</span>
                     </div>
                     {linkedDS.length > 0 ? (
                         <div className="data-sources-grid">
@@ -552,9 +657,16 @@ export default function DataSourcesView({ projectId }) {
         <div className="data-sources-container">
             <div className="data-sources-header">
                 <h2>Data Sources</h2>
-                <Button size="sm" onClick={() => setShowAddForm(!showAddForm)}>
-                    {showAddForm ? 'Cancel' : '+ Add Data Source'}
-                </Button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    {projectId && dataSources.filter(ds => ds.linked_projects?.includes(projectId) && ds.type === 'REPOSITORY' && ds.scope_by_issues).length > 0 && (
+                        <button className="sync-project-btn" onClick={() => handleRunProjectJobs()} disabled={creatingJob}>
+                            {creatingJob ? 'Starting...' : '🔄 Sync Project'}
+                        </button>
+                    )}
+                    <Button size="sm" onClick={() => setShowAddForm(!showAddForm)}>
+                        {showAddForm ? 'Cancel' : '+ Add Data Source'}
+                    </Button>
+                </div>
             </div>
 
             {showAddForm && (
@@ -619,7 +731,7 @@ export default function DataSourcesView({ projectId }) {
                                             onChange={e => setNewDS({ ...newDS, branch: e.target.value })}
                                             placeholder="main"
                                         />
-                                        
+
                                         <div style={{ marginTop: '16px' }}>
                                             <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <input
@@ -632,55 +744,7 @@ export default function DataSourcesView({ projectId }) {
                                             <p className="field-hint" style={{ marginTop: '4px' }}>Whether to scope ingestion to specific issues configured on the project.</p>
                                         </div>
                                     </div>
-                                    <div className="form-field" style={{ flex: '2 1 350px', maxWidth: '500px' }}>
-                                        <div className="issue-field-header">
-                                            <label className="input-label">Paths to Include</label>
-                                            <button
-                                                type="button"
-                                                className="issue-add-btn"
-                                                onClick={() => setNewDS({ ...newDS, ingest_paths: [...newDS.ingest_paths, ''] })}
-                                                aria-label="Add path to include"
-                                            >
-                                                + Add Path
-                                            </button>
-                                        </div>
-                                        {newDS.ingest_paths.length === 0 && (
-                                            <p className="input-hint">
-                                                Add directory paths (e.g. backend/src) to limit ingestion scoping. If empty, the entire repository is ingested.
-                                            </p>
-                                        )}
-                                        {newDS.ingest_paths.length > 0 && (
-                                            <div className="issue-rows">
-                                                {newDS.ingest_paths.map((path, index) => (
-                                                    <div key={index} className="issue-row">
-                                                        <input
-                                                            type="text"
-                                                            className="input issue-row-input"
-                                                            value={path}
-                                                            onChange={e => {
-                                                                const newPaths = [...newDS.ingest_paths];
-                                                                newPaths[index] = e.target.value;
-                                                                setNewDS({ ...newDS, ingest_paths: newPaths });
-                                                            }}
-                                                            placeholder="e.g. backend/src"
-                                                        />
-                                                        <button
-                                                            type="button"
-                                                            className="issue-remove-btn"
-                                                            onClick={() => {
-                                                                const newPaths = [...newDS.ingest_paths];
-                                                                newPaths.splice(index, 1);
-                                                                setNewDS({ ...newDS, ingest_paths: newPaths });
-                                                            }}
-                                                            aria-label="Remove path"
-                                                        >
-                                                            ×
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
+
                                 </div>
                             )}
                             <div className="form-field projects-field">
@@ -765,13 +829,11 @@ export default function DataSourcesView({ projectId }) {
                         ) : (
                             <Button variant="primary" onClick={async () => {
                                 try {
-                                    const parsedIngestPaths = editingDS.ingest_paths.map(p => p.trim()).filter(p => p);
                                     await updateDataSource(editingDS.id, {
                                         name: editingDS.name,
                                         url: editingDS.url,
                                         branch: editingDS.branch || undefined,
-                                        scope_by_issues: editingDS.scope_by_issues,
-                                        ingest_paths: parsedIngestPaths
+                                        scope_by_issues: editingDS.scope_by_issues
                                     });
                                     showAlert('Data source updated', 'success');
                                     setEditModalOpen(false);
@@ -805,55 +867,7 @@ export default function DataSourcesView({ projectId }) {
                                             <label className="input-label">Branch</label>
                                             <input className="input" value={editingDS.branch} onChange={(e) => setEditingDS({ ...editingDS, branch: e.target.value })} />
                                         </div>
-                                        <div className="form-field" style={{ flex: '2 1 300px', maxWidth: '400px' }}>
-                                            <div className="issue-field-header">
-                                                <label className="input-label">Paths to Include</label>
-                                                <button
-                                                    type="button"
-                                                    className="issue-add-btn"
-                                                    onClick={() => setEditingDS({ ...editingDS, ingest_paths: [...editingDS.ingest_paths, ''] })}
-                                                    aria-label="Add path to include"
-                                                >
-                                                    + Add Path
-                                                </button>
-                                            </div>
-                                            {editingDS.ingest_paths.length === 0 && (
-                                                <p className="input-hint">
-                                                    Add directory paths (e.g. backend/src) to limit ingestion scoping. If empty, the entire repository is ingested.
-                                                </p>
-                                            )}
-                                            {editingDS.ingest_paths.length > 0 && (
-                                                <div className="issue-rows">
-                                                    {editingDS.ingest_paths.map((path, index) => (
-                                                        <div key={index} className="issue-row">
-                                                            <input
-                                                                type="text"
-                                                                className="input issue-row-input"
-                                                                value={path}
-                                                                onChange={e => {
-                                                                    const newPaths = [...editingDS.ingest_paths];
-                                                                    newPaths[index] = e.target.value;
-                                                                    setEditingDS({ ...editingDS, ingest_paths: newPaths });
-                                                                }}
-                                                                placeholder="e.g. backend/src"
-                                                            />
-                                                            <button
-                                                                type="button"
-                                                                className="issue-remove-btn"
-                                                                onClick={() => {
-                                                                    const newPaths = [...editingDS.ingest_paths];
-                                                                    newPaths.splice(index, 1);
-                                                                    setEditingDS({ ...editingDS, ingest_paths: newPaths });
-                                                                }}
-                                                                aria-label="Remove path"
-                                                            >
-                                                                ×
-                                                            </button>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
+
                                     </div>
                                 )}
                                 {editingDS.type === 'REPOSITORY' && (
@@ -874,18 +888,7 @@ export default function DataSourcesView({ projectId }) {
                                     {editingDS.type === 'REPOSITORY' && (
                                         <>
                                             <li style={{ marginBottom: '8px' }}><strong>Branch:</strong> {editingDS.branch || '(default)'}</li>
-                                            <li style={{ marginBottom: '8px' }}>
-                                                <strong>Paths to Include:</strong>
-                                                {!editingDS.ingest_paths || editingDS.ingest_paths.length === 0 ? (
-                                                    ' (Full Repository)'
-                                                ) : (
-                                                    <ul style={{ listStyleType: 'disc', paddingLeft: '24px', marginTop: '4px' }}>
-                                                        {editingDS.ingest_paths.map((p, i) => (
-                                                            <li key={i} style={{ wordBreak: 'break-all', marginBottom: '2px' }}>{p || '(empty path)'}</li>
-                                                        ))}
-                                                    </ul>
-                                                )}
-                                            </li>
+
                                             <li style={{ marginBottom: '8px' }}><strong>Scope by Issues:</strong> {editingDS.scope_by_issues ? 'Yes' : 'No'}</li>
                                         </>
                                     )}
@@ -917,4 +920,18 @@ function getDataSourceIcon(provider, type) {
     );
 
     return '📦';
+}
+
+function getTimeAgo(dateString) {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
 }

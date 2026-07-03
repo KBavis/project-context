@@ -20,7 +20,7 @@ from app.models.collection import ChromaCollection
 from app.embeddings import EmbeddingManager
 from app.models.docstore_chunk import DocstoreChunk
 
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import asyncio
@@ -46,15 +46,25 @@ class ChunkRetrievalService:
         self.data_source_svc: DataSourceService = data_source_svc
 
 
+    @staticmethod
+    def _resolve_file_scope(
+        ds_id: str, scope_map: dict[str, list[str]] | None
+    ) -> list[str] | None:
+        if not scope_map or ds_id not in scope_map:
+            return None        # unrestricted
+        return scope_map[ds_id]  # [] = nothing, non-empty = restrict
+
+
     async def grep_search(
         self, 
         key_word: str,
         data_source_ids: list[str],
+        scope_map: dict[str, list[str]] | None = None,
         k: int = 10
     ):
         """
-        Functionality to retrieve ingested Documentation / Code chunks based on _exeact_ variable names, function
-        defintiions, or error codes. This functionality WILL NOT be leveraging any semantic meaning, it will only be 
+        Functionality to retrieve ingested Documentation / Code chunks based on _exact_ variable names, function
+        definitions, or error codes. This functionality WILL NOT be leveraging any semantic meaning, it will only be 
         searching for raw chunks that could help provide context to the Agent 
 
         Args:
@@ -71,9 +81,34 @@ class ChunkRetrievalService:
             logger.info(f"Performing grep search for '{key_word}' in Data Sources: {data_source_ids}")
 
             # 2. Build and execute the SQLAlchemy query 
+            ds_filters = []
+            for ds_id in data_source_ids:
+                ds_namespace = f"{ds_id}/data"
+                
+                scope = self._resolve_file_scope(ds_id, scope_map)
+                if scope is None:
+                    # Unscoped DS: no file_id filtering needed, just allow the namespace
+                    ds_filters.append(DocstoreChunk.namespace == ds_namespace)
+                elif len(scope) > 0:
+                    # Scoped DS with files
+                    ds_filters.append(
+                        and_(
+                            DocstoreChunk.namespace == ds_namespace,
+                            or_(
+                                DocstoreChunk.value['__data__']['metadata']['file_id'].astext.in_(scope),
+                                DocstoreChunk.value['metadata']['file_id'].astext.in_(scope)
+                            )
+                        )
+                    )
+                # If scope is [] (scoped but nothing touched), we skip the DS (do nothing)
+
+            if not ds_filters:
+                # All requested data sources were scoped but had no touched files.
+                return []
+
             stmt = (
                 select(DocstoreChunk)
-                .where(DocstoreChunk.namespace.in_([f"{str(id)}/data" for id in data_source_ids]))
+                .where(or_(*ds_filters))
                 .where(
                     or_(
                         DocstoreChunk.value['__data__']['text'].astext.op('~*')(key_word),
@@ -82,6 +117,7 @@ class ChunkRetrievalService:
                 )
                 .limit(k)
             )
+            
             result = await self.db.execute(stmt)
             docstore_chunks = result.scalars().all()
             if not docstore_chunks:
@@ -92,9 +128,15 @@ class ChunkRetrievalService:
             for chunk in docstore_chunks:
                 data_source = chunk.node_metadata.get('data_source_id', 'Unknown Data Source ID')
                 file_path = chunk.node_metadata.get('file_path', 'Unknown File Path')
+                file_id = chunk.node_metadata.get('file_id', 'Unknown File ID')
                 text_content = chunk.node_text
                 
-                formatted_chunks.append(f"Data Source:{data_source}\nFile Path:{file_path}\nContent:\n{text_content}")
+                chunk_str = f"Data Source:{data_source}\nFile Path:{file_path}\nFile ID:{file_id}\n"
+                if scope_map and data_source in scope_map:
+                    chunk_str += "Authorship: context-only (verify against diff slices before attributing to the project)\n"
+                chunk_str += f"Content:\n{text_content}"
+                
+                formatted_chunks.append(chunk_str)
                 
             return formatted_chunks
         except Exception as e:
@@ -156,6 +198,7 @@ class ChunkRetrievalService:
         query: str,
         llm: LLMBase,
         data_source_ids: list[str],
+        scope_map: dict[str, list[str]] | None = None,
         k: int = DEFAULT_SEARCH_K
     ):
         """
@@ -192,7 +235,7 @@ class ChunkRetrievalService:
         embedding = await EmbeddingManager.aget_embedding_model_cached()
         
         # retrieve chunks based on query        
-        chunks = await self._get_chunks(query, collections, embedding, llm, k, data_source_ids)
+        chunks = await self._get_chunks(query, collections, embedding, llm, k, data_source_ids, scope_map)
         if not chunks:
             logger.warning(f"No chunks retrieved for Query={query}, Data Sources={data_source_ids}")
 
@@ -201,8 +244,15 @@ class ChunkRetrievalService:
         for chunk in chunks:
             data_source = chunk.node.metadata.get('data_source_id', "Unknown Data Source ID")
             file_path = chunk.node.metadata.get('file_path', "Unknown File Path")
+            file_id = chunk.node.metadata.get('file_id', "Unknown File ID")
             text_content = chunk.node.get_content()
-            formatted_chunks.append(f"Data Source:{data_source}\nFile Path:{file_path}\nContent:\n{text_content}")
+            
+            chunk_str = f"Data Source:{data_source}\nFile Path:{file_path}\nFile ID:{file_id}\n"
+            if scope_map and data_source in scope_map:
+                chunk_str += "Authorship: context-only (verify against diff slices before attributing to the project)\n"
+            chunk_str += f"Content:\n{text_content}"
+            
+            formatted_chunks.append(chunk_str)
 
         return formatted_chunks
 
@@ -214,31 +264,36 @@ class ChunkRetrievalService:
         embedding: BaseEmbedding,
         llm: LLMBase,
         k: int,
-        data_source_ids: list[str]
+        data_source_ids: list[str],
+        scope_map: dict[str, list[str]] | None = None
     ) -> list["NodeWithScore"]:
         """
         Retrieve chunks directly from ChromaDB based on the query and specified collections
-
-        Args:
-            query (str): user passed in query
-            collections (list[ChromaCollection]): the Chroma collections to query against
-            embedding: the LlamaIndex embedding model to use for querying
-            llm (LLMBase): the LLM associated with the Conversation
-            k (int): the number of chunks to retrieve --> default is 10 chunks
-            data_source_ids (list[str]): list of data source IDs
         """
-
         try:
-        
             # configure the retrievers
             retrievers = []
             for collection in collections:
-                chroma_retriever = await self._get_chroma_retreiver(collection, embedding, k)
+                ds_id_str = str(collection.data_source_id)
+                scope = self._resolve_file_scope(ds_id_str, scope_map)
+                if scope == []:
+                    # Skip building the retriever for this collection (empty scope)
+                    continue
+                chroma_retriever = await self._get_chroma_retreiver(collection, embedding, k, scope)
                 retrievers.append(chroma_retriever)
             
-            # configure BM25 retriever
-            bm25_retriever = await self._get_bm25_retriever(k, data_source_ids)
-            retrievers.append(bm25_retriever)
+            # configure BM25 retriever per DS
+            for ds_id in data_source_ids:
+                scope = self._resolve_file_scope(ds_id, scope_map)
+                if scope == []:
+                    # Skip the data source entirely (empty scope)
+                    continue
+                bm25_retriever = await self._get_bm25_retriever(ds_id, k, scope)
+                if bm25_retriever is not None:
+                    retrievers.append(bm25_retriever)
+
+            if not retrievers:
+                return []
 
             # configure the fusion retriever (hybrid cordinator for both seamtnic and direct comparisons)
             fusion_retriever = QueryFusionRetriever(
@@ -259,44 +314,39 @@ class ChunkRetrievalService:
             
 
 
-
     async def _get_bm25_retriever(
         self, 
+        data_source_id: str,
         k: int,
-        data_source_ids: list[str]
-    ) -> BaseRetriever:
+        scope: list[str] | None = None
+    ) -> BaseRetriever | None:
         """
-        Configure BM25 Retriever for Hybrid Search functionality based on all 
-        nodes assocaited with Data Sources in Postgres KV Store 
-
-        Args:
-            k (int): the number of chunks to retrieve
-            data_source_ids (list): list of data source's to filter search by 
+        Configure BM25 Retriever for Hybrid Search functionality based on a single
+        Data Source in Postgres KV Store.
         """
-
-        # serve from cache when the same data sources were already indexed at this k
-        cache_key = BM25RetrieverCache.build_key(data_source_ids, k)
-        cached = BM25RetrieverCache.get(cache_key)
-        if cached is not None:
-            logger.info(f"Reusing cached BM25 retriever for Data Sources={data_source_ids}, k={k}")
-            return cached
-
-        return self._build_and_cache_bm25(k, data_source_ids)
+        if scope is None:
+            # serve from cache when the same data source was already indexed at this k
+            cache_key = BM25RetrieverCache.build_key(data_source_id, k)
+            cached = BM25RetrieverCache.get(cache_key)
+            if cached is not None:
+                logger.info(f"Reusing cached BM25 retriever for Data Source={data_source_id}, k={k}")
+                return cached
+            return self._build_and_cache_bm25(data_source_id, k, scope=None, should_cache=True)
+            
+        return self._build_and_cache_bm25(data_source_id, k, scope=scope, should_cache=False)
 
 
     def _build_and_cache_bm25(
         self,
+        data_source_id: str,
         k: int,
-        data_source_ids: list[str]
-    ) -> BaseRetriever:
+        scope: list[str] | None = None,
+        should_cache: bool = True
+    ) -> BaseRetriever | None:
         """
-        Synchronously load every docstore node and build + cache the BM25 retriever.
-
-        This body is intentionally synchronous and blocking (Postgres node loading +
-        in-memory tokenization). Callers on the event loop should offload it to a
-        worker thread (see warm_bm25_cache) so the build doesn't stall the loop.
+        Synchronously load docstore nodes for a single data source and build (+ cache if unscoped) the BM25 retriever.
         """
-        cache_key = BM25RetrieverCache.build_key(data_source_ids, k)
+        cache_key = BM25RetrieverCache.build_key(data_source_id, k)
 
         # configure Postgres KV Store
         from app.core.relational_db import sync_engine, async_engine
@@ -308,25 +358,35 @@ class ChunkRetrievalService:
             perform_setup=True
         )
 
-        # retrieve all nodes associated with filtered Data Source IDs
-        all_nodes = []
-        logger.info(f"Building BM25 Retreiver based on Data Source IDs: {data_source_ids}")
+        logger.info(f"Building BM25 Retriever for Data Source ID: {data_source_id}")
 
-        for id in data_source_ids:
-            doc_store = PostgresDocumentStore(
-                kv_store, 
-                namespace=str(id)
-            )
+        doc_store = PostgresDocumentStore(
+            kv_store, 
+            namespace=data_source_id
+        )
 
-            all_nodes.extend(doc_store.docs.values())
+        ds_nodes = list(doc_store.docs.values())
         
-        # configure BM25 retreiver based on all nodes, then cache it for reuse
+        # Apply scope filter if present (scope is non-empty list of file IDs)
+        if scope:
+            allowed_files = set(scope)
+            ds_nodes = [n for n in ds_nodes if n.metadata.get('file_id') in allowed_files]
+
+        if not ds_nodes:
+            logger.info(f"No nodes found for Data Source ID: {data_source_id}. Skipping retriever build.")
+            return None
+
+        # configure BM25 retriever based on nodes, then cache if allowed
         retriever = BM25Retriever.from_defaults(
-            nodes=all_nodes,
+            nodes=ds_nodes,
             similarity_top_k=k
         )
-        BM25RetrieverCache.put(cache_key, retriever)
-        logger.info(f"Cached BM25 retriever ({len(all_nodes)} nodes) for Data Sources={data_source_ids}, k={k}")
+        if should_cache:
+            BM25RetrieverCache.put(cache_key, retriever)
+            logger.info(f"Cached BM25 retriever ({len(ds_nodes)} nodes) for Data Source={data_source_id}, k={k}")
+        else:
+            logger.info(f"Built un-cached scoped BM25 retriever ({len(ds_nodes)} nodes) for Data Source={data_source_id}, k={k}")
+            
         return retriever
 
 
@@ -338,50 +398,53 @@ class ChunkRetrievalService:
         """
         Pre-build and cache the BM25 retriever so the first semantic_search of a
         conversation doesn't pay the full index-build cost inline.
-
-        Intended to be fired off as a background task at the start of an agent run.
-        The build is offloaded to a worker thread so it overlaps (rather than blocks)
-        the rest of the run, and any failure is logged and swallowed — a warmup miss
-        must never break the conversation (the inline search path will simply rebuild).
-
-        Args:
-            data_source_ids (list[str]): data sources to index — must match the set the
-                first search resolves to, since the cache key is (data_source_ids, k).
-            k (int): chunk count baked into the retriever; defaults to DEFAULT_SEARCH_K
-                to match semantic_search's default so the warmed key is reused.
         """
         if not data_source_ids:
             return
 
-        # already warm — nothing to do
-        if BM25RetrieverCache.get(BM25RetrieverCache.build_key(data_source_ids, k)) is not None:
-            return
+        for ds_id in data_source_ids:
+            cache_key = BM25RetrieverCache.build_key(ds_id, k)
+            if BM25RetrieverCache.get(cache_key) is not None:
+                continue
 
-        try:
-            logger.info(f"Warming BM25 cache in background for Data Sources={data_source_ids}, k={k}")
-            await asyncio.to_thread(self._build_and_cache_bm25, k, data_source_ids)
-        except Exception as e:
-            logger.warning(f"Background BM25 cache warmup failed for Data Sources={data_source_ids}, k={k}: {e}")
-        
+            try:
+                logger.info(f"Warming BM25 cache in background for Data Source={ds_id}, k={k}")
+                await asyncio.to_thread(self._build_and_cache_bm25, ds_id, k, None, True)
+            except Exception as e:
+                logger.warning(f"Background BM25 cache warmup failed for Data Source={ds_id}, k={k}: {e}")
 
-    async def _get_chroma_retreiver(self, collection: ChromaCollection, embedding: BaseEmbedding, k: int) -> BaseRetriever:
+
+    async def _get_chroma_retreiver(
+        self,
+        collection: ChromaCollection,
+        embedding: BaseEmbedding,
+        k: int,
+        scope: list[str] | None = None
+    ) -> BaseRetriever:
         """
         Get retriever associated with relevant Chroma Collection 
-
-        Args:
-            collection (ChromaCollection): the Chroma collection to retrieve retriever from
-            embedding (BaseEmbedding): the LlamaIndex embedding model to use for querying
-            k (int): the number of chunks to retrieve
         """
-
         # get actual Chroma Collection 
         chroma_collection = self.chroma_svc.get_real_chroma_collection(collection_name=collection.name)
 
         # configure LlamaIndex retriever from Chroma collection 
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-        index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embedding) # pass embed_model explicitly to avoid race conditions with global Settings
+        index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embedding)
         
-        return index.as_retriever(similarity_top_k=k)
+        filters = None
+        if scope is not None:
+            # scope is a non-empty list of file IDs
+            filters = MetadataFilters(
+                filters=[
+                    MetadataFilter(
+                        key="file_id", 
+                        value=scope, 
+                        operator=FilterOperator.IN
+                    )
+                ]
+            )
+
+        return index.as_retriever(similarity_top_k=k, filters=filters)
         
 
 

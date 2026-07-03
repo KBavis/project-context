@@ -11,3 +11,6 @@ corp/
 # we keep them out of git so the repo stays portable and refreshes locally.
 apps/backend/docker/certs/*.crt
 apps/frontend/docker/certs/*.crt
+
+# avoid any Agent plans we create during dev
+docs/plans/

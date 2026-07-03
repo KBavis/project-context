@@ -2,7 +2,7 @@ from __future__ import annotations
 from app.services import (
     ChromaService,
     DataSourceService,
-    IngestionJobService,
+    EmbedTaskService,
     ProjectService, 
     FileService,
     RecordLockService, 
@@ -13,7 +13,8 @@ from app.services import (
     ChunkInsertionService,
     MCPService,
     AgentService,
-    DiffService,
+    DiffTaskService,
+    JobService,
 )
 
 from app.core import (
@@ -111,18 +112,16 @@ def get_async_record_lock_svc():
     return RecordLockService()
     
 
-def get_async_diff_svc(
+def get_async_diff_task_svc(
     db: AsyncSession = Depends(get_async_db_session),
-    data_source_svc: DataSourceService = Depends(get_data_source_svc),
-    record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc)
+    data_source_svc: DataSourceService = Depends(get_data_source_svc)
 ):
     """
-    Setup DiffService dependency.
+    Setup DiffTaskService dependency.
     """
-    return DiffService(
+    return DiffTaskService(
         async_db=db, 
-        data_source_svc=data_source_svc, 
-        record_lock_svc=record_lock_svc
+        data_source_svc=data_source_svc
     )
 
 
@@ -171,7 +170,7 @@ def get_async_agent_svc(
     mcp_svc: MCPService = Depends(get_mcp_svc),
     data_source_svc: DataSourceService = Depends(get_data_source_svc),
     chunk_retrieval_svc: ChunkRetrievalService = Depends(get_async_chunk_retrieval_svc),
-    diff_svc: DiffService = Depends(get_async_diff_svc)
+    diff_task_svc: DiffTaskService = Depends(get_async_diff_task_svc)
 ):
     """
     Setup async AgentService dependency
@@ -187,54 +186,70 @@ def get_async_agent_svc(
         mcp_svc=mcp_svc, 
         data_source_svc=data_source_svc,
         chunk_retrieval_svc=chunk_retrieval_svc,
-        diff_svc=diff_svc
+        diff_svc=diff_task_svc
     )
 
 
 
-def get_async_ingestion_job_svc(
+def get_async_embed_task_svc(
         db: AsyncSession = Depends(get_async_db_session),
-        record_lock_svc: RecordLockService = Depends(get_async_record_lock_svc),
-        data_source_svc: DataSourceService = Depends(get_data_source_svc)
+        data_source_svc: DataSourceService = Depends(get_data_source_svc),
+        diff_task_svc: DiffTaskService = Depends(get_async_diff_task_svc)
 ):
     """
-    Setup async IngestionJobService dependency.
+    Setup async EmbedTaskService dependency.
 
     NOTE: Ingestion jobs that run in background require FileSvc, ChunkInsertionSvc, and ChromaSvc, which 
     must all be created using a background-task scoped async session. Thus, those are not injected here.
 
     Args:
         db (AsyncSession): async db session
-        record_lock_svc (RecordLockService): record lock service dependency
         data_source_svc (DataSourceService): async data source service dependency
     """
-    return IngestionJobService(
+    return EmbedTaskService(
         db=db, 
-        record_lock_svc=record_lock_svc,
-        data_source_svc=data_source_svc
+        data_source_svc=data_source_svc,
+        diff_task_svc=diff_task_svc
     )
 
 
+
+def get_job_svc(
+        async_db: AsyncSession = Depends(get_async_db_session),
+        diff_task_svc: DiffTaskService = Depends(get_async_diff_task_svc),
+        embed_task_svc: EmbedTaskService = Depends(get_async_embed_task_svc),
+        data_source_svc: DataSourceService = Depends(get_data_source_svc),
+):
+    """
+    Setup JobService dependency
+    """
+    return JobService(
+        async_db=async_db,
+        diff_svc=diff_task_svc,
+        embed_task_svc=embed_task_svc,
+        data_source_svc=data_source_svc
+    )
 
 
 def get_project_svc(
         db: Session = Depends(get_sync_db_session),
         async_db: AsyncSession = Depends(get_async_db_session),
-        diff_svc: DiffService = Depends(get_async_diff_svc),
-        ingestion_job_svc: IngestionJobService = Depends(get_async_ingestion_job_svc),
+        data_source_svc: DataSourceService = Depends(get_data_source_svc),
+        job_svc: JobService = Depends(get_job_svc),
 ):
     """
     Setup ProjectService dependency
 
     Args:
         db (Session): current DB session
+        data_source_svc (DataSourceService): data source service dependency
     """
-
+    
     return ProjectService(
         db=db, 
-        async_db=async_db, 
-        diff_svc=diff_svc, 
-        ingestion_job_svc=ingestion_job_svc
+        async_db=async_db,
+        data_source_svc=data_source_svc,
+        job_svc=job_svc
     )
 
 

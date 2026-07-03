@@ -18,7 +18,7 @@ from app.llm import LLMBase
 from app.services.mcp import MCPService
 from app.services.data_source import DataSourceService
 from app.services.chunk_retrieval import ChunkRetrievalService
-from app.services.diff import DiffService
+from app.services.diff_task import DiffTaskService
 from app.models.data_source import DataSource, DataSourceType
 
 from llama_index.core.tools import FunctionTool
@@ -48,7 +48,7 @@ class AgentService:
         mcp_svc: MCPService,
         data_source_svc: DataSourceService,
         chunk_retrieval_svc: ChunkRetrievalService,
-        diff_svc: DiffService | None = None,
+        diff_svc: DiffTaskService | None = None,
     ) -> None:
 
         self.db = db
@@ -92,13 +92,18 @@ class AgentService:
             logger.info("Retrieved %d MCP tools across %d DataSources", total_mcp, len(data_sources))
 
             # 3. Initialize internal tooling manager (all DataSources, pre-Diagnosis)
+            scope_map = {}
+            if self.diff_svc:
+                scope_map = await self.diff_svc.build_scoped_repository_file_id_map(project_id)
+
             tool_manager = Tools(
-                data_sources,
-                project_id,
-                llm,
-                self.chunk_retrieval_svc,
-                self.data_source_svc,
-                self.diff_svc,
+                data_sources=data_sources,
+                project_id=project_id,
+                llm=llm,
+                chunk_retrieval_svc=self.chunk_retrieval_svc,
+                data_source_svc=self.data_source_svc,
+                scope_map=scope_map,
+                diff_svc=self.diff_svc,
             )
             all_internal_tools = tool_manager.get_all_internal_tools()
             logger.info("Initialized %d internal tools across %d DataSources", len(all_internal_tools), len(data_sources))
@@ -233,14 +238,16 @@ class AgentService:
         """
         Resolve the project's searchable data sources and pre-build the BM25 index for them.
 
-        Runs as a fire-and-forget background task. We resolve the ids the same way the
-        semantic_search tool does for an unscoped search (all ingestible data sources) so
-        the warmed cache key matches what the first broad search will look up. Failures are
-        swallowed by warm_bm25_cache itself, so this never disrupts the agent run.
+        Runs as a fire-and-forget background task. We resolve the ids and warm only the 
+        unscoped data sources (scoped repositories are not cached, so warming them is wasted work).
         """
         try:
-            data_source_ids = await self.data_source_svc.aget_data_source_ids_by_type(project_id, None)
-            await self.chunk_retrieval_svc.warm_bm25_cache(data_source_ids)
+            data_sources = await self.data_source_svc.aget_project_data_sources(project_id)
+            unscoped_ds_ids = [
+                str(ds.id) for ds in data_sources
+                if not (ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues)
+            ]
+            await self.chunk_retrieval_svc.warm_bm25_cache(unscoped_ds_ids)
         except Exception as e:
             logger.warning("BM25 warmup task failed for Project %s: %s", project_id, e)
 
@@ -259,7 +266,7 @@ class AgentService:
         scope_summary = ""
         for ds in data_sources:
             if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues:
-                changes = await self.diff_svc.get_project_repository_changes(project_id, ds.id)
+                changes = await self.diff_svc.get_project_repo_summary(project_id, ds.id)
                 if changes:
                     file_diffs = await self.diff_svc.get_file_diffs(project_id, ds.id)
                     if file_diffs:
@@ -295,8 +302,6 @@ class AgentService:
         ds_infos = []
         for ds in data_sources:
             info = f"- ID: {ds.id} | Name: {ds.name} | Type: {ds.type} | Provider: {ds.provider}"
-            if ds.type == DataSourceType.REPOSITORY and getattr(ds, "ingest_paths", None):
-                info += f" | Scoped Paths: {', '.join(ds.ingest_paths)}"
             ds_infos.append(info)
         data_source_info = "\n".join(ds_infos)
         internal_tool_info = "\n".join(

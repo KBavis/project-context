@@ -83,13 +83,13 @@ export function ProjectProvider({ children }) {
 
         const poll = async () => {
             if (elapsed >= 300000) { // 5 minutes ceiling
-                setSyncingProjects(prev => ({ 
-                    ...prev, 
-                    [projectId]: { 
-                        isSyncing: false, 
-                        error: 'Synchronization is taking longer than expected. Click to check state status again.' 
-                    } 
-                }));
+                // Stop polling but reflect the real, current sync state (no stale message)
+                try {
+                    const finalRes = await api.diff.getSyncStatus(projectId);
+                    setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: false, ...finalRes } }));
+                } catch (e) {
+                    setSyncingProjects(prev => ({ ...prev, [projectId]: { isSyncing: false } }));
+                }
                 return;
             }
 

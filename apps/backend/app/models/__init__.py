@@ -1,13 +1,14 @@
 from __future__ import annotations
 from .base import Base
 from .data_source import DataSource
-from .ingestion_job import IngestionJob, ProcessingStatus
-from .diff_sync_job import DiffSyncJob
+from .embed_task import EmbedTask, ProcessingStatus
+from .diff_task import DiffTask
+from .job import Job
 from .project import Project
 from .project_data import ProjectData
-from .project_repository_changes import ProjectRepositoryChanges
-from .project_repository_file_history import ProjectRepositoryFileHistory
-from .project_repository_file_pr_diff import ProjectRepositoryFilePrDiff
+from .project_repo_summary import ProjectRepoSummary
+from .project_affected_file import ProjectAffectedFile
+from .project_file_diff import ProjectFileDiff
 from .pull_request import PullRequest
 from .git_commit import GitCommit
 from .conversation import Conversation
@@ -22,13 +23,14 @@ from .execution_token_usage import ExecutionTokenUsage
 __all__ = [
     "Base",
     "DataSource",
-    "IngestionJob",
-    "DiffSyncJob",
+    "EmbedTask",
+    "DiffTask",
+    "Job",
     "Project",
     "ProjectData",
-    "ProjectRepositoryChanges",
-    "ProjectRepositoryFileHistory",
-    "ProjectRepositoryFilePrDiff",
+    "ProjectRepoSummary",
+    "ProjectAffectedFile",
+    "ProjectFileDiff",
     "PullRequest",
     "GitCommit",
     "Conversation",

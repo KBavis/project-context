@@ -51,19 +51,19 @@ class BitbucketDataProvider(RepositoryDataProvider):
         self.base_api_url = f"https://{self.domain}/rest/api/1.0/projects/{self.repository_owner}/repos/{self.repository_name}"
         self.file_download_base_url = f"{self.base_api_url}/raw"
 
-    async def ingest_data(self, file_svc: FileService, job_pk: UUID):
+    async def ingest_data(self, embed_task_id: UUID, file_svc: FileService, touched_file_paths: list[str] | None = None):
         self.file_svc = file_svc
-        self.job_pk = job_pk
+        self.embed_task_id = embed_task_id
         self.new_or_modified_file_ids = []
 
-        if not self.file_svc or not self.job_pk:
+        if not self.file_svc or not self.embed_task_id:
             raise Exception("FileService and JobPK not provided when attempting to ingest data")
 
         # Reach out to Bitbucket and recursively fetch and store documentation within our temp directory
-        await self._get_repository_data(self.base_api_url)
+        await self._get_repository_data(self.base_api_url, touched_file_paths)
 
         # Cleanup any files associated with DataSource not processed via current job
-        await self.file_svc.cleanup(self.data_source.id, self.job_pk, self.new_or_modified_file_ids)
+        await self.file_svc.cleanup(self.data_source.id, self.embed_task_id, self.new_or_modified_file_ids)
 
     def _get_request_headers(self) -> dict[str, str] | None:
         if settings.BITBUCKET_USERNAME and settings.BITBUCKET_SECRET_TOKEN:
@@ -82,8 +82,8 @@ class BitbucketDataProvider(RepositoryDataProvider):
                 f"https://<domain>/projects/<project>/repos/<repo_name>"
             )
 
-    async def _get_repository_data(self, curr_url: str):
-        assert self.file_svc and self.job_pk
+    async def _get_repository_data(self, curr_url: str, touched_file_paths: list[str] | None = None):
+        assert self.file_svc and self.embed_task_id
 
         # TODO: Refactor this function to be more generic for re-use across BitBucket & GitHub  
         # (https://github.com/KBavis/contextualized/issues/42)
@@ -100,15 +100,15 @@ class BitbucketDataProvider(RepositoryDataProvider):
             headers=self.request_headers, limits=limits, timeout=timeout
         ) as client:
             paths: list[str] = []
-            # if no ingestion paths specified on data source, extract all paths in repo
-            if not self.data_source.ingest_paths:
+            # NOTE: If the DataSource is `scoped_by_issues`, we only ingest files touched by the Project on DataSource (i.e touched_file_paths)
+            if self.data_source.scope_by_issues:
+                if touched_file_paths is None:
+                    logger.info(f"Skipping ingestion for DataSource={self.data_source.id}: No touched_file_paths provided for issue-scoped repository.")
+                    return
+                paths = touched_file_paths
+            else:
                 files_url = f"{self.base_api_url}/files?at={self.branch_name}&limit=10000"
                 paths = await self._enumerate_paths(client, files_url)
-            else:
-                # only extract paths relevant to specified ingested paths on Repository Data Source 
-                for prefix in self._collapse_ingest_paths():
-                    files_url = f"{self.base_api_url}/files/{quote(prefix, safe='/')}?at={self.branch_name}&limit=10000"
-                    paths.extend(await self._enumerate_paths(client, files_url, path_prefix=prefix))
 
             # Apply exclusive path filter (e.g. .gitignore or hardcoded exclusions)
             paths = self._filter_excluded_paths(paths)
@@ -191,7 +191,7 @@ class BitbucketDataProvider(RepositoryDataProvider):
     async def _download_file(
         self, client: httpx.AsyncClient, url: str, file_name: str, file_path: str, persist_lock: asyncio.Lock
     ):
-        assert self.file_svc and self.job_pk
+        assert self.file_svc and self.embed_task_id
 
         if not file_name or "." not in file_name:
             logger.warning(f"Skipping attempt to download file from URL={url} and file_name={file_name}")
@@ -210,6 +210,9 @@ class BitbucketDataProvider(RepositoryDataProvider):
 
         try:
             response = await client.get(url)
+            if response.status_code == 404:
+                logger.info(f"Skipping file={file_path} - not found at HEAD (404)")
+                return
             response.raise_for_status()
 
             buffer = BytesIO()
@@ -230,12 +233,12 @@ class BitbucketDataProvider(RepositoryDataProvider):
             # The session backing FileService is shared across concurrent downloads,
             # so serialize all session access through the lock.
             async with persist_lock:
-                file_status = await self.file_svc.process_file(file, self.data_source, self.job_pk, self.new_or_modified_file_ids)
+                file_status = await self.file_svc.process_file(file, self.data_source, self.embed_task_id, self.new_or_modified_file_ids)
 
             if file_status == FileProcesingStatus.UNCHANGED:
                 return 
 
-            dir = f"{settings.TMP_DOCS}/{self.job_pk}" if file_type == "DOCS" else f"{settings.TMP_CODE}/{self.job_pk}"
+            dir = f"{settings.TMP_DOCS}/{self.embed_task_id}" if file_type == "DOCS" else f"{settings.TMP_CODE}/{self.embed_task_id}"
             full_path = Path(f"{dir}/{file_path}")
             
             await asyncio.to_thread(self._write_file, full_path, buffer)

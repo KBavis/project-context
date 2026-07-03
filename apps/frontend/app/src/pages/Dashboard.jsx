@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProjects } from '../contexts/index';
 import DataSourcesView from '../components/DataSourcesView';
-import IngestionJobsView from '../components/IngestionJobsView';
+import JobsView from '../components/JobsView';
 import MCPConfigsView from '../components/MCPConfigsView';
 import CreateProjectModal from '../components/CreateProjectModal';
 import AlertContainer from '../components/Alert';
@@ -24,7 +24,7 @@ export default function Dashboard() {
                  <nav className="dashboard-nav">
                      <button onClick={() => setView('projects')} className={view === 'projects' ? 'active' : ''}>Projects</button>
                      <button onClick={() => setView('datasources')} className={view === 'datasources' ? 'active' : ''}>Data Sources</button>
-                     <button onClick={() => setView('jobs')} className={view === 'jobs' ? 'active' : ''}>Ingestion Jobs</button>
+                     <button onClick={() => setView('jobs')} className={view === 'jobs' ? 'active' : ''}>Sync History</button>
                      <button onClick={() => setView('mcp')} className={view === 'mcp' ? 'active' : ''}>MCP Configs</button>
                  </nav>
              </header>
@@ -55,7 +55,7 @@ export default function Dashboard() {
                       </div>
                   )}
                   {view === 'datasources' && <DataSourcesView />}
-                  {view === 'jobs' && <IngestionJobsView />}
+                  {view === 'jobs' && <JobsView />}
                   {view === 'mcp' && <MCPConfigsView />}
              </main>
              <CreateProjectModal isOpen={showCreate} onClose={() => setShowCreate(false)} />

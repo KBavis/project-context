@@ -10,8 +10,8 @@ class FileDiffPatch(BaseModel):
     A single file's diff as introduced by one pull request.
 
     The provider faithfully reports the per-file change; the diff sync job is
-    responsible for mapping it onto ProjectRepositoryFileHistory /
-    ProjectRepositoryFilePrDiff rows (including treating renames as a delete at
+    responsible for mapping it onto ProjectAffectedFile /
+    ProjectFileDiff rows (including treating renames as a delete at
     the old path + add at the new path).
     """
 

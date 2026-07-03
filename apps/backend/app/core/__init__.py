@@ -8,7 +8,9 @@ from .relational_db import (
     sync_engine, 
     async_engine,
     get_sync_session_maker,
-    get_async_session_maker
+    get_async_session_maker,
+    ambient_session,
+    get_current_session
 )
 from .vector_db import ChromaClientManager
 from .constants import CODE, DOCS
@@ -25,6 +27,8 @@ __all__ = [
     "setup_logging",
     "get_sync_session_maker",
     "get_async_session_maker",
+    "ambient_session",
+    "get_current_session",
     "CODE",
     "DOCS",
 ]

@@ -20,6 +20,20 @@ export default function ChatInterface({ conversationId }) {
     const syncState = selectedProject ? syncingProjects[selectedProject.id] : null;
     const isSyncing = syncState?.isSyncing;
     const syncError = syncState?.error;
+    
+    const notReady = !!syncState && syncState.is_ready === false;
+    const syncStatus = syncState ? (syncState.overall_status || syncState.status) : null;
+    
+    const blockMessage = (() => {
+        if (!notReady) return null;
+        const reasons = (syncState.reasons || []).join(' ').trim();
+        const suffix = reasons ? ` (${reasons})` : '';
+        if (isSyncing || syncStatus === 'in_progress') return `Project is syncing - please wait until it finishes before chatting.${suffix}`;
+        if (syncStatus === 'failed') return `Project sync failed - re-sync it from the Data Sources tab before chatting.${suffix}`;
+        if (syncStatus === 'not_yet_synced') return `This project hasn't been synced yet - sync it from the Data Sources tab.${suffix}`;
+        return `This project isn't ready to chat yet - sync it from the Data Sources tab.${suffix}`;
+    })();
+
     const [streamingMessage, setStreamingMessage] = useState('');
     const [status, setStatus] = useState('');
     const messagesEndRef = useRef(null);
@@ -38,17 +52,11 @@ export default function ChatInterface({ conversationId }) {
     }, [messages, streamingMessage]);
 
     useEffect(() => {
-        if (conversationId && isSyncing && syncState && conversationId !== lastAlertedConvId) {
+        if (conversationId && notReady && conversationId !== lastAlertedConvId) {
             setLastAlertedConvId(conversationId);
-            const projectName = selectedProject?.project_name || selectedProject?.name || "Selected Project";
-            
-            if (syncState.status === 'in_progress') {
-                showAlert(`Project "${projectName}" is currently synchronizing in the background.`, 'warning');
-            } else if (syncState.status === 'failed') {
-                showAlert(`Project "${projectName}" synchronization failed. Please trigger a new sync in Data Sources.`, 'error');
-            }
+            showAlert(blockMessage, syncStatus === 'failed' ? 'error' : 'warning');
         }
-    }, [conversationId, isSyncing, syncState?.status, selectedProject, showAlert, lastAlertedConvId]);
+    }, [conversationId, notReady, blockMessage, syncStatus, showAlert, lastAlertedConvId]);
 
     // Auto-resize textarea as user types
     useEffect(() => {
@@ -61,6 +69,10 @@ export default function ChatInterface({ conversationId }) {
 
     const handleSend = async () => {
         if (!input.trim() || loading) return;
+        if (notReady) {
+            showAlert(blockMessage, syncStatus === 'failed' ? 'error' : 'warning');
+            return;
+        }
 
         const userMessage = { role: 'user', content: input, timestamp: new Date() };
         setMessages(prev => [...prev, userMessage]);
@@ -161,17 +173,11 @@ export default function ChatInterface({ conversationId }) {
     };
 
     const getSyncPlaceholder = () => {
-        if (!isSyncing) return "Type your message...";
-        if (!syncState) return "Synchronizing Project Details (Please Wait...)";
-        
-        switch (syncState.status) {
-            case 'in_progress':
-                return "Project is currently syncing. Please wait...";
-            case 'failed':
-                return "Project sync failed. Please trigger a new sync.";
-            default:
-                return "Synchronizing Project Details (Please Wait...)";
-        }
+        if (!notReady) return "Type your message...";
+        if (isSyncing || syncStatus === 'in_progress') return "Project is syncing - please wait...";
+        if (syncStatus === 'failed') return "Project sync failed - re-sync in Data Sources to chat";
+        if (syncStatus === 'not_yet_synced') return "Project not synced - sync it in Data Sources to chat";
+        return "Project not ready - sync it in Data Sources to chat";
     };
 
 
@@ -250,16 +256,23 @@ export default function ChatInterface({ conversationId }) {
                     />
                     <Button
                         onClick={handleSend}
-                        disabled={!input.trim() || loading || isSyncing}
+                        disabled={!input.trim() || loading || notReady}
                         loading={loading}
-                        icon={isSyncing ? undefined : "→"}
+                        icon={notReady ? undefined : "→"}
                     >
                         Send
                     </Button>
                 </div>
-                {syncError && (
-                    <div className="sync-error-banner" style={{ color: 'red', marginTop: '8px', fontSize: '12px' }}>
-                        {syncError}
+                {blockMessage && (
+                    <div 
+                        className="sync-error-banner" 
+                        style={{ 
+                            marginTop: '8px', 
+                            fontSize: '12px', 
+                            color: syncStatus === 'failed' ? 'var(--color-danger, #e5484d)' : 'var(--color-warning, #f0ad4e)'
+                        }}
+                    >
+                        {blockMessage}
                     </div>
                 )}
             </div>

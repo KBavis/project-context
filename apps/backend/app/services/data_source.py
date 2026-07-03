@@ -19,16 +19,23 @@ from app.core import settings
 from app.data_providers.base import DataProvider, Provider
 from app.data_providers.ingestible.base import IngestibleDataProvider
 from app.models.data_source_mcp import DataSourceMCPConfig
+from app.models.mcp_config import MCPConfig
 
 logger = logging.getLogger(__name__)
 
 
 class DataSourceService:
     
-    def __init__(self, db: Session, async_db: AsyncSession, chroma_svc: ChromaService, record_lock_svc: 'RecordLockService'):
-        self.db: Session = db
+    def __init__(
+        self, 
+        async_db: AsyncSession, 
+        record_lock_svc: 'RecordLockService',
+        db: Session | None = None, 
+        chroma_svc: ChromaService | None = None
+    ):
+        self.db: Session | None = db
         self.async_db: AsyncSession = async_db
-        self.chroma_svc = chroma_svc
+        self.chroma_svc: ChromaService | None = chroma_svc
         self.record_lock_svc = record_lock_svc
 
     async def aget_data_source_by_id(self, data_source_id: UUID) -> DataSource:
@@ -45,7 +52,21 @@ class DataSourceService:
 
         return data_source
 
-    
+    async def aget_data_source_by_id_with_session(
+        self, data_source_id: UUID, session: AsyncSession
+    ) -> DataSource | None:
+        """
+        Retrieve a DataSource by ID using an explicitly provided async session.
+        Used by background tasks that manage their own session lifecycle.
+
+        Args:
+            data_source_id (UUID): the data source to retrieve
+            session (AsyncSession): the caller-managed async session
+        """
+        stmt = select(DataSource).where(DataSource.id == data_source_id)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_issue_tracker_data_source(
         self, 
         project_id: UUID, 
@@ -75,6 +96,7 @@ class DataSourceService:
         """
         Functionality to retrieve a DataSource by ID
         """
+        assert self.db is not None, "Synchronous DB session is required"
 
         stmt = select(DataSource).where(DataSource.id == data_source_id)
         data_source = self.db.execute(stmt).scalar_one_or_none()
@@ -89,6 +111,8 @@ class DataSourceService:
         """
         Functionality to persist new DataSource based on specified request
         """
+        assert self.db is not None, "Synchronous DB session is required"
+        assert self.chroma_svc is not None, "Chroma Service is required"
 
         self._validate_data_source_request(data_source_request)
 
@@ -96,8 +120,7 @@ class DataSourceService:
         if data_source_request.type == DataSourceType.REPOSITORY and data_source_request.provider == "GitHub" and not data_source_request.branch: #TODO: Make this more Generic (any provider liek Bitbucket same deal)
             data_source_request.branch = "main"
 
-        # normalize ingest_paths: strip leading/trailing slashes, de-dup, preserve order
-        normalized_paths = self._normalize_ingest_paths(data_source_request.ingest_paths)
+
 
         data_source = DataSource(
             provider=data_source_request.provider, 
@@ -106,7 +129,6 @@ class DataSourceService:
             branch=data_source_request.branch,
             type=data_source_request.type,
             scope_by_issues=data_source_request.scope_by_issues,
-            ingest_paths=normalized_paths,
         )
 
         # Construct the concrete provider and validate the URL is in the
@@ -185,7 +207,6 @@ class DataSourceService:
             "type": data_source.type,
             "branch": data_source.branch,
             "scope_by_issues": data_source.scope_by_issues,
-            "ingest_paths": data_source.ingest_paths,
             "config": {"url": data_source.url},
             "linked_projects": [str(pd.project_id) for pd in data_source.project_data]
         }
@@ -272,6 +293,7 @@ class DataSourceService:
         """
         Functionality to retreive persisted data_sourcs that correspond to particular Project ID
         """
+        assert self.db is not None, "Synchronous DB session is required"
 
         stmt = (
             select(DataSource)
@@ -288,7 +310,6 @@ class DataSourceService:
                 "type": data_source.type,
                 "branch": data_source.branch,
                 "scope_by_issues": data_source.scope_by_issues,
-                "ingest_paths": data_source.ingest_paths,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
                 "mcp_configs": [
@@ -309,6 +330,8 @@ class DataSourceService:
         """
         Functionality to retrieve all persisted data sources
         """
+        assert self.db is not None, "Synchronous DB session is required"
+
         stmt = select(DataSource)
         data_sources = self.db.execute(stmt).scalars().unique().all()
 
@@ -320,7 +343,6 @@ class DataSourceService:
                 "type": data_source.type,
                 "branch": data_source.branch,
                 "scope_by_issues": data_source.scope_by_issues,
-                "ingest_paths": data_source.ingest_paths,
                 "config": {"url": data_source.url},
                 "linked_projects": [str(pd.project_id) for pd in data_source.project_data],
                 "mcp_configs": [
@@ -346,12 +368,14 @@ class DataSourceService:
         3. Cleans up Chroma collection, ProjectData associations, and cascaded relationships.
         """
         from app.models import RecordType
+        assert self.db is not None, "Synchronous DB session is required"
+        assert self.chroma_svc is not None, "Chroma Service is required"
 
         stmt = (
             select(DataSource)
             .options(
                 selectinload(DataSource.project_data).selectinload(ProjectData.project).selectinload(Project.project_data).selectinload(ProjectData.data_source),
-                selectinload(DataSource.ingestion_jobs),
+                selectinload(DataSource.embed_tasks),
                 selectinload(DataSource.chroma_collection),
             )
             .where(DataSource.id == data_source_id)
@@ -398,7 +422,7 @@ class DataSourceService:
         # Extract file_ids before we drop the records so the background job can scrub them from Chroma/DocStore
         file_ids = list(self.db.execute(select(File.id).where(File.data_source_id == data_source_id)).scalars())
 
-        # Delete the data source (cascades handle ingestion_jobs, files, mcp_configs, chroma_collection)
+        # Delete the data source (cascades handle embed_tasks, files, mcp_configs, chroma_collection)
         self.db.delete(ds)
         self.db.flush()
         
@@ -413,6 +437,7 @@ class DataSourceService:
             data_source_id: UUID of the DataSource to update
             updates: dict containing fields to update (e.g. `name`, `branch`, `scope_by_issues`)
         """
+        assert self.db is not None, "Synchronous DB session is required"
         # retrieve existing data source
         stmt = select(DataSource).where(DataSource.id == data_source_id)
         ds = self.db.execute(stmt).scalar_one_or_none()
@@ -439,19 +464,15 @@ class DataSourceService:
             self._validate_scope_by_issues_update(ds, target_type, val)
 
         # Apply allowed updates (exclude `type` and `provider` — those require recreate)
-        allowed = {"name", "branch", "scope_by_issues", "url", "ingest_paths"}
+        allowed = {"name", "branch", "scope_by_issues", "url"}
         for k, v in updates.items():
             if k in allowed:
-                # normalize ingest_paths before setting
-                if k == "ingest_paths" and v is not None:
-                    v = self._normalize_ingest_paths(v)
                 setattr(ds, k, v)
 
         # If resulting type is not REPOSITORY, normalize repo-only fields
         if ds.type != DataSourceType.REPOSITORY:
             ds.branch = None
             ds.scope_by_issues = False
-            ds.ingest_paths = []
 
         # persist
         self.db.add(ds)
@@ -464,7 +485,6 @@ class DataSourceService:
             "type": ds.type,
             "branch": ds.branch,
             "scope_by_issues": ds.scope_by_issues,
-            "ingest_paths": ds.ingest_paths,
             "config": {"url": ds.url},
             "linked_projects": [str(pd.project_id) for pd in ds.project_data]
         }
@@ -475,6 +495,8 @@ class DataSourceService:
         data source. Used to enforce the Bitbucket<->Jira coupling required
         for issue-scoped Bitbucket repositories.
         """
+        assert self.db is not None, "Synchronous DB session is required"
+
         stmt = (
             select(DataSource)
             .join(ProjectData, ProjectData.data_source_id == DataSource.id)
@@ -561,45 +583,14 @@ class DataSourceService:
                     f"{names}. Unlink other projects from this Data Source before disabling scoping."
                 )
 
-    def _normalize_ingest_paths(self, raw_paths: list[str] | None) -> list[str]:
-        """
-        Normalize and validate the list of paths specified for ingestion filtering.
-        Expects a list of strings where each string is a path from the root
-        of the repository to the high-level directory to start ingesting from.
-        Strips leading/trailing slashes, removes duplicates, and ensures paths
-        do not contain file extensions or relative traversals.
-        """
-        if not raw_paths:
-            return []
-        
-        from pathlib import Path
-        seen: set[str] = set()
-        normalized_paths: list[str] = []
-        for p in raw_paths:
-            cleaned = p.strip("/")
-            if not cleaned:
-                continue
-                
-            if ".." in cleaned:
-                raise ValueError(f"Invalid ingest path '{p}': Path traversal ('..') is not allowed.")
-                
-            if Path(cleaned).suffix:
-                raise ValueError(
-                    f"Invalid ingest path '{p}': ingest_paths must specify directories, not individual files. "
-                    "Paths with file extensions are not allowed."
-                )
-                
-            if cleaned not in seen:
-                seen.add(cleaned)
-                normalized_paths.append(cleaned)
-        return normalized_paths
+
 
     def link_mcp_config_to_data_source(self, data_source_id: UUID, mcp_config_id: UUID) -> dict[str, Any]:
         """
         Link an existing MCP Config to this DataSource
         """
-        from app.models.data_source_mcp import DataSourceMCPConfig
-        from app.models.mcp_config import MCPConfig
+
+        assert self.db is not None, "Synchronous DB session is required"
 
         try:
             # check if relationship already exists

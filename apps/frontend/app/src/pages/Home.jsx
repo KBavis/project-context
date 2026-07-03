@@ -4,7 +4,7 @@ import CreateConversationModal from '../components/CreateConversationModal';
 import CreateProjectModal from '../components/CreateProjectModal';
 import DataSourcesView from '../components/DataSourcesView';
 import MCPConfigsView from '../components/MCPConfigsView';
-import IngestionJobsView from '../components/IngestionJobsView';
+import JobsView from '../components/JobsView';
 import AlertContainer from '../components/Alert';
 import { useProjects, useConversations } from '../contexts/index';
 import '../styles/App.css';
@@ -49,7 +49,7 @@ export default function Home({ view }) {
                         onClick={() => setCurrentView('ingestion')}
                     >
                         <span className="nav-icon">⚙️</span>
-                        <span>Ingestion Jobs</span>
+                        <span>Sync History</span>
                     </button>
 
                     <button
@@ -134,7 +134,7 @@ export default function Home({ view }) {
                 )}
 
                 {currentView === 'ingestion' && (
-                    <IngestionJobsView projectId={selectedProject?.id} />
+                    <JobsView projectId={selectedProject?.id} />
                 )}
 
                 {currentView === 'mcp' && (

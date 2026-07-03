@@ -16,7 +16,7 @@ class File(Base):
 
     __tablename__: str = "file"
 
-    # ensure data_source is leading column in index, to mitigate blocking of IngestionJobs
+    # ensure data_source is leading column in index, to mitigate blocking of EmbedTask
     __table_args__ = (
         Index("ix_file_data_source_path", "data_source_id", "path"),
         Index("ix_file_data_source_name", "data_source_id", "name"),
@@ -59,9 +59,9 @@ class File(Base):
         comment="Direct access URL to the file"
     )
 
-    # one to one relationship with IngestionJob 
-    last_ingestion_job_id: Mapped["UUID"] = mapped_column(
-        ForeignKey("ingestion_job.id")
+    # one to one relationship with EmbedTask 
+    last_embed_task_id: Mapped["UUID"] = mapped_column(
+        ForeignKey("embed_task.id")
     )
     
     # many to one relationship with DataSource

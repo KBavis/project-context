@@ -13,6 +13,7 @@ from .git_commit import GitCommitDetail
 from .pull_request import PullRequestDetail
 from .file_diff_patch import FileDiffPatch
 from .change_type import ChangeType
+from .job import JobResponse
 
 __all__ = [
     "ChatRequest", 
@@ -41,5 +42,6 @@ __all__ = [
     "GitCommitDetail",
     "PullRequestDetail",
     "FileDiffPatch",
-    "ChangeType"
+    "ChangeType",
+    "JobResponse",
 ]

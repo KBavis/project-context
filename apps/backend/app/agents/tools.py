@@ -10,7 +10,7 @@ from app.llm import LLMBase
 from app.models.data_source import DataSource, DataSourceType
 from app.services.chunk_retrieval import ChunkRetrievalService
 from app.services.data_source import DataSourceService
-from app.services.diff import DiffService
+from app.services.diff_task import DiffTaskService
 from app.data_providers.ingestible.base import IngestibleDataProvider
 
 import logging
@@ -37,7 +37,8 @@ class Tools:
         llm: LLMBase,
         chunk_retrieval_svc: ChunkRetrievalService,
         data_source_svc: DataSourceService,
-        diff_svc: DiffService | None = None,
+        scope_map: dict[str, list[str]],
+        diff_svc: DiffTaskService | None = None,
     ):
         self.data_sources = data_sources
         self.project_id = project_id
@@ -45,6 +46,8 @@ class Tools:
         self.chunk_retrieval_svc = chunk_retrieval_svc
         self.data_source_svc = data_source_svc
         self.diff_svc = diff_svc
+        # scope_map restricts search queries for issue-scoped repos
+        self.scope_map = scope_map
 
         # Per-DataSource tool buckets (keyed by DS id)
         self._ds_view_file_tools: dict[UUID, FunctionTool] = {}
@@ -377,6 +380,7 @@ class Tools:
         return await self.chunk_retrieval_svc.grep_search(
             key_word,
             data_source_ids=resolved_ids,
+            scope_map=self.scope_map,
         )
 
     async def _semantic_search_wrapper(
@@ -397,6 +401,7 @@ class Tools:
             query,
             llm=self.llm,
             data_source_ids=resolved_ids,
+            scope_map=self.scope_map,
         )
 
     async def _get_file_diff_wrapper(

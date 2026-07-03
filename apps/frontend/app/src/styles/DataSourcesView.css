@@ -12,6 +12,42 @@
     margin-bottom: var(--spacing-xl);
 }
 
+/* Centered "Sync Project" action button (distinct accent color) */
+.sync-project-cta {
+    display: flex;
+    justify-content: center;
+    margin: 0 0 var(--spacing-xl);
+}
+
+.sync-project-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 20px;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.95), rgba(99, 102, 241, 0.78));
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-md, 8px);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.15s ease, box-shadow 0.2s ease, transform 0.1s ease;
+}
+
+.sync-project-btn:hover:not(:disabled) {
+    filter: brightness(1.08);
+    box-shadow: 0 3px 12px rgba(99, 102, 241, 0.3);
+}
+
+.sync-project-btn:active:not(:disabled) {
+    transform: translateY(1px);
+}
+
+.sync-project-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
 .data-sources-header h2 {
     font-size: 1.5rem;
     font-weight: 600;

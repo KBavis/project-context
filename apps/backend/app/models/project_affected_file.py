@@ -17,25 +17,25 @@ from .base import Base
 from app.pydantic.change_type import ChangeType
 
 if TYPE_CHECKING:
-    from .diff_sync_job import DiffSyncJob
-    from .project_repository_changes import ProjectRepositoryChanges
-    from .project_repository_file_pr_diff import ProjectRepositoryFilePrDiff
+    from .diff_task import DiffTask
+    from .project_repo_summary import ProjectRepoSummary
+    from .project_file_diff import ProjectFileDiff
 
 
-class ProjectRepositoryFileHistory(Base):
+class ProjectAffectedFile(Base):
     """
     A single file's change history produced by one project on one repository
     DataSource.
     """
 
-    __tablename__ = "project_repository_file_history"
+    __tablename__ = "project_affected_file"
 
     __table_args__ = (
         ForeignKeyConstraint(
             ["project_id", "data_source_id"],
             [
-                "project_repository_changes.project_id",
-                "project_repository_changes.data_source_id",
+                "project_repo_summary.project_id",
+                "project_repo_summary.data_source_id",
             ],
             deferrable=True,  # only enforce the constraint at transaction commit
             initially="DEFERRED",
@@ -44,7 +44,7 @@ class ProjectRepositoryFileHistory(Base):
             "project_id",
             "data_source_id",
             "file_path",
-            name="uq_project_repository_file_history_path",
+            name="uq_project_affected_file_path",
         ),
     )
 
@@ -80,20 +80,20 @@ class ProjectRepositoryFileHistory(Base):
                 "removed a pre-existing file. Seeded by the first per-PR diff.",
     )
 
-    diff_sync_job_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("diff_sync_job.id"),
+    last_diff_task_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("diff_task.id", ondelete="SET NULL"),
         index=True,
         nullable=True,
         comment="Job that last wrote this row; used to determine last time this path was synced",
     )
 
-    project_repository_changes: Mapped["ProjectRepositoryChanges"] = relationship(
+    project_repo_summary: Mapped["ProjectRepoSummary"] = relationship(
         back_populates="file_histories",
     )
-    diff_sync_job: Mapped["DiffSyncJob"] = relationship()
+    diff_task: Mapped["DiffTask"] = relationship()
 
-    pr_diffs: Mapped[List["ProjectRepositoryFilePrDiff"]] = relationship(
+    pr_diffs: Mapped[List["ProjectFileDiff"]] = relationship(
         back_populates="file_history",
         cascade="all, delete-orphan",
-        order_by="ProjectRepositoryFilePrDiff.ordinal",
+        order_by="ProjectFileDiff.ordinal",
     )

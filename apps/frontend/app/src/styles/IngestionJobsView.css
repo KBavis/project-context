@@ -109,6 +109,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     padding: 12px 16px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
@@ -204,6 +205,101 @@
 .status-failed {
     background: var(--color-danger-light);
     color: var(--color-danger);
+}
+
+.status-skipped {
+    background: var(--color-warning-light);
+    color: var(--color-warning);
+}
+
+.status-unknown {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-text-tertiary);
+}
+
+/* Cleaner expand chevron button */
+.expand-job-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--color-text-tertiary);
+    font-size: 0.8rem;
+    line-height: 1;
+    padding: 4px 6px;
+    border-radius: 4px;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.expand-job-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-text-secondary);
+}
+
+/* Nested task rows - rendered as children beneath the Job */
+.job-nested-tasks {
+    flex-basis: 100%;
+    width: 100%;
+    margin-top: 10px;
+    padding: 10px 0 2px 20px;
+    border-top: 1px solid var(--color-border);
+}
+
+.task-row {
+    display: grid;
+    grid-template-columns: 1.3fr 0.9fr 0.7fr 2fr;
+    gap: 12px;
+    align-items: center;
+    padding: 6px 0;
+    font-size: 0.82rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.task-row:last-child {
+    border-bottom: none;
+}
+
+.task-row.header {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-tertiary);
+    font-weight: 600;
+}
+
+.task-row .job-list-status {
+    padding: 2px 6px;
+    font-size: 0.65rem;
+}
+
+.task-col-type {
+    color: var(--color-text-secondary);
+    font-weight: 500;
+}
+
+.task-col-duration {
+    color: var(--color-text-tertiary);
+    font-variant-numeric: tabular-nums;
+}
+
+.task-col-detail {
+    color: var(--color-text-tertiary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.task-col-detail.expanded {
+    white-space: normal;
+    overflow: visible;
+    word-break: break-word;
+}
+
+.task-row.empty {
+    flex-basis: 100%;
+    padding: 8px 0;
+    color: var(--color-text-tertiary);
+    font-size: 0.82rem;
 }
 
 .job-progress-bar-thin {

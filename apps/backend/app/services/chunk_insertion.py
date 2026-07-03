@@ -218,8 +218,8 @@ class ChunkInsertionService:
                 "document_hash": document_hash,
                 "content_types": content_types,
                 "source_type": DOCS,
-                "file_id": str(file.id),
                 "file_hash": str(file.hash),
+                "file_id": str(file.id),
                 "ref_doc_id": str(file.id),
                 "doc_id": str(file.id),
                 "data_source_id": str(data_source_id),
@@ -270,8 +270,8 @@ class ChunkInsertionService:
 
                     # add meta data for file ID 
                     doc.metadata["file_path"] = file_path  # overwrite temp path with cleaned repo-relative path
-                    doc.metadata["file_id"] = str(file.id)
                     doc.metadata["file_hash"] = str(file.hash)
+                    doc.metadata["file_id"] = str(file.id)
                     doc.metadata['source_type'] = CODE
                     doc.metadata['data_source_id'] = str(data_source.id)
 

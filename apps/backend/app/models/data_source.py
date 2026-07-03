@@ -8,7 +8,7 @@ from enum import Enum
 
 # avoid warning
 if TYPE_CHECKING:
-    from .ingestion_job import IngestionJob
+    from .embed_task import EmbedTask
     from .project_data import ProjectData
     from .file import File
     from .mcp_config import MCPConfig
@@ -58,14 +58,6 @@ class DataSource(Base):
         comment="Whether to scope ingestion for this data source to specific issues configured on the project"
     )
 
-    ingest_paths: Mapped[List[str]] = mapped_column(
-        ARRAY(String),
-        nullable=False,
-        server_default="{}",
-        default=list,
-        comment="Optional repo-root-relative directory prefixes to scope ingestion. "
-                "Empty list = ingest the entire repository (backward compatible).",
-    )
 
 
     # many to many relationship with MCPConfig
@@ -73,8 +65,8 @@ class DataSource(Base):
         back_populates="data_source", cascade="all, delete-orphan"
     ) 
 
-    # one to many relationship with IngestionJob
-    ingestion_jobs: Mapped[List["IngestionJob"]] = relationship(
+    # one to many relationship with EmbedTask
+    embed_tasks: Mapped[List["EmbedTask"]] = relationship(
         back_populates="data_source", cascade="all, delete-orphan"
     )
 

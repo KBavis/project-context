@@ -1,16 +1,16 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from typing import List
+from uuid import UUID
+import logging
 
 from app.services import ProjectService
 from app.pydantic import ProjectRequest
 from app.models.data_source import DataSourceType
-from ..svc_deps import get_project_svc, get_async_diff_svc, get_data_source_svc
-from app.services.diff import DiffService
 from app.services.data_source import DataSourceService
-
-from typing import List
-from uuid import UUID
-import logging
+from app.api.svc_deps import get_project_svc, get_job_svc, get_data_source_svc
+from app.services.job import JobService
+from app.data_providers.ingestible.base import IngestibleDataProvider
 
 router = APIRouter(prefix="/projects")
 
@@ -57,8 +57,8 @@ async def link_data_source(
     data_source_id: UUID,
     background_tasks: BackgroundTasks,
     svc: ProjectService = Depends(get_project_svc),
-    diff_svc: DiffService = Depends(get_async_diff_svc),
-    ds_svc: DataSourceService = Depends(get_data_source_svc)
+    ds_svc: DataSourceService = Depends(get_data_source_svc),
+    job_svc: JobService = Depends(get_job_svc),
 ):
     """
     Associate an existing Data Source with a Project
@@ -81,13 +81,16 @@ async def link_data_source(
         res = svc.link_data_source_to_project(project_id, data_source_id)
         logger.info(f"DataSource={data_source_id} successfully linked to Project {project_id}")
 
-        # kick of DiffSyncJob for RepositoryDataSource if its scoped_by_issues when first linking Data Source & Project 
-        # this runs in the background and the consumer of this endpoint will not need to wait for this to finish processing
-        ds = await ds_svc.aget_data_source_by_id(data_source_id)
-        if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues:
-            logger.info(f"DataSource={data_source_id} is type={ds.type} and scoped_by_issues={ds.scope_by_issues}: attempting to run DiffSyncJob for Project={project_id} and Data Source={data_source_id}")
-            job = await diff_svc.init_diff_sync_job(project_id, data_source_id)
-            background_tasks.add_task(diff_svc.execute_repository_sync_job, job.id)
+        # kick off Job to a) run EmbedTask, b) optionally run DiffTask
+        # in the case that this is an Ingestible Data Provider 
+        try:
+            provider = IngestibleDataProvider.from_provider(ds.provider)
+            logger.info(f"DataSource={data_source_id} is an Ingestible Data Provider, kicking off Job for project={project_id} and dataSource={data_source_id}")
+            background_tasks.add_task(job_svc.run_data_source_job, project_id, data_source_id)
+        except Exception as e:
+            logger.warning(f"{ds.provider} is not configured to be an Ingestible Data Provider, skipping Job execution")
+            return res
+
             
         return res
     except ValueError as e:
@@ -131,9 +134,9 @@ async def get_project_sync_status(
     """
     Return the combined readiness state for a project's data sources:
       - ingestion_status: whether all ingestible data sources (REPOSITORY, DOCUMENTATION)
-        have completed a successful IngestionJob.
+        have completed a successful EmbedTask.
       - sync_status: whether all issue-scoped repository data sources have completed
-        a successful DiffSyncJob.
+        a successful DiffTask.
       - overall_status / is_ready: aggregate of both signals.
     """
     try:
@@ -141,3 +144,5 @@ async def get_project_sync_status(
     except Exception as e:
         logger.error(f"Error checking project sync status for Project={project_id}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
