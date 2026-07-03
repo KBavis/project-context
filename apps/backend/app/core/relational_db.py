@@ -17,7 +17,7 @@ from functools import lru_cache
 from ..models import Base
 from .config import settings
 import threading
-from convextvars import ContextVar
+from contextvars import ContextVar
 
 
 #################################################################
