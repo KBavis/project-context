@@ -13,7 +13,7 @@ from .git_commit import GitCommitDetail
 from .pull_request import PullRequestDetail
 from .file_diff_patch import FileDiffPatch
 from .change_type import ChangeType
-from .job import JobResponse, LatestJobsByDataSourceResponse
+from .job import JobResponse
 
 __all__ = [
     "ChatRequest", 
@@ -44,5 +44,4 @@ __all__ = [
     "FileDiffPatch",
     "ChangeType",
     "JobResponse",
-    "LatestJobsByDataSourceResponse",
 ]

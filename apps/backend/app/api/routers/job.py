@@ -4,8 +4,7 @@ from typing import List, Optional
 from uuid import UUID
 import logging
 
-from app.pydantic.job import JobResponse, LatestJobsByDataSourceResponse
-from app.pydantic.status import ProcessingStatus
+from app.pydantic.job import JobResponse
 from app.services.job import JobService
 from app.api.svc_deps import get_job_svc
 

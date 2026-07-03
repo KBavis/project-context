@@ -21,7 +21,7 @@ from app.pydantic.status import ProcessingStatus
 from app.services.record_lock import RecordLockService
 from app.models.project_data import ProjectData
 from app.models.file import File
-from app.services.background import TaskSkipped
+from app.exceptions import TaskSkipped
 from app.data_providers.fetchable.issue_tracker import IssueTrackerDataProvider
 from app.data_providers.ingestible.repository import RepositoryDataProvider
 from app.pydantic.pull_request import PullRequestDetail

@@ -44,12 +44,3 @@ class JobResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
-class LatestJobsByDataSourceResponse(BaseModel):
-    """Response model for latest jobs grouped by data source."""
-    data_source_id: UUID
-    data_source_name: Optional[str] = None
-    jobs: list[JobResponse]
-
-
-
