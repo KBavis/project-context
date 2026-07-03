@@ -58,7 +58,6 @@ async def link_data_source(
     data_source_id: UUID,
     background_tasks: BackgroundTasks,
     svc: ProjectService = Depends(get_project_svc),
-    diff_svc: DiffTaskService = Depends(get_async_diff_task_svc),
     ds_svc: DataSourceService = Depends(get_data_source_svc),
     job_svc: JobService = Depends(get_job_svc),
 ):
