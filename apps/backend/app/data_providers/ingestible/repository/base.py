@@ -128,14 +128,14 @@ class RepositoryDataProvider(IngestibleDataProvider):
         raise NotImplementedError()
         
     @abstractmethod
-    async def _get_repository_data(self, curr_url: str, file_svc: FileService, job_pk: UUID):
+    async def _get_repository_data(self, curr_url: str, file_svc: FileService, embed_task_id: UUID):
         """
         Recursively pull down the repository contents.
         """
         raise NotImplementedError()
         
     @abstractmethod
-    async def _download_file(self, url: str, file_name: str, file_path: str, size: int, file_svc: FileService, job_pk: UUID):
+    async def _download_file(self, url: str, file_name: str, file_path: str, size: int, file_svc: FileService, embed_task_id: UUID):
         """
         Download a file to the temporary directory.
         """

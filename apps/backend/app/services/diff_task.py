@@ -336,7 +336,7 @@ class DiffTaskService:
             repo_changes = ProjectRepoSummary(
                 project_id=project_id,
                 data_source_id=repository_data_source_id,
-                diff_task_id=diff_task_id,
+                last_diff_task_id=diff_task_id,
                 file_count=0,
             )
             async_session.add(repo_changes)
@@ -504,7 +504,7 @@ class DiffTaskService:
                 data_source_id=repository_data_source_id,
                 file_path=file_path,
                 change_type=change_type,
-                diff_task_id=diff_task_id,
+                last_diff_task_id=diff_task_id,
             )
             async_session.add(file_history)
             await async_session.flush()
