@@ -18,7 +18,6 @@ from app.models.pull_request import PullRequest
 from app.models.git_commit import GitCommit
 from app.models.diff_task import DiffTask
 from app.pydantic.status import ProcessingStatus
-from app.services.record_lock import RecordLockService
 from app.models.project_data import ProjectData
 from app.models.file import File
 from app.exceptions import TaskSkipped
@@ -28,7 +27,6 @@ from app.pydantic.pull_request import PullRequestDetail
 from app.pydantic.file_diff_patch import FileDiffPatch
 from app.pydantic.change_type import ChangeType
 import hashlib
-import uuid
 
 logger = logging.getLogger(__name__)
 
