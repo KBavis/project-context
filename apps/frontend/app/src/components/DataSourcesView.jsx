@@ -408,16 +408,13 @@ export default function DataSourcesView({ projectId }) {
                             </div>
                         </div>
 
-                        {/* Per-source latest activity indicator */}
+                        {/* Per-source last sync indicator */}
                         {ds.type !== 'ISSUE_TRACKER' && (() => {
                             const latestJobs = getLatestJobsForDataSource(ds.id);
-                            const latestJob = latestJobs.length > 0 ? latestJobs[0] : null;
-                            const latestStatus = latestJob ? mapStatus(latestJob.processing_status) : null;
-                            const noJobsAndScoped = !latestJob && ds.scope_by_issues && ds.type === 'REPOSITORY';
                             
-                            const running = latestJobs.some(j => mapStatus(j.status || j.processing_status) === 'running');
+                            const running = latestJobs.some(j => mapStatus(j.status) === 'running');
                             // A skipped embed (already up-to-date / embed-once) still counts as synced
-                            const syncedJob = latestJobs.find(j => ['completed', 'skipped'].includes(mapStatus(j.status || j.processing_status)));
+                            const syncedJob = latestJobs.find(j => ['completed', 'skipped'].includes(mapStatus(j.status)));
                             
                             // Never successfully synced -> warning badge (no "Last Sync" row)
                             if (!running && !syncedJob) {
@@ -516,7 +513,7 @@ export default function DataSourcesView({ projectId }) {
                                 ) : (
                                     <div className="mini-jobs-list">
                                         {getLatestJobsForDataSource(ds.id).map(job => {
-                                            const status = mapStatus(job.processing_status);
+                                            const status = mapStatus(job.status);
                                             return (
                                                 <div key={job.id} className="mini-job-item">
                                                     <div className="mini-job-info">
