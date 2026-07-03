@@ -26,6 +26,7 @@ from app.data_providers.ingestible.repository import RepositoryDataProvider
 from app.pydantic.pull_request import PullRequestDetail
 from app.pydantic.file_diff_patch import FileDiffPatch
 from app.pydantic.change_type import ChangeType
+from app.core import get_current_session
 import hashlib
 
 logger = logging.getLogger(__name__)
@@ -155,7 +156,6 @@ class DiffTaskService:
         Args:
             diff_task_id (UUID): the DiffTask PK to execute 
         """
-        from app.core.background import get_current_session
         async_session = get_current_session()
 
         # retrieve the initalized DiffTask

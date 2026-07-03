@@ -20,7 +20,7 @@ from app.services.chroma import ChromaService
 from app.services.chunk_insertion import ChunkInsertionService
 from app.data_providers.ingestible.base import IngestibleDataProvider
 from app.services.diff_task import DiffTaskService
-from app.core.background import get_current_session
+from app.core import get_current_session
 from app.exceptions import TaskSkipped
 
 if TYPE_CHECKING:
