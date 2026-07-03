@@ -17,6 +17,7 @@ from functools import lru_cache
 from ..models import Base
 from .config import settings
 import threading
+from convextvars import ContextVar
 
 
 #################################################################
@@ -117,6 +118,23 @@ def get_async_session_maker() -> async_sessionmaker[AsyncSession]:
     )
 
 
+async def get_async_db_session() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Create a transactional async DB session for use as a FastAPI dependency
+    (via Depends()). FastAPI's DI system drives this generator directly:
+    it resumes past the `yield` to commit/rollback once the request
+    handler returns. Not usable with `async with` — see
+    get_async_db_session_context for that.
+    """
+    session_maker = get_async_session_maker()
+    
+    async with session_maker() as session:
+        try:
+            yield session 
+            await session.commit() 
+        except Exception:
+            await session.rollback() 
+            raise 
 
 
 def get_sync_db_session() -> Generator[Session, None, None]:
@@ -141,6 +159,12 @@ def get_sync_db_session() -> Generator[Session, None, None]:
         db.close()
 
 
+
+#####################################
+# Background Task DB Session Logic
+#####################################
+
+
 @asynccontextmanager
 async def get_async_db_session_context() -> AsyncGenerator[AsyncSession, None]:
     """
@@ -161,25 +185,45 @@ async def get_async_db_session_context() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
             raise
 
+# Ambient Session Management
+_current_session: ContextVar[AsyncSession | None] = ContextVar("current_session", default=None)
 
-async def get_async_db_session() -> AsyncGenerator[AsyncSession, None]:
+def get_current_session() -> AsyncSession:
     """
-    Create a transactional async DB session for use as a FastAPI dependency
-    (via Depends()). FastAPI's DI system drives this generator directly:
-    it resumes past the `yield` to commit/rollback once the request
-    handler returns. Not usable with `async with` — see
-    get_async_db_session_context for that.
+    Return the ambient DB session bound for the current background unit of work
+
+    Raise Exception in the case that this function is called outside an `ambient_session()` scope,
+    as normal, non-background processing should use Dependency Injected sessions instead
     """
-    session_maker = get_async_session_maker()
-    
-    async with session_maker() as session:
+    s = _current_session.get() 
+    if s is None:
+        # NOTE: This will happen if _current_session.set() was never called (e.g. not in a ambient_session() block)
+        raise RuntimeError("ambient_session unavailable - must run inside ambietn_session()")
+    return s
+
+
+@asynccontextmanager
+async def ambient_session() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Open transactional Async Session & Bind as the Ambient Session for the duration of the Blokc 
+
+    NOTE: This is used during background processing of `Jobs` and `Tasks`. When running `run_project_job()`,
+    we will spawn many `asyncio.Tasks` concurrently (i.e `asyncio.gather(....)`) and we want to scope a particular 
+    Async DB session per `asyncio.Task` without any risk of leaking state between Tasks
+    """
+    async with get_async_db_session_context() as session:
+        token = _current_session.set(session) # bind ambient session to current Task
         try:
-            yield session 
-            await session.commit() 
-        except Exception:
-            await session.rollback() 
-            raise 
+            yield session
+        finally:
+            _current_session.reset(token) # reset ambient session
 
+
+
+######################################################
+# Initlaize DB Tables for 1st Time Use of Application
+# NOTE: This likely can be done async via async engine
+######################################################
 
 
 def init_db() -> None:
