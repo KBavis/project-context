@@ -15,6 +15,7 @@ from app.models.record_lock import RecordType
 from app.pydantic.status import ProcessingStatus
 from app.core import get_async_db_session_context
 from app.core.background import run_task, get_current_session
+from app.tasks import DiffTaskRunner, EmbedTaskRunner
 import asyncio
 
 if TYPE_CHECKING:
@@ -83,21 +84,37 @@ class JobService:
     async def run_project_jobs(self, project_id: UUID):
         """
         Fan-out: run_data_source_job for every applicable source.
+
+        Concurrency is bounded so a large Project can't open more session that the ConnectionPool 
+        can serve (each DataSource job opens new AsyncSession per Task while it runs)
         """
         async with get_async_db_session_context() as session:
             data_sources = await self.data_source_svc.aget_project_data_sources(
                 project_id, async_session=session
             )
             applicable = [ds for ds in data_sources if ds.type != DataSourceType.ISSUE_TRACKER]
-            
+        
+
+        # configure Semaphore to bound maximum concurrent run_data_source_job() calls happening 
+        semaphore = asyncio.Semaphore(5)
+        async def _run(data_source_id: UUID): 
+            async with semaphore:
+                await self.run_data_source_job(project_id, data_source_id)
+
+        # run DataSource jobs concurrently (bounded by semaphore)
+        # NOTE (for future me): `asyncio.gather` wraps each coroutine in an `asyncio.Task`
+        # and runs them concurrently on one thread (cooperative multitasking) — unlike
+        # `asyncio.to_thread`, which offloads a blocking call to a separate OS thread.
+        # Use to_thread for blocking/sync calls, gather+Tasks for native async coroutines.
         await asyncio.gather(*[
-            self.run_data_source_job(project_id, ds.id)
+            _run(ds.id)
             for ds in applicable
         ])
 
     async def run_data_source_job(self, project_id: UUID, data_source_id: UUID):
         """
-        Creates Job, tasks, and orchestrates them via run_task.
+        Creates Job, builds the applicable Tasks, and runs them. 
+        Tasks will have their own DB Session Life Cycle + Locking via `Task.run()` 
         """
         job_start_time = datetime.now(timezone.utc)
         
@@ -110,14 +127,25 @@ class JobService:
         # 1. Create Job 
         job_id = await self.create_job(project_id, data_source_id)
             
-        # 2. Run DiffTask (if applicable)
+        # 2. Run DiffTask (only for issue-scoped repositories)
         if is_scoped_repo:
-            await self._run_diff_task(project_id, data_source_id, job_id)
+            await DiffTaskRunner(
+                self.diff_svc, 
+                project_id, 
+                data_source_id, 
+                job_id).run() 
 
         # 3. Run EmbedTask
-        await self._run_embed_task(project_id, data_source_id, job_id, job_start_time)
+        await EmbedTaskRunner(
+            self.embed_task_svc,
+            self.data_source_svc,
+            project_id,
+            data_source_id,
+            job_id,
+            job_start_time
+        ).run()
         
-        # 4. Update Job Status
+        # 4. Aggregate task statuses into the single Job status
         await self.update_job_status(job_id)
         
     async def update_job_status(self, job_id: UUID):
@@ -145,65 +173,6 @@ class JobService:
             job.end_time = datetime.now(timezone.utc)
             job.total_duration = int((job.end_time - job.start_time).total_seconds())
             await session.commit()
-
-    async def _run_diff_task(self, project_id: UUID, data_source_id: UUID, job_id: UUID):
-        async def init_task():
-            sess = get_current_session()
-            dt = await self.diff_svc.init_diff_task(project_id, data_source_id, job_id=job_id, async_session=sess)
-            return dt.id
-
-        async def execute_diff(task_id: UUID):
-            await self.diff_svc.execute_repository_sync_job(task_id)
-        
-        async def mark_diff(sess, t_id, status, reason, end_time, duration):
-            if not t_id: return
-            await self.diff_svc.update_diff_task(diff_task_id=t_id, status=status, end_time=end_time, duration=duration, session=sess, reason=reason)
-            
-        async def mark_diff_fresh(t_id, status, reason, end_time, duration):
-            if not t_id: return
-            async with get_async_db_session_context() as fresh_sess:
-                await self.diff_svc.update_diff_task(diff_task_id=t_id, status=status, end_time=end_time, duration=duration, session=fresh_sess, reason=reason, commit=True)
-
-        lock_key = uuid.uuid5(uuid.NAMESPACE_OID, f"sync:{project_id}:{data_source_id}")
-        await run_task(
-            resource_id=lock_key,
-            resource_type=RecordType.PROJECT_DATA,
-            init_task=init_task,
-            execute=execute_diff,
-            mark_task=mark_diff,
-            mark_task_fresh=mark_diff_fresh
-        )
-
-    async def _run_embed_task(self, project_id: UUID, data_source_id: UUID, job_id: UUID, job_start_time: datetime):
-        async def init_task():
-            sess = get_current_session()
-            _, dt_id = await self.embed_task_svc.init_embed_task(data_source_id, job_start_time, job_id=job_id, async_session=sess)
-            return dt_id
-
-        async def execute_embed(task_id: UUID):
-            sess = get_current_session()
-            fresh_ds = await self.data_source_svc.aget_data_source_by_id_with_session(data_source_id, sess)
-            if not fresh_ds:
-                raise Exception(f"DataSource {data_source_id} not found!")
-            await self.embed_task_svc.run_embed_task(task_id, job_start_time, fresh_ds, project_id)
-
-        async def mark_embed(sess, t_id, status, reason, end_time, duration):
-            if not t_id: return
-            await self.embed_task_svc.update_embed_task(embed_task_id=t_id, status=status, end_time=end_time, duration=duration, session=sess, reason=reason)
-            
-        async def mark_embed_fresh(t_id, status, reason, end_time, duration):
-            if not t_id: return
-            async with get_async_db_session_context() as fresh_sess:
-                await self.embed_task_svc.update_embed_task(embed_task_id=t_id, status=status, end_time=end_time, duration=duration, session=fresh_sess, reason=reason, commit=True)
-
-        await run_task(
-            resource_id=data_source_id,
-            resource_type=RecordType.DATA_SOURCE,
-            init_task=init_task,
-            execute=execute_embed,
-            mark_task=mark_embed,
-            mark_task_fresh=mark_embed_fresh
-        )
 
     async def get_latest_project_jobs(self, project_id: UUID) -> dict[UUID, list[Job]]:
         """
