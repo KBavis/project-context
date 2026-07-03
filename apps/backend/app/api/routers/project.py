@@ -7,9 +7,8 @@ import logging
 from app.services import ProjectService
 from app.pydantic import ProjectRequest
 from app.models.data_source import DataSourceType
-from app.services.diff_task import DiffTaskService
 from app.services.data_source import DataSourceService
-from app.api.svc_deps import get_project_svc, get_async_diff_task_svc, get_data_source_svc 
+from app.api.svc_deps import get_project_svc, get_job_svc, get_data_source_svc
 from app.services.job import JobService
 from app.data_providers.ingestible.base import IngestibleDataProvider
 
@@ -58,7 +57,6 @@ async def link_data_source(
     data_source_id: UUID,
     background_tasks: BackgroundTasks,
     svc: ProjectService = Depends(get_project_svc),
-    diff_svc: DiffTaskService = Depends(get_async_diff_task_svc),
     ds_svc: DataSourceService = Depends(get_data_source_svc),
     job_svc: JobService = Depends(get_job_svc),
 ):

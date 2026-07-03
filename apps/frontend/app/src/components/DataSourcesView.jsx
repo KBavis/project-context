@@ -91,8 +91,8 @@ export default function DataSourcesView({ projectId }) {
     }, [refreshGlobalJobs, jobs]);
 
     const getLatestJobsForDataSource = (ds) => {
-        const source = isIssueScopedRepo(ds) 
-            ? jobs.filter(job => job.data_source_id === ds.id) 
+        const source = isIssueScopedRepo(ds)
+            ? jobs.filter(job => job.data_source_id === ds.id)
             : (globalJobs[ds.id] || []);
         return [...source]
             .sort((a, b) => new Date(b.created_at || b.start_time) - new Date(a.created_at || a.start_time))
@@ -453,11 +453,11 @@ export default function DataSourcesView({ projectId }) {
                         {/* Per-source last sync indicator */}
                         {ds.type !== 'ISSUE_TRACKER' && (() => {
                             const latestJobs = getLatestJobsForDataSource(ds);
-                            
+
                             const running = latestJobs.some(j => mapStatus(j.status) === 'running');
                             // A skipped embed (already up-to-date / embed-once) still counts as synced
                             const syncedJob = latestJobs.find(j => ['completed', 'skipped'].includes(mapStatus(j.status)));
-                            
+
                             // Never successfully synced -> warning badge (no "Last Sync" row)
                             if (!running && !syncedJob) {
                                 return (

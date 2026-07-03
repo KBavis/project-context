@@ -30,13 +30,11 @@ class ProjectService:
         self,
         db: Session,
         async_db: AsyncSession,
-        diff_svc: DiffTaskService,
         job_svc: JobService,
         data_source_svc: DataSourceService | None = None,
     ):
         self.db = db
         self.async_db = async_db
-        self.diff_svc = diff_svc
         self.data_source_svc = data_source_svc
         self.job_svc = job_svc
 
