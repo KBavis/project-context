@@ -1,9 +1,15 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useDataSources, useJobs, useAlert, useProjects } from '../contexts/index';
 import Button from './Button';
 import Modal from './Modal';
+import api from '../api';
 import '../styles/DataSourcesView.css';
 import '../styles/IngestionJobsView.css';
+
+// Issue-scoped repositories produce project-specific jobs (diff work is per-project).
+// Every other ingestible source is embed-once / global, so its jobs are shared across 
+// projects.
+const isIssueScopedRepo = (ds) => ds.type === 'REPOSITORY' && !!ds.scope_by_issues;
 
 export default function DataSourcesView({ projectId }) {
     const { projects } = useProjects();
@@ -50,9 +56,45 @@ export default function DataSourcesView({ projectId }) {
     const closeConfirmModal = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
     const [isUnlinkDragOver, setIsUnlinkDragOver] = useState(false);
 
-    const getLatestJobsForDataSource = (dsId) => {
-        return jobs
-            .filter(job => job.data_source_id === dsId)
+    // Global (cross-project) jobs for non-scoped sources (embed-once corpora). Issue-scoped
+    // repos use the project-scoped 'jobs' from context instead.
+    const [globalJobs, setGlobalJobs] = useState({});
+
+    const nonScopedIds = useMemo(
+        () => dataSources
+            .filter(ds => ds.type !== 'ISSUE_TRACKER' && !(isIssueScopedRepo(ds)))
+            .map(ds => ds.id),
+        [dataSources]
+    );
+
+    const refreshGlobalJobs = useCallback(async () => {
+        if (nonScopedIds.length === 0) {
+            setGlobalJobs({});
+            return;
+        }
+        const results = await Promise.all(
+            nonScopedIds.map(async (id) => {
+                try {
+                    return [id, await api.jobs.getLatestForSource(id)];
+                } catch {
+                    return [id, []];
+                }
+            })
+        );
+        setGlobalJobs(Object.fromEntries(results));
+    }, [nonScopedIds]);
+
+    // Refresh on mount / data-source change, and whenever the project-scoped jobs update
+    // (context polls every 5s while a sync is in progress) so shared corpora stay fresh.
+    useEffect(() => {
+        refreshGlobalJobs();
+    }, [refreshGlobalJobs, jobs]);
+
+    const getLatestJobsForDataSource = (ds) => {
+        const source = isIssueScopedRepo(ds) 
+            ? jobs.filter(job => job.data_source_id === ds.id) 
+            : (globalJobs[ds.id] || []);
+        return [...source]
             .sort((a, b) => new Date(b.created_at || b.start_time) - new Date(a.created_at || a.start_time))
             .slice(0, 3);
     };
@@ -410,7 +452,7 @@ export default function DataSourcesView({ projectId }) {
 
                         {/* Per-source last sync indicator */}
                         {ds.type !== 'ISSUE_TRACKER' && (() => {
-                            const latestJobs = getLatestJobsForDataSource(ds.id);
+                            const latestJobs = getLatestJobsForDataSource(ds);
                             
                             const running = latestJobs.some(j => mapStatus(j.status) === 'running');
                             // A skipped embed (already up-to-date / embed-once) still counts as synced
@@ -506,13 +548,13 @@ export default function DataSourcesView({ projectId }) {
                                 <div className="mini-jobs-header">
                                     <span>Sync History</span>
                                     <span style={{ fontSize: '0.7rem', color: 'var(--color-text-tertiary)', fontWeight: 400 }}> - this project</span>
-                                    {getLatestJobsForDataSource(ds.id).length > 0 && <span className="jobs-count">{getLatestJobsForDataSource(ds.id).length}/3</span>}
+                                    {getLatestJobsForDataSource(ds).length > 0 && <span className="jobs-count">{getLatestJobsForDataSource(ds).length}/3</span>}
                                 </div>
-                                {getLatestJobsForDataSource(ds.id).length === 0 ? (
+                                {getLatestJobsForDataSource(ds).length === 0 ? (
                                     <div className="mini-jobs-empty">No Sync History found.</div>
                                 ) : (
                                     <div className="mini-jobs-list">
-                                        {getLatestJobsForDataSource(ds.id).map(job => {
+                                        {getLatestJobsForDataSource(ds).map(job => {
                                             const status = mapStatus(job.status);
                                             return (
                                                 <div key={job.id} className="mini-job-item">
