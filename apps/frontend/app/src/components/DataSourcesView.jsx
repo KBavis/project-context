@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useDataSources, useJobs, useAlert, useProjects } from '../contexts/index';
 import Button from './Button';
 import Modal from './Modal';
-import api from '../api';
+import api from '..services/api';
 import '../styles/DataSourcesView.css';
 import '../styles/IngestionJobsView.css';
 

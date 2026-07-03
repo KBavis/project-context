@@ -1,6 +1,5 @@
 from __future__ import annotations
 import logging
-import uuid
 from uuid import UUID
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING 
@@ -11,10 +10,8 @@ from sqlalchemy.orm import selectinload
 
 from app.models.job import Job
 from app.models.data_source import DataSourceType
-from app.models.record_lock import RecordType
 from app.pydantic.status import ProcessingStatus
 from app.core import get_async_db_session_context
-from app.core.background import run_task, get_current_session
 from app.tasks import DiffTaskRunner, EmbedTaskRunner
 import asyncio
 
@@ -246,13 +243,13 @@ class JobService:
         statuses = []
         
         for ds in applicable_ds:
-            stmt = (
-                select(Job)
-                .where(Job.data_source_id == ds.id)
-                .where(Job.project_id == project_id)
-                .order_by(Job.start_time.desc())
-                .limit(1)
-            )
+            is_scoped_repo = ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues
+            stmt = select(Job).where(Job.data_source_id == ds.id)
+            # Issue-scoped Repositories are Project-speciifc; other sources are embed once 
+            # / global, so their latest job may belong to any project
+            if is_scoped_repo:
+                stmt = stmt.where(Job.project_id == project_id)
+            stmt = stmt.order_by(Job.start_time.desc()).limit(1)
             res = await self.async_db.execute(stmt)
             latest_job = res.scalar_one_or_none()
             
