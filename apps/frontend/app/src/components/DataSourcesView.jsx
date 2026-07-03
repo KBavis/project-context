@@ -106,8 +106,8 @@ export default function DataSourcesView({ projectId }) {
     const handleRunProjectJobs = () => {
         setConfirmModal({
             isOpen: true,
-            title: 'Sync Project Changes',
-            message: `You are about to start a Sync Project Changes (diff-sync) for all eligible data source(s). Each repository will be synced with the latest commits.`,
+            title: 'Sync Project',
+            message: `This will sync every data source configured for this project. For each source we'll fetch the latest content and re-embed it, and for issue-scoped repositories we'll also refresh the project's tracked code changes first. This runs in the background.`,
             confirmLabel: 'Sync Project',
             onConfirm: async () => {
                 setCreatingJob(true);
@@ -155,7 +155,7 @@ export default function DataSourcesView({ projectId }) {
     };
 
     const mapStatus = (status) => {
-        if (!status) return 'pending';
+        if (!status) return 'unknown';
         const s = status.toUpperCase();
         if (s === 'IN_PROGRESS' || s === 'RUNNING') return 'running';
         if (s === 'SUCCESS' || s === 'COMPLETED') return 'completed';
@@ -414,21 +414,22 @@ export default function DataSourcesView({ projectId }) {
                             const latestJob = latestJobs.length > 0 ? latestJobs[0] : null;
                             const latestStatus = latestJob ? mapStatus(latestJob.processing_status) : null;
                             const noJobsAndScoped = !latestJob && ds.scope_by_issues && ds.type === 'REPOSITORY';
-                            return (
-                            const running = latestStatus === 'running';
+                            
+                            const running = latestJobs.some(j => mapStatus(j.status || j.processing_status) === 'running');
+                            // A skipped embed (already up-to-date / embed-once) still counts as synced
                             const syncedJob = latestJobs.find(j => ['completed', 'skipped'].includes(mapStatus(j.status || j.processing_status)));
                             
-                            // Never successfully synced -- warning badge (no "Last Sync" row)
+                            // Never successfully synced -> warning badge (no "Last Sync" row)
                             if (!running && !syncedJob) {
                                 return (
                                     <div style={{
-                                        padding: '6px 16px',
+                                        padding: '8px 16px',
                                         borderTop: '1px solid var(--border-color)',
                                         marginTop: '4px'
                                     }}>
                                         <span style={{
                                             display: 'inline-flex',
-                                            alignItems: 'center',
+                                            alignItems: 'baseline',
                                             gap: '5px',
                                             fontSize: '0.72rem',
                                             fontWeight: 600,
@@ -445,18 +446,18 @@ export default function DataSourcesView({ projectId }) {
 
                             return (
                                 <div style={{
-                                    padding: '6px 16px 6px',
+                                    padding: '8px 16px 8px',
                                     display: 'flex',
                                     justifyContent: 'space-between',
-                                    alignItems: 'center',
+                                    alignItems: 'baseline',
                                     fontSize: '0.78rem',
                                     color: 'var(--color-text-tertiary)',
                                     borderTop: '1px solid var(--border-color)',
                                     marginTop: '4px',
                                 }}>
-                                    <span style={{ fontWeight: 600, color: 'var(--color-text-secondary)' }}>Last Synced</span>
+                                    <span style={{ fontWeight: 600, color: 'var(--color-text-secondary)' }}>Last Synced:</span>
                                     <span style={{ fontSize: '0.72rem', color: 'var(--color-text-tertiary)' }}>
-                                        {running ? 'Syncing...' : (syncedJob ? getTimeAgo(syncedJob.end_time || syncedJob.start_time || syncedJob.created_at) : '')}
+                                        {running ? 'Syncing...' : (syncedJob ? getTimeAgo(syncedJob.end_time || syncedJob.start_time || syncedJob.created_at) : '—')}
                                     </span>
                                 </div>
                             );
@@ -511,7 +512,7 @@ export default function DataSourcesView({ projectId }) {
                                     {getLatestJobsForDataSource(ds.id).length > 0 && <span className="jobs-count">{getLatestJobsForDataSource(ds.id).length}/3</span>}
                                 </div>
                                 {getLatestJobsForDataSource(ds.id).length === 0 ? (
-                                    <div className="mini-jobs-empty">No Sync History</div>
+                                    <div className="mini-jobs-empty">No Sync History found.</div>
                                 ) : (
                                     <div className="mini-jobs-list">
                                         {getLatestJobsForDataSource(ds.id).map(job => {
