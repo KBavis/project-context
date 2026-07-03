@@ -191,8 +191,11 @@ class JobService:
             if ds.type == DataSourceType.ISSUE_TRACKER:
                 continue
             
-            # Fetch exactly the latest 3 jobs for this specific data source
-            latest_jobs = await self.get_latest_data_source_jobs(ds.id, limit=3)
+            # Fetch exactly the latest 3 jobs for this specific data source, scoped to THIS
+            # project. A Job is grained (project, data_source), so scoping here keeps a shared
+            # data source (e.g. an issue-scoped repo linked to multiple projects) from showing
+            # another project's jobs in this project's view.
+            latest_jobs = await self.get_latest_data_source_jobs(ds.id, limit=3, project_id=project_id)
             grouped[ds.id] = latest_jobs
 
         return grouped
@@ -210,21 +213,27 @@ class JobService:
         result.sort(key=lambda j: j.start_time, reverse=True)
         return result
 
-    async def get_latest_data_source_jobs(self, data_source_id: UUID, limit: int = 3) -> list[Job]:
+    async def get_latest_data_source_jobs(
+        self, data_source_id: UUID, limit: int = 3, project_id: UUID | None = None
+    ) -> list[Job]:
         """
         Return the most recent `limit` jobs for a specific data source.
 
         Args:
             data_source_id: The data source to query jobs for.
             limit: Max number of jobs to return (default 3).
+            project_id: If provided, restrict to jobs run in the context of this project
+                (a Job is grained (project, data_source)). Omit for a global, cross-project
+                view (e.g. embed-once / non-scoped sources).
         """
         stmt = (
             select(Job)
             .options(selectinload(Job.diff_tasks), selectinload(Job.embed_tasks))
             .where(Job.data_source_id == data_source_id)
-            .order_by(Job.start_time.desc())
-            .limit(limit)
         )
+        if project_id is not None:
+            stmt = stmt.where(Job.project_id == project_id)
+        stmt = stmt.order_by(Job.start_time.desc()).limit(limit)
         res = await self.async_db.execute(stmt)
         return list(res.scalars().all())
 

@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useDataSources, useJobs, useAlert, useProjects } from '../contexts/index';
 import Button from './Button';
 import Modal from './Modal';
-import api from '../api';
+import api from '../services/api';
 import '../styles/DataSourcesView.css';
 import '../styles/IngestionJobsView.css';
 
@@ -547,7 +547,7 @@ export default function DataSourcesView({ projectId }) {
                             <div className="data-source-jobs-mini fade-in">
                                 <div className="mini-jobs-header">
                                     <span>Sync History</span>
-                                    <span style={{ fontSize: '0.7rem', color: 'var(--color-text-tertiary)', fontWeight: 400 }}> - this project</span>
+                                    {isIssueScopedRepo(ds) && <span style={{ fontSize: '0.7rem', color: 'var(--color-text-tertiary)', fontWeight: 400 }}> - this project</span>}
                                     {getLatestJobsForDataSource(ds).length > 0 && <span className="jobs-count">{getLatestJobsForDataSource(ds).length}/3</span>}
                                 </div>
                                 {getLatestJobsForDataSource(ds).length === 0 ? (
