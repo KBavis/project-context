@@ -96,6 +96,7 @@ def _build_planning_agent(
     scope_summary: str,
     callback_manager: CallbackManager | None,
     diff_tool_registered: bool = False,
+    project_context: str = "",
 ) -> FunctionAgent:
     """
     PlanningAgent — root agent. Orients via semantic search and directory exploration,
@@ -116,6 +117,7 @@ def _build_planning_agent(
         context={
             "refined_question": refined_question,
             "question_type": question_type,
+            "project_context": project_context,
             "data_sources_context": _build_data_source_context(data_sources),
             "diff_tool_context": diff_tool_context,
             "scope_summary": scope_summary,
@@ -143,6 +145,7 @@ def _build_research_agent(
     scope_summary: str,
     callback_manager: CallbackManager | None,
     diff_tool_registered: bool = False,
+    project_context: str = "",
 ) -> FunctionAgent:
     """
     ResearchAgent — executes the plan by reading files, navigating directories,
@@ -165,6 +168,7 @@ def _build_research_agent(
         AgentType.RESEARCH,
         context={
             "refined_question": refined_question,
+            "project_context": project_context,
             "data_sources_context": _build_data_source_context(data_sources),
             "mcp_context": _build_mcp_context(data_sources, mcp_tools),
             "diff_tool_context": diff_tool_context,
@@ -191,6 +195,7 @@ def _build_synth_agent(
     refined_question: str,
     scope_summary: str,
     callback_manager: CallbackManager | None,
+    project_context: str = "",
 ) -> FunctionAgent:
     """
     SynthesisAgent — reads accumulated findings from the handoff message,
@@ -201,6 +206,7 @@ def _build_synth_agent(
         AgentType.SYNTH,
         context={
             "refined_question": refined_question,
+            "project_context": project_context,
             "data_sources_context": _build_data_source_context(data_sources),
             "scope_summary": scope_summary,
         },
@@ -230,6 +236,7 @@ def get_agentic_workflow(
     refined_question: str,
     question_type: str,
     scope_summary: str = "",
+    project_context: str = "",
     callback_manager: CallbackManager | None = None,
 ) -> AgentWorkflow:
     """
@@ -266,6 +273,7 @@ def get_agentic_workflow(
         refined_question=refined_question,
         question_type=question_type,
         scope_summary=scope_summary,
+        project_context=project_context,
         callback_manager=callback_manager,
         diff_tool_registered=tool_manager._get_file_diff_tool is not None,
     )
@@ -277,6 +285,7 @@ def get_agentic_workflow(
         mcp_tools=mcp_tools,
         refined_question=refined_question,
         scope_summary=scope_summary,
+        project_context=project_context,
         callback_manager=callback_manager,
         diff_tool_registered=tool_manager._get_file_diff_tool is not None,
     )
@@ -287,6 +296,7 @@ def get_agentic_workflow(
         data_sources=data_sources,
         refined_question=refined_question,
         scope_summary=scope_summary,
+        project_context=project_context,
         callback_manager=callback_manager,
     )
 

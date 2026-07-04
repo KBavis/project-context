@@ -84,7 +84,8 @@ class LLMBase(ABC):
         data_sources_info: str, 
         internal_tools_info: str, 
         mcp_tools_info: str,
-        conversation_history_str: str = ""
+        conversation_history_str: str = "",
+        project_context: str = ""
     ) -> dict:
         """
         Phase 1: Diagnosis. Analyze the user's question against available data sources and tools to determine the 
@@ -93,6 +94,9 @@ class LLMBase(ABC):
         diagnosis_prompt = f"""
         TASK: You are the Diagnosis Agent for a coding assistant workflow. 
         Your job is to analyze the USER_QUESTION and CONVERSATION_HISTORY to determine exactly what the user is asking, classify the question type, and determine which MCP Tools are necessary to answer it.
+
+        PROJECT CONTEXT (the project this conversation is scoped to):
+        {project_context}
 
         CONVERSATION_HISTORY:
         {conversation_history_str}
@@ -107,7 +111,7 @@ class LLMBase(ABC):
         {mcp_tools_info}
 
         CRITICAL RULES:
-        1. Read the CONVERSATION_HISTORY to resolve any ambiguities in the USER_QUESTION (e.g., identifying what "it" or "this file" refers to).
+        1. Read the PROJECT CONTEXT and CONVERSATION_HISTORY to resolve any ambiguities in the USER_QUESTION (e.g., identifying what "it", "this file", or "this project" refers to).
         2. "refined_question": A standalone version of the user's prompt with all ambiguities resolved. You must retain the original core intent and technical constraints of the user's question, only injecting the missing context.
         3. "required_mcp_tools": A dictionary mapping a Data Source ID to a list of MCP Tool Names. ONLY select MCP tools that belong to the Data Sources listed above. ONLY include an MCP tool if the Internal Tools cannot accomplish the task. If no MCP tools are needed, return an empty dictionary.
         4. Your ONLY output MUST be a valid JSON object. Do NOT wrap it in markdown block quotes.

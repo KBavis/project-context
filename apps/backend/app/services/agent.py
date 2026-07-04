@@ -1,6 +1,6 @@
 from uuid import UUID
 from contextlib import AsyncExitStack
-from typing import AsyncGenerator
+from typing import AsyncGenerator, TYPE_CHECKING
 import asyncio
 import logging
 import json
@@ -25,6 +25,8 @@ from llama_index.core.tools import FunctionTool
 from llama_index.core.agent.workflow import (AgentOutput, AgentStream, ToolCallResult, AgentWorkflow, AgentInput)
 from llama_index.core.llms import ChatMessage
 
+if TYPE_CHECKING:
+    from app.models.project import Project
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,7 @@ class AgentService:
         user_prompt: str,
         conversation_history: list[ChatMessage],
         project_id: UUID,
+        project: "Project | None" = None,
     ) -> AsyncGenerator[tuple[str, str | dict | None], None]:
         """
         Run the full agentic workflow and stream events back to the caller.
@@ -85,6 +88,9 @@ class AgentService:
 
             # 1b. Kick off the BM25 index build in the background so its ready by ChunkRetrieval time
             asyncio.create_task(self._warm_bm25_cache(project_id))
+
+            # 1c. Build a Project summary so every phase knows *which* project it is assisting with
+            project_context = self._build_project_context(project)
 
             # 2. Get MCP tools keyed by data_source_id
             mcp_tools: dict[str, list[FunctionTool]] = await self.mcp_svc.get_mcp_tools(data_sources, async_exit_stack)
@@ -110,7 +116,8 @@ class AgentService:
 
             # 4. Phase 1: Diagnosis — refine question and filter MCP tools
             refined_question, question_type, mcp_tools = await self.diagnose_users_question(
-                llm, user_prompt, data_sources, all_internal_tools, mcp_tools, conversation_history
+                llm, user_prompt, data_sources, all_internal_tools, mcp_tools, conversation_history,
+                project_context=project_context,
             )
             logger.info("Phase 1 Complete: QuestionType=%s, RefinedQuestion='%s'", question_type, refined_question)
 
@@ -128,6 +135,7 @@ class AgentService:
                 refined_question=refined_question,
                 question_type=question_type,
                 scope_summary=scope_summary,
+                project_context=project_context,
                 callback_manager=callback_manager,
             )
 
@@ -256,6 +264,25 @@ class AgentService:
     # Diagnosis Phase
     # ─────────────────────────────────────────────
 
+    def _build_project_context(self, project: "Project | None") -> str:
+        """
+        Build a human-readable summary of the Project the agent is assisting with, so every
+        phase understands *which* project it is interfacing with (name, description, scope)
+        rather than only its data sources. Prevents the agent from being confused when the
+        user refers to 'this project' or the project by name.
+        """
+        if not project:
+            return "No project metadata is available."
+
+        lines = [f"**Project:** {project.project_name}"]
+        if getattr(project, 'description', None):
+            lines.append(f"**Description:** {project.description}")
+        if getattr(project, 'lob', None):
+            lines.append(f"**Line of Business:** {project.lob}")
+        if getattr(project, 'parent_issues', None):
+            lines.append(f"**Parent Issues:** {', '.join(project.parent_issues)}")
+        return '\n'.join(lines)
+
     async def _build_project_scope_summary(self, project_id: UUID, data_sources: list[DataSource]) -> str:
         """
         Builds a summary of the project scope for Data Sources that are scoped by issues.
@@ -354,6 +381,7 @@ class AgentService:
         internal_tools: list[FunctionTool],
         mcp_tools: dict[str, list[FunctionTool]],
         conversation_history: list[ChatMessage],
+        project_context: str = "",
     ) -> tuple[str, str, dict[str, list[FunctionTool]]]:
         """
         Phase 1: Diagnosis — lightweight LLM call (before the full workflow) that determines:
@@ -374,7 +402,8 @@ class AgentService:
         conversation_history_str = self._format_conversation_history(conversation_history)
 
         diagnosis = await llm.diagnose_question(
-            user_prompt, data_source_info, internal_tool_info, mcp_info, conversation_history_str
+            user_prompt, data_source_info, internal_tool_info, mcp_info, conversation_history_str,
+            project_context=project_context,
         )
         logger.info("Diagnosis Result: %s", diagnosis)
 
