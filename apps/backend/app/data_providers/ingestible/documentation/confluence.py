@@ -250,31 +250,32 @@ class ConfluenceDataProvider(DocumentationDataProvider):
             logger.error(f"Failure listing directory={path} with exception={str(e)}")
             raise Exception(f"Failure occurred while attempt to list directory: {path}", e)
 
+    def _get_page_title(self, file_path: str) -> str:
+        try:
+            filename = file_path.split("/")[-1]
+            basename = filename.split(".")[0]
+            
+            parts = basename.rsplit("_", 1)
+            if len(parts) == 2:
+                safe_title = parts[0]
+            else:
+                safe_title = basename
+                
+            label = safe_title.replace("_", " ").strip()
+            return label if label else filename
+        except Exception as e:
+            logger.warning(f"Failed to extract title from {file_path}: {e}")
+            return file_path.split("/")[-1]
+
     async def generate_citation(self, file_path: str) -> str:
         # Path format: confluence/safe_title_pageId.md
         try:
             page_id = file_path.split("_")[-1].split(".")[0]
             url = f"{self.base_url}{page_id}"
             
-            # Prefer the human-readable Confluence page title over the path-like filename
-            title = await self._get_page_title(page_id)
-            label = title or file_path
+            label = self._get_page_title(file_path)
             return f"[{label}]({url})"
         except Exception as e:
             logger.error(f"Failure generating citation for file_path={file_path} with exception={str(e)}")
             raise Exception(f"Failure occurred while attempt to generate citation for file_path: {file_path}", e)
 
-    async def _get_page_title(self, page_id: str) -> str | None:
-        """
-        Resolve a Confluence page's human-readable title via the REST API.
-        Returns None (so the caller can fall back to the file path) on any failure.
-        """
-        try:
-            page_url = f"{self.base_api_url}/{page_id}"
-            async with httpx.AsyncClient() as client:
-                response = await client.get(page_url, headers=self.request_headers)
-                response.raise_for_status()
-                return response.json().get("title")
-        except Exception as e:
-            logger.warning(f"Could not resolve Confluence page title for page_id={page_id}: {e}")
-            return None
