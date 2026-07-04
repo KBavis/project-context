@@ -534,7 +534,7 @@ export default function DataSourcesView({ projectId }) {
                             >
                                 Edit
                             </button>
-                            {ds.type !== 'ISSUE_TRACKER' && (
+                            {ds.type !== 'ISSUE_TRACKER' && projectId && (
                                 <button
                                     className="flat-action primary"
                                     onClick={() => handleRunIngestion(ds.id)}

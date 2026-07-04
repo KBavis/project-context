@@ -258,7 +258,7 @@ export default function JobsView({ systemWide = false }) {
                                     {expandedJobs.has(job.id) && (
                                         <div className="job-nested-tasks">
                                             <div className="task-row header">
-                                                <div className="task-col-type">Type</div>
+                                                <div className="task-col-type">Task</div>
                                                 <div className="task-col-status">Status</div>
                                                 <div className="task-col-duration">Duration</div>
                                                 <div className="task-col-detail">Details / Error</div>

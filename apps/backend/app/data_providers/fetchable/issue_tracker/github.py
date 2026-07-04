@@ -17,7 +17,7 @@ class GitHubIssueDataProvider(IssueTrackerDataProvider):
     def __init__(self, data_source):
         super().__init__(data_source=data_source)
 
-    def _validate_url(self, url: str):
+    def _validate_url(self):
         pass
 
     def _get_request_headers(self) -> dict[str, str] | None:
