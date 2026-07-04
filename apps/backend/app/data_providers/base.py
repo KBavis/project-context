@@ -33,6 +33,9 @@ class DataProvider(ABC):
             case DataSourceType.REPOSITORY:
                 from app.data_providers.ingestible.repository.base import RepositoryDataProvider
                 return RepositoryDataProvider.from_provider(data_source)
+            case DataSourceType.DOCUMENTATION:
+                from app.data_providers.ingestible.documentation.base import DocumentationDataProvider
+                return DocumentationDataProvider.from_provider(data_source)
             case _:
                 raise Exception(
                     f"The specified Data Source type {data_source.type} is not configured for this application"

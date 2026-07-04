@@ -8,7 +8,7 @@ from app.services import ProjectService
 from app.pydantic import ProjectRequest
 from app.models.data_source import DataSourceType
 from app.services.data_source import DataSourceService
-from app.api.svc_deps import get_project_svc, get_job_svc, get_data_source_svc
+from app.api.svc_deps import get_project_svc, get_data_source_svc, get_job_svc
 from app.services.job import JobService
 from app.data_providers.ingestible.base import IngestibleDataProvider
 
@@ -83,15 +83,12 @@ async def link_data_source(
 
         # kick off Job to a) run EmbedTask, b) optionally run DiffTask
         # in the case that this is an Ingestible Data Provider 
-        try:
-            provider = IngestibleDataProvider.from_provider(ds.provider)
+        if IngestibleDataProvider.is_ingestible(ds):
             logger.info(f"DataSource={data_source_id} is an Ingestible Data Provider, kicking off Job for project={project_id} and dataSource={data_source_id}")
             background_tasks.add_task(job_svc.run_data_source_job, project_id, data_source_id)
-        except Exception as e:
-            logger.warning(f"{ds.provider} is not configured to be an Ingestible Data Provider, skipping Job execution")
-            return res
+        else:
+            logger.info(f"DataSource={data_source_id} (provider={ds.provider}) is not an Ingestible Data Provider, skipping Job execution")
 
-            
         return res
     except ValueError as e:
         logger.error(f"ValueError while attempting to link Project={project_id} to DataSource={data_source_id}", exc_info=True)
