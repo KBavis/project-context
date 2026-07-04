@@ -37,18 +37,34 @@ export default function ChatInterface({ conversationId }) {
     const [streamingMessage, setStreamingMessage] = useState('');
     const [status, setStatus] = useState('');
     const messagesEndRef = useRef(null);
+    const messagesContainerRef = useRef(null);
+    const shouldAutoScrollRef = useRef(true);
     const inputRef = useRef(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
 
+    // Track whether the user is pinned to the bottom. If they scroll up to read,
+    // stop auto-scrolling so streaming output doesn't yank them back down.
+    const handleMessagesScroll = () => {
+        const el = messagesContainerRef.current;
+        if (!el) return;
+        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        shouldAutoScrollRef.current = distanceFromBottom <= 80;
+    };
+
     const focusInput = () => {
         inputRef.current?.focus();
     };
 
+    // Reset to "pinned" when switching conversations so a fresh chat lands at the bottom.
     useEffect(() => {
-        scrollToBottom();
+        shouldAutoScrollRef.current = true;
+    }, [conversationId]);
+
+    useEffect(() => {
+        if (shouldAutoScrollRef.current) scrollToBottom();
     }, [messages, streamingMessage]);
 
     useEffect(() => {
@@ -198,7 +214,7 @@ export default function ChatInterface({ conversationId }) {
 
     return (
         <div className="chat-container">
-            <div className="chat-messages">
+            <div className="chat-messages" ref={messagesContainerRef} onScroll={handleMessagesScroll}>
                 {messages.map((msg, idx) => (
                     <div key={idx} className={`message ${getRoleClass(msg)}`}>
                         <div className="message-avatar">

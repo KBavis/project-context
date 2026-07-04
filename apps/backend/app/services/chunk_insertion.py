@@ -9,7 +9,7 @@ from llama_index.storage.docstore.postgres import PostgresDocumentStore
 from llama_index.vector_stores.chroma import ChromaVectorStore # type: ignore
 
 from app.services.chroma import ChromaService
-from app.core import DOCS, CODE, settings
+from app.core import DOCS, CODE, settings, constants
 from app.embeddings import EmbeddingManager
 from app.models.data_source import DataSource
 from app.models.project import Project
@@ -277,7 +277,7 @@ class ChunkInsertionService:
 
                     # get file extension and determine file type
                     ext = Path(doc.metadata["file_name"]).suffix.lower().lstrip(".")
-                    curr_file_type = settings.EXTENSION_TO_LANGUAGE[ext] if ext in settings.EXTENSION_TO_LANGUAGE else "plain_text"
+                    curr_file_type = constants.EXTENSION_TO_LANGUAGE[ext] if ext in constants.EXTENSION_TO_LANGUAGE else "plain_text"
                     all_docs[curr_file_type].append(doc)
 
             logger.debug(f"Successfully split ingested Code files into following language groups: {all_docs.keys()}") 
@@ -376,7 +376,7 @@ class ChunkInsertionService:
         # convert configured docs file extensions to docling InputFormats
         allowed_formats = [
             InputFormat(allowed_format.lower())
-            for allowed_format in settings.DOCS_FILE_EXTENSIONS
+            for allowed_format in constants.DOCS_FILE_EXTENSIONS
         ]
 
         # setup pipeline pipeline options

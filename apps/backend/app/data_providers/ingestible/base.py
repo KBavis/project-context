@@ -13,6 +13,13 @@ from io import BytesIO
 
 
 class IngestibleDataProvider(DataProvider):
+    
+    # DataSource types that can be embedded/ingested by an IngestibleDataProvider
+    INGESTIBLE_TYPES: frozenset[DataSourceType] = frozenset({
+        DataSourceType.REPOSITORY,
+        DataSourceType.DOCUMENTATION,
+    })
+    
     def __init__(
         self, 
         data_source: DataSource
@@ -20,6 +27,11 @@ class IngestibleDataProvider(DataProvider):
         super().__init__(data_source=data_source)
         self.file_svc: FileService | None = None
         self.embed_task_id: UUID | None = None
+        
+    @classmethod
+    def is_ingestible(cls, data_source: DataSource) -> bool:
+        """Return True if the DataSource can be embedded by an IngestibleDataProvider."""
+        return data_source.type in cls.INGESTIBLE_TYPES
 
     @classmethod
     def from_provider(cls, data_source: DataSource) -> IngestibleDataProvider:

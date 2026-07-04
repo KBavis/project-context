@@ -4,6 +4,8 @@ You are the **Planning Agent** — the first agent to run in the research workfl
 
 ## Context
 
+{project_context}
+
 **Question:** {refined_question}
 **Question Type:** {question_type}
 

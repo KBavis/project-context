@@ -24,6 +24,8 @@ class ConfluenceDataProvider(DocumentationDataProvider):
 
     def __init__(self, data_source: DataSource):
         super().__init__(data_source)
+        # Reused across all pages in the tree to avoid re-loading Docling models per page
+        self._doc_converter: DocumentConverter | None = None
 
     def _parse_documentation_ref(self):
         # Format: https://<domain>/spaces/<SPACE_KEY>/pages/<PAGE_ID>[/<Title>]
@@ -88,19 +90,27 @@ class ConfluenceDataProvider(DocumentationDataProvider):
         title = page_data.get("title", f"page_{page_id}")
         await self._download_page(page_id, title)
 
-        # 2. Get children
+        # 2. Get children (paginated: Confluence returns a bounded page of results per call,
+        #    so follow the `_links.next` cursor until every child page has been collected)
+        child_ids: list[str] = []
+        next_url = f"{self.base_api_url}/{page_id}/child/page?limit=100"
         try:
-            children_url = f"{self.base_api_url}/{page_id}/child/page"
             async with httpx.AsyncClient() as client:
-                response = await client.get(children_url, headers=self.request_headers)
-                response.raise_for_status()
-                children_data = response.json()
+                while next_url:
+                    response = await client.get(next_url, headers=self.request_headers)
+                    response.raise_for_status()
+                    children_data = response.json()
+
+                    child_ids.extend([child["id"] for child in children_data.get("results", [])])
+
+                    next_path = children_data.get("_links", {}).get("next")
+                    next_url = f"https://{self.domain}{next_path}" if next_path else None
         except Exception as e:
             logger.error(f"Failed to fetch children for {page_id}")
             raise e
 
-        for child in children_data.get("results", []):
-            child_id = child["id"]
+        # 3. Recurse into each child page
+        for child_id in child_ids:
             await self._get_page_tree(child_id)
 
     async def _download_page(self, page_id: str, title: str):
@@ -169,7 +179,9 @@ class ConfluenceDataProvider(DocumentationDataProvider):
         """
         Converts HTML to Markdown using docling DocumentConverter
         """
-        converter = DocumentConverter()
+        if self._doc_converter is None:
+            self._doc_converter = DocumentConverter()
+        converter = self._doc_converter
         
         with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w", encoding="utf-8") as f:
             f.write(html_content)
@@ -238,12 +250,32 @@ class ConfluenceDataProvider(DocumentationDataProvider):
             logger.error(f"Failure listing directory={path} with exception={str(e)}")
             raise Exception(f"Failure occurred while attempt to list directory: {path}", e)
 
+    def _get_page_title(self, file_path: str) -> str:
+        try:
+            filename = file_path.split("/")[-1]
+            basename = filename.split(".")[0]
+            
+            parts = basename.rsplit("_", 1)
+            if len(parts) == 2:
+                safe_title = parts[0]
+            else:
+                safe_title = basename
+                
+            label = safe_title.replace("_", " ").strip()
+            return label if label else filename
+        except Exception as e:
+            logger.warning(f"Failed to extract title from {file_path}: {e}")
+            return file_path.split("/")[-1]
+
     async def generate_citation(self, file_path: str) -> str:
         # Path format: confluence/safe_title_pageId.md
         try:
             page_id = file_path.split("_")[-1].split(".")[0]
             url = f"{self.base_url}{page_id}"
-            return f"[{file_path}]({url})"
+            
+            label = self._get_page_title(file_path)
+            return f"[{label}]({url})"
         except Exception as e:
             logger.error(f"Failure generating citation for file_path={file_path} with exception={str(e)}")
             raise Exception(f"Failure occurred while attempt to generate citation for file_path: {file_path}", e)
+

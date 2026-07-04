@@ -55,7 +55,7 @@ export default function Dashboard() {
                       </div>
                   )}
                   {view === 'datasources' && <DataSourcesView />}
-                  {view === 'jobs' && <JobsView />}
+                  {view === 'jobs' && <JobsView systemWide={true} />}
                   {view === 'mcp' && <MCPConfigsView />}
              </main>
              <CreateProjectModal isOpen={showCreate} onClose={() => setShowCreate(false)} />

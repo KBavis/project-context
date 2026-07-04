@@ -14,7 +14,6 @@ from app.models.data_source import DataSourceType
 
 from app.models import DataSource, EmbedTask, ProcessingStatus, ProjectData
 from app.core import settings, ChromaClientManager
-from app.services.record_lock import RecordLockService
 from app.services.file import FileService
 from app.services.chroma import ChromaService
 from app.services.chunk_insertion import ChunkInsertionService

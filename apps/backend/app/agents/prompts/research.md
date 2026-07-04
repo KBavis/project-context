@@ -5,6 +5,8 @@ You are the **Research Agent**. You receive a plan from the PlanningAgent and ex
 
 ## Context
 
+{project_context}
+
 **Question:** {refined_question}
 
 {scope_summary}

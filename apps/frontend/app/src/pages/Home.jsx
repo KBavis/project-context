@@ -5,6 +5,8 @@ import CreateProjectModal from '../components/CreateProjectModal';
 import DataSourcesView from '../components/DataSourcesView';
 import MCPConfigsView from '../components/MCPConfigsView';
 import JobsView from '../components/JobsView';
+import Modal from '../components/Modal';
+import Button from '../components/Button';
 import AlertContainer from '../components/Alert';
 import { useProjects, useConversations } from '../contexts/index';
 import '../styles/App.css';
@@ -12,9 +14,29 @@ import '../styles/App.css';
 export default function Home({ view }) {
     const [currentView, setCurrentView] = useState(view || 'chat');
     const { projects, selectedProject, selectProject } = useProjects();
-    const { conversations, selectedConversation, selectConversation } = useConversations();
+    const { conversations, selectedConversation, selectConversation, deleteConversation } = useConversations();
     const [showCreateConversation, setShowCreateConversation] = useState(false);
     const [showCreateProject, setShowCreateProject] = useState(false);
+    const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, confirmLabel: 'Confirm' });
+
+    const closeConfirmModal = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
+
+    const requestDeleteConversation = (conv) => {
+        setConfirmModal({
+            isOpen: true,
+            title: 'Delete Conversation',
+            message: `Are you sure you want to delete '${conv.summary || 'New Conversation'}'? This action cannot be undone.`,
+            confirmLabel: 'Delete',
+            onConfirm: async () => {
+                try {
+                    await deleteConversation(conv.id);
+                } catch {
+                    /* handled in context */
+                }
+                closeConfirmModal();
+            }
+        });
+    };
 
     return (
         <div className="app">
@@ -102,21 +124,31 @@ export default function Home({ view }) {
 
                         <div className="conversations-list">
                             {conversations.map(conv => (
-                                <button
-                                    key={conv.id}
-                                    className={`conversation-item ${selectedConversation?.id === conv.id ? 'active' : ''}`}
-                                    onClick={() => selectConversation(conv)}
-                                >
-                                    <span className="conversation-icon">💬</span>
-                                    <div className="conversation-info">
-                                        <span className="conversation-title">
-                                            {conv.summary || 'New Conversation'}
-                                        </span>
-                                        <span className="conversation-meta">
-                                            {conv.ll_model_name || 'Default Model'}
-                                        </span>
-                                    </div>
-                                </button>
+                                <div key={conv.id} className="conversation-item-row" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <button
+                                        className={`conversation-item ${selectedConversation?.id === conv.id ? 'active' : ''}`}
+                                        onClick={() => selectConversation(conv)}
+                                        style={{ flex: 1, minWidth: 0 }}
+                                    >
+                                        <span className="conversation-icon">💬</span>
+                                        <div className="conversation-info">
+                                            <span className="conversation-title">
+                                                {conv.summary || 'New Conversation'}
+                                            </span>
+                                            <span className="conversation-meta">
+                                                {conv.ll_model_name || 'Default Model'}
+                                            </span>
+                                        </div>
+                                    </button>
+                                    <button
+                                        className="conversation-delete-btn"
+                                        title="Delete conversation"
+                                        onClick={() => requestDeleteConversation(conv)}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.6, fontSize: '0.9rem', padding: '4px' }}
+                                    >
+                                        🗑️
+                                    </button>
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -153,6 +185,25 @@ export default function Home({ view }) {
                 onClose={() => setShowCreateProject(false)}
             />
 
+            <Modal
+                isOpen={confirmModal.isOpen}
+                onClose={closeConfirmModal}
+                title={confirmModal.title}
+                actions={
+                    <>
+                        <Button size='sm' variant='secondary' onClick={closeConfirmModal}>Cancel</Button>
+                        <Button
+                            size='sm'
+                            variant={confirmModal.confirmLabel === 'Delete' ? 'danger' : 'primary'}
+                            onClick={confirmModal.onConfirm}
+                        >
+                            {confirmModal.confirmLabel}
+                        </Button>
+                    </>
+                }
+            >
+                <p>{confirmModal.message}</p>
+            </Modal>
             <AlertContainer />
         </div>
     );

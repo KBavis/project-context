@@ -27,7 +27,11 @@ export function ProjectProvider({ children }) {
             setProjects(data);
             setSelectedProject(prev => {
                 if (prev) return prev;
-                return data.length > 0 ? data[0] : null;
+                // Restore the last-selected project across reloads/navigation so a user's
+                // conversations don't "disappear" when state resets to the first project.
+                const storedId = localStorage.getItem('selectedProjectId');
+                const restored = storedId ? data.find(p => p.id === storedId) : null;
+                return restored || (data.length > 0 ? data[0] : null);
             });
         } catch (err) {
             setError(err.message);
@@ -56,6 +60,14 @@ export function ProjectProvider({ children }) {
     const selectProject = useCallback((project) => {
         setSelectedProject(project);
     }, []);
+
+    // Persist the active project so navigating away or reloading returns to the same
+    // context (otherwise state resets to the first project and hides other projects' conversations).
+    useEffect(() => {
+        if (selectedProject?.id) {
+            localStorage.setItem('selectedProjectId', selectedProject.id);
+        }
+    }, [selectedProject?.id]);
 
     useEffect(() => {
         if (!selectedProject) return;
