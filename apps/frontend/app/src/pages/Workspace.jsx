@@ -4,6 +4,8 @@ import { useProjects, useConversations, useDataSources } from '../contexts/index
 import ChatInterface from '../components/ChatInterface';
 import CreateConversationModal from '../components/CreateConversationModal';
 import DataSourcesView from '../components/DataSourcesView';
+import Modal from '../components/Modal';
+import Button from '../components/Button';
 
 import AlertContainer from '../components/Alert';
 import '../styles/Workspace.css';
@@ -12,11 +14,12 @@ export default function Workspace() {
     const { projectId } = useParams();
     const navigate = useNavigate();
     const { projects, selectProject } = useProjects();
-    const { conversations, selectedConversation, selectConversation } = useConversations();
+    const { conversations, selectedConversation, selectConversation, deleteConversation } = useConversations();
     const { dataSources } = useDataSources();
     
     const [view, setView] = useState('chat');
     const [showCreateConv, setShowCreateConv] = useState(false);
+    const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, confirmLabel: 'Confirm' });
     const hasSelected = useRef(false);
 
     useEffect(() => {
@@ -42,6 +45,25 @@ export default function Workspace() {
     const projectDataSources = dataSources.filter(ds => ds.linked_projects?.includes(project.id));
     const repoSources = projectDataSources.filter(ds => ds.type === 'REPOSITORY' && ds.scope_by_issues);
     const hasIssueScopedRepo = repoSources.length > 0;
+
+    const closeConfirmModal = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
+
+    const requestDeleteConversation = (conv) => {
+        setConfirmModal({
+            isOpen: true,
+            title: 'Delete Conversation',
+            message: `Are you sure you want to delete '${conv.summary || 'New Chat'}'? This action cannot be undone.`,
+            confirmLabel: 'Delete',
+            onConfirm: async () => {
+                try {
+                    await deleteConversation(conv.id);
+                } catch {
+                    /* handled in context */
+                }
+                closeConfirmModal();
+            }
+        });
+    };
 
     return (
         <div className="workspace-layout fade-in">
@@ -110,14 +132,24 @@ export default function Workspace() {
                                  <p className="empty-text">No conversations yet.</p>
                              ) : (
                                  conversations.map(c => (
-                                     <button 
-                                        key={c.id} 
-                                        onClick={() => selectConversation(c)} 
-                                        className={`conv-item ${selectedConversation?.id === c.id ? 'active' : ''}`}
-                                     >
-                                         <span className="conv-icon">💭</span>
-                                         <span className="conv-title">{c.summary || 'New Chat'}</span>
-                                     </button>
+                                     <div key={c.id} className="conv-item-row" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                         <button 
+                                            onClick={() => selectConversation(c)} 
+                                            className={`conv-item ${selectedConversation?.id === c.id ? 'active' : ''}`}
+                                            style={{ flex: 1, minWidth: 0 }}
+                                         >
+                                             <span className="conv-icon">💭</span>
+                                             <span className="conv-title">{c.summary || 'New Chat'}</span>
+                                         </button>
+                                         <button
+                                             className="conv-delete-btn"
+                                             title="Delete conversation"
+                                             onClick={() => requestDeleteConversation(c)}
+                                             style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.6, fontSize: '0.85rem', padding: '4px' }}
+                                         >
+                                             🗑️
+                                         </button>
+                                     </div>
                                  ))
                              )}
                          </div>
@@ -130,6 +162,25 @@ export default function Workspace() {
 
             </main>
             <CreateConversationModal isOpen={showCreateConv} onClose={() => setShowCreateConv(false)} />
+            <Modal
+                isOpen={confirmModal.isOpen}
+                onClose={closeConfirmModal}
+                title={confirmModal.title}
+                actions={
+                    <>
+                        <Button size='sm' variant='secondary' onClick={closeConfirmModal}>Cancel</Button>
+                        <Button
+                            size='sm'
+                            variant={confirmModal.confirmLabel === 'Delete' ? 'danger' : 'primary'}
+                            onClick={confirmModal.onConfirm}
+                        >
+                            {confirmModal.confirmLabel}
+                        </Button>
+                    </>
+                }
+            >
+                <p>{confirmModal.message}</p>
+            </Modal>
             <AlertContainer />
         </div>
     );

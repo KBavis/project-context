@@ -153,11 +153,17 @@ class ConversationService:
 
     async def delete_conversation(self, conversation_id: UUID):
         """
-        Delete an existing conversation 
-
+        Delete an existing conversation along with its messages and token-usage
+        records (removed via the relationship cascades on the Conversation model).
+        
         Args:
             conversation_id (UUID): id of specified conversation to remove 
         """
+        conversation = await self.get_conversation(conversation_id)
+        if not conversation:
+            raise Exception(f"Conversation with id {conversation_id} not found")
+        await self.db.delete(conversation)
+        await self.db.flush()
     
     async def update_total_tokens(self, conversation_id: UUID, token_count: int):
         """

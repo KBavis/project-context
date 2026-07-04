@@ -75,6 +75,17 @@ export function ConversationProvider({ children }) {
 
     const selectConversation = (conv) => setSelectedConversation(conv);
 
+    const deleteConversation = async (conversationId) => {
+        try {
+            await api.conversations.delete(conversationId);
+            setConversations(prev => prev.filter(c => c.id !== conversationId));
+            setSelectedConversation(prev => (prev?.id === conversationId ? null : prev));
+        } catch (err) {
+            console.error('Failed to delete conversation:', err);
+            throw err;
+        }
+    };
+
     const value = {
         conversations,
         selectedConversation,
@@ -83,6 +94,7 @@ export function ConversationProvider({ children }) {
         error,
         createConversation,
         selectConversation,
+        deleteConversation,
         setMessages, // Useful for streaming or optimistic updates
     };
 
