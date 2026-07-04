@@ -4,32 +4,36 @@ import Button from './Button';
 import { useProjects, useConversations } from '../contexts/index';
 import '../styles/CreateConversationModal.css';
 
+// Whether the Azure endpoint is configured as a multi-vendor gateway (mirrors
+// the backend AZURE_MULTI_VENDOR_GATEWAY flag). When off, Azure only offers
+// OpenAI models; non-OpenAI vendors (Claude/Gemini) are hidden.
+const VITE_AZURE_MULTI_VENDOR_GATEWAY = import.meta.env.VITE_AZURE_MULTI_VENDOR_GATEWAY === 'true';
+
 // Azure sub-categories: vendor families available through the Azure gateway
 const AZURE_VENDORS = {
     openai: {
         label: 'OpenAI',
         models: [
             { id: 'gpt-4o', label: 'GPT-4o', value: 'gpt-4o' },
-            { id: 'gpt-5.1', label: 'GPT-5.1', value: 'gpt-5.1' },
             { id: 'gpt-5.4', label: 'GPT-5.4', value: 'gpt-5.4' },
         ],
-        defaultModel: 'gpt-5.1',
+        defaultModel: 'gpt-5.4',
     },
-    claude: {
-        label: 'Claude',
-        models: [
-            { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', value: 'claude-sonnet-4-5' },
-            { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', value: 'claude-opus-4-6' },
-        ],
-        defaultModel: 'claude-sonnet-4-5',
-    },
-    gemini: {
-        label: 'Gemini',
-        models: [
-            { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview', value: 'gemini-3.1-pro-preview' },
-        ],
-        defaultModel: 'gemini-3.1-pro-preview',
-    },
+    // Non-OpenAI vendors are only reachable when Azure is a multi-vendor gateway.
+    ...(VITE_AZURE_MULTI_VENDOR_GATEWAY
+        ? {
+            claude: {
+                label: 'Claude',
+                models: [
+                    { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', value: 'claude-sonnet-4-5' },
+                    { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', value: 'claude-opus-4-6' },
+                ],
+                defaultModel: 'claude-sonnet-4-5',
+            },
+        }
+        : {}),
+    // TODO: Re-enable Gemini in multi-vendor approach once its streaming is fixed.
+
 };
 
 const PROVIDERS = {

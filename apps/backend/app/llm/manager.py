@@ -39,7 +39,7 @@ class LLMManager:
                 from app.llm.providers.azure import AzureProvider
                 llm = AzureProvider(model_name=self.model_name)
                 if not llm.is_available():
-                    raise ValueError(f"Azure LLM with model '{self.model_name}' is not available. Please ensure the LLM_API_BASE and AZURE_API_KEY environment variables are set and the model name is valid.")
+                    raise ValueError(f"Azure LLM with model '{self.model_name}' is not available. Please ensure the AZURE_OPENAI_API_BASE and AZURE_API_KEY environment variables are set and the model name is valid.")
                 return llm
             case _:
                 raise ValueError(f"Unsupported LLM provider: {self.provider}")
