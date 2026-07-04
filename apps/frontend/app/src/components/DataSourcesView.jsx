@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useDataSources, useJobs, useAlert, useProjects } from '../contexts/index';
 import Button from './Button';
 import Modal from './Modal';
-import api from '../services/api';
+import { api } from '../services/api';
 import '../styles/DataSourcesView.css';
 import '../styles/IngestionJobsView.css';
 
@@ -91,7 +91,7 @@ export default function DataSourcesView({ projectId }) {
     }, [refreshGlobalJobs, jobs]);
 
     const getLatestJobsForDataSource = (ds) => {
-        const source = isIssueScopedRepo(ds)
+        const source = isIssueScopedRepo(ds) 
             ? jobs.filter(job => job.data_source_id === ds.id)
             : (globalJobs[ds.id] || []);
         return [...source]
@@ -292,6 +292,7 @@ export default function DataSourcesView({ projectId }) {
         const renderCard = (ds) => {
             const url = ds.config?.url || ds.url;
             const displayName = ds.name || url;
+            const href = url && url.startsWith('http') ? url : `https://${url}`;
             return (
                 <div
                     key={ds.id}
@@ -316,7 +317,7 @@ export default function DataSourcesView({ projectId }) {
                             <div className="data-source-content">
                                 <div className="data-source-title-row">
                                     <h3 className="data-source-name">
-                                        <a href={url.startsWith('http') ? url : `https://${url}`} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>
+                                        <a href={href} target="_blank" rel="noopener noreferrer" className="ds-link">
                                             {displayName}
                                         </a>
                                     </h3>
@@ -326,7 +327,9 @@ export default function DataSourcesView({ projectId }) {
                                         </p>
                                     )}
                                 </div>
-                                <p className="data-source-url" title={url}>{url}</p>
+                                <p className="data-source-url" title={url}>
+                                    <a href={href} target="_blank" rel="noopener noreferrer" className="ds-link">{url}</a>
+                                </p>
 
                                 <div className="data-source-meta-row">
                                     <div className="meta-section">
@@ -453,11 +456,9 @@ export default function DataSourcesView({ projectId }) {
                         {/* Per-source last sync indicator */}
                         {ds.type !== 'ISSUE_TRACKER' && (() => {
                             const latestJobs = getLatestJobsForDataSource(ds);
-
                             const running = latestJobs.some(j => mapStatus(j.status) === 'running');
                             // A skipped embed (already up-to-date / embed-once) still counts as synced
                             const syncedJob = latestJobs.find(j => ['completed', 'skipped'].includes(mapStatus(j.status)));
-
                             // Never successfully synced -> warning badge (no "Last Sync" row)
                             if (!running && !syncedJob) {
                                 return (
@@ -487,7 +488,8 @@ export default function DataSourcesView({ projectId }) {
                                 <div style={{
                                     padding: '8px 16px 8px',
                                     display: 'flex',
-                                    justifyContent: 'space-between',
+                                    justifyContent: 'flex-start',
+                                    gap: '6px',
                                     alignItems: 'baseline',
                                     fontSize: '0.78rem',
                                     color: 'var(--color-text-tertiary)',
@@ -547,7 +549,6 @@ export default function DataSourcesView({ projectId }) {
                             <div className="data-source-jobs-mini fade-in">
                                 <div className="mini-jobs-header">
                                     <span>Sync History</span>
-                                    {isIssueScopedRepo(ds) && <span style={{ fontSize: '0.7rem', color: 'var(--color-text-tertiary)', fontWeight: 400 }}> - this project</span>}
                                     {getLatestJobsForDataSource(ds).length > 0 && <span className="jobs-count">{getLatestJobsForDataSource(ds).length}/3</span>}
                                 </div>
                                 {getLatestJobsForDataSource(ds).length === 0 ? (

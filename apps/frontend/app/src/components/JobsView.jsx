@@ -1,10 +1,30 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useJobs, useDataSources } from '../contexts/index';
+import { api } from '../services/api';
 import '../styles/IngestionJobsView.css';
 
-export default function JobsView() {
-    const { jobs, loading, fetchJobs } = useJobs();
+export default function JobsView({ systemWide = false }) {
+    const { jobs: ctxJobs, loading: ctxLoading, fetchJobs: ctxFetchJobs } = useJobs();
     const { dataSources } = useDataSources();
+
+    // System-level Sync History (Dashboard) is not tied to any selected project, so fetch
+    // every data source's jobs globally instead of the project-scoped context list.
+    const [systemJobs, setSystemJobs] = useState([]);
+    const [systemLoading, setSystemLoading] = useState(false);
+
+    const fetchSystemJobs = useCallback(async (silent = false) => {
+        if (!silent) setSystemLoading(true);
+        try {
+            setSystemJobs(await api.jobs.listAll());
+        } catch (err) {
+            console.error('Failed to load system jobs:', err);
+        } finally {
+            if (!silent) setSystemLoading(false);
+        }
+    }, []);
+
+    const jobs = systemWide ? systemJobs : ctxJobs;
+    const loading = systemWide ? systemLoading : ctxLoading;
 
     const [statusFilter, setStatusFilter] = useState('all');
     const [dataSourceFilter, setDataSourceFilter] = useState('all');
@@ -32,8 +52,18 @@ export default function JobsView() {
     };
 
     useEffect(() => {
-        fetchJobs();
-    }, [fetchJobs]);
+        if (systemWide) fetchSystemJobs();
+        else ctxFetchJobs();
+    }, [systemWide, fetchSystemJobs, ctxFetchJobs]);
+
+    // Poll while any system-wide job is still running (mirrors JobContext polling)
+    useEffect(() => {
+        if (!systemWide) return;
+        const isRunning = systemJobs.some(j => ['IN_PROGRESS', 'PENDING', 'RUNNING'].includes(String(j.status || '').toUpperCase()));
+        if (!isRunning) return;
+        const interval = setInterval(() => fetchSystemJobs(true), 5000);
+        return () => clearInterval(interval);
+    }, [systemWide, systemJobs, fetchSystemJobs]);
 
     const mapStatus = (status) => {
         if (!status) return 'pending';
