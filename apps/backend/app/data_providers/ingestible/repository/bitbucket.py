@@ -12,7 +12,7 @@ import re
 from typing import TYPE_CHECKING
 
 from .base import RepositoryDataProvider
-from app.core import settings
+from app.core import settings, constants
 from app.pydantic import File, FileProcesingStatus, GitCommitDetail
 from app.pydantic.pull_request import PullRequestDetail
 from app.pydantic.file_diff_patch import FileDiffPatch
@@ -200,10 +200,10 @@ class BitbucketDataProvider(RepositoryDataProvider):
         file_extension = file_name.split(".")[-1]
 
         file_type = ""
-        if file_extension in settings.CODE_FILE_EXTENSIONS:
-            file_type = "CODE"
-        elif file_extension in settings.DOCS_FILE_EXTENSIONS:
-            file_type = "DOCS"
+        if file_extension in constants.CODE_FILE_EXTENSIONS:
+            file_type = constants.CODE
+        elif file_extension in constants.DOCS_FILE_EXTENSIONS:
+            file_type = constants.DOCS
         else:
             logger.warning(f"File extension {file_extension} not a valid Docs / Code file extension, skipping download")
             return
@@ -238,7 +238,7 @@ class BitbucketDataProvider(RepositoryDataProvider):
             if file_status == FileProcesingStatus.UNCHANGED:
                 return 
 
-            dir = f"{settings.TMP_DOCS}/{self.embed_task_id}" if file_type == "DOCS" else f"{settings.TMP_CODE}/{self.embed_task_id}"
+            dir = f"{settings.TMP_DOCS}/{self.embed_task_id}" if file_type == constants.DOCS else f"{settings.TMP_CODE}/{self.embed_task_id}"
             full_path = Path(f"{dir}/{file_path}")
             
             await asyncio.to_thread(self._write_file, full_path, buffer)

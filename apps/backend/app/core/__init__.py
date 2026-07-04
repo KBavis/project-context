@@ -13,7 +13,16 @@ from .relational_db import (
     get_current_session
 )
 from .vector_db import ChromaClientManager
-from .constants import CODE, DOCS
+from .constants import (
+    CODE, 
+    DOCS,
+    VALID_LL_MODEL_PROVIDERS,
+    CODE_FILE_EXTENSIONS,
+    EXTENSION_TO_LANGUAGE,
+    DOCS_FILE_EXTENSIONS,
+    INGESTION_EXCLUDE_PATTERNS,
+    INGESTION_EXCLUDE_PATTERNS_EXTRA,
+)
 
 __all__ = [
     "settings",
@@ -31,4 +40,10 @@ __all__ = [
     "get_current_session",
     "CODE",
     "DOCS",
+    "VALID_LL_MODEL_PROVIDERS",
+    "CODE_FILE_EXTENSIONS",
+    "EXTENSION_TO_LANGUAGE",
+    "DOCS_FILE_EXTENSIONS",
+    "INGESTION_EXCLUDE_PATTERNS",
+    "INGESTION_EXCLUDE_PATTERNS_EXTRA",
 ]
