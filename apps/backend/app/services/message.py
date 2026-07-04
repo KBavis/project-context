@@ -100,11 +100,16 @@ class MessageService:
 
             # 4. Kick of Agentic Flow 
             yield format_sse_event(StreamEventType.STATUS, "Executing Agentic Workflow...", "Executing")
+
+            # Fetch the Project so the agent knows *which* project it is assisting with
+            project = await self.project_svc.aget_project_by_id(conversation.project_id)
+
             response_stream = self.agent_svc.run_agent( 
                 llm,
                 message.content,
                 conversation_history,
-                conversation.project_id
+                conversation.project_id,
+                project=project,
             )
             
             full_response = ""
