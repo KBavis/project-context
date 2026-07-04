@@ -52,7 +52,13 @@ class Settings(BaseSettings):
     OPENAI_FALLBACK_TIKTOKEN_ENCODING: str = "o200k_base"
 
     # Maps a model name to the Azure deployment name when they differ (e.g gpt-5.1 --> gpt-51)
-    LLM_AZURE_DEPLOYMENT_MAP: dict[str, str] = {}
+    LLM_AZURE_DEPLOYMENT_MAP: dict[str, str] = {
+        "gpt-5.1": "gpt-51",
+        "gpt-5.4": "gpt-54",
+        "claude-sonnet-4-5": "claude-sonnet-45",
+        "claude-opus-4-6": "claude-opus-46",
+        "gemini-3.1-pro-preview": "gemini-31-pro-preview",
+    }
 
     # Base URL and API version for hosted OpenAI-compatible gateways (e.g. an
     # Azure-native gateway). The base URL should stop before the `/openai`
@@ -95,6 +101,7 @@ class Settings(BaseSettings):
     GITHUB_SECRET_TOKEN: str | None = None
     HUGGING_FACE_API_KEY: str | None = None
     OPENAI_API_KEY: str | None = None
+    AZURE_API_KEY: str | None = None
 
     BITBUCKET_USERNAME: str | None = None
     BITBUCKET_SECRET_TOKEN: str | None = None

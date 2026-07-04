@@ -7,13 +7,18 @@ from typing import Callable
 from app.core import settings
 
 
-class AzureOpenAIProvider(LLMBase):
+class AzureProvider(LLMBase):
     """
-    Provider for Azure-native OpenAI-compatible gateways.
+    General-purpose provider for Azure-hosted model gateways.
 
-    Encodes the Azure dialect (api-key header, api-version query, and the
-    `/openai/deployments/<model>` URL path) rather than a model vendor. The
-    deployment name is treated as equal to the model name.
+    Routes all models (OpenAI GPT, Anthropic Claude, Google Gemini, etc.)
+    through the Azure OpenAI-compatible chat/completions wire format.
+    The gateway dialect (api-key header, api-version query, and the
+    ``/openai/deployments/<model>`` URL path) is model-vendor-agnostic;
+    adding a new model is a config/list change, not a new class.
+
+    The deployment name is resolved via ``LLM_AZURE_DEPLOYMENT_MAP`` and
+    falls back to the model name itself.
     """
 
     def __init__(self, model_name: str):
@@ -31,22 +36,40 @@ class AzureOpenAIProvider(LLMBase):
         """
         Returns the name of the provider to be used for the LLM.
         """
-        return "AzureOpenAI"
+        return "Azure"
+
+    @property
+    def vendor(self) -> str:
+        """
+        Returns the model vendor family (OpenAI, Anthropic, Google) based on model name prefix.
+        """
+        model_lower = self.model_name.lower()
+        if "gpt" in model_lower:
+            return "OpenAI"
+        elif "claude" in model_lower:
+            return "Anthropic"
+        elif "gemini" in model_lower:
+            return "Google"
+        return "Unknown"
 
     @property
     def tokenizer(self) -> Callable[[str], list[int]]:
         """
         Returns the tokenizer to be used for the LLM.
+
+        NOTE: tiktoken is an approximation for non-OpenAI models
+        (Claude, Gemini). This is acceptable for the "does it fit?"
+        guard but token counts will not be exact.
         """
         return self._resolve_tiktoken_encoder(self.model_name)
 
     def is_available(self) -> bool:
         """
-        Check if the Azure OpenAI LLM is available
+        Check if the Azure gateway is reachable.
 
-        TODO: Ping AzureOpenAI endpoint and check if model is available 
+        TODO: Ping the Azure endpoint and verify the deployment exists.
         """
-        return settings.LLM_API_BASE is not None and settings.OPENAI_API_KEY is not None
+        return settings.LLM_API_BASE is not None and settings.AZURE_API_KEY is not None
 
     async def tokenize(self, text: str) -> list[int]:
         """
@@ -56,17 +79,17 @@ class AzureOpenAIProvider(LLMBase):
 
     async def get_max_context_length(self) -> int:
         """
-        Returns the maximum context length for the Azure OpenAI model.
+        Returns the maximum context length for the Azure-hosted model.
         """
         azure_instance = self.get_llama_idx_instance()
         return azure_instance.metadata.context_window - settings.LLM_EXPECTED_RESPONSE_SIZE
 
     def get_llama_idx_instance(self, callback_manager: CallbackManager | None = None) -> AzureOpenAI:
         """
-        Returns the LlamaIndex instance for the Azure OpenAI model.
+        Returns the LlamaIndex instance for the Azure-hosted model.
 
-        azure_endpoint must stop before the `/openai` segment; the client appends
-        `/openai/deployments/<engine>/...?api-version=<api_version>`.
+        azure_endpoint must stop before the ``/openai`` segment; the client
+        appends ``/openai/deployments/<engine>/...?api-version=<api_version>``.
 
         max_retries: automatically retries on 429 rate-limit and 5xx errors with
         exponential backoff (handled by the underlying openai-python client).
@@ -82,7 +105,7 @@ class AzureOpenAIProvider(LLMBase):
             engine=deployment,            # deployment id used for URL routing; may differ from model name
             azure_endpoint=settings.LLM_API_BASE,
             api_version=settings.LLM_API_VERSION,
-            api_key=settings.OPENAI_API_KEY,
+            api_key=settings.AZURE_API_KEY,
             callback_manager=callback_manager,
             max_retries=6,       # retries: ~2min total backoff window on sustained 429s
             timeout=120.0,       # seconds before a single request is considered hung

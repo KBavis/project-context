@@ -5,7 +5,7 @@ CODE = "CODE"
 
 
 
-VALID_LL_MODEL_PROVIDERS: set[str] = {"OpenAI", "Ollama", "AzureOpenAI"}
+VALID_LL_MODEL_PROVIDERS: set[str] = {"OpenAI", "Ollama", "Azure"}
 
 CODE_FILE_EXTENSIONS: set[str] = {
     "c", "cpp", "cs", "java", "js", "jsx", "ts", "tsx", "py", "php",
