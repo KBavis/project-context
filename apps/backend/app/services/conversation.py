@@ -3,7 +3,7 @@ from __future__ import annotations
 from app.pydantic import CreateConversationRequest, UpdateConversationRequest
 from app.models import Conversation
 from app.llm.providers.base import LLMBase
-from app.core import settings
+from app.core import settings, VALID_LL_MODEL_PROVIDERS
 from app.llm import LLMManager
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,9 +73,9 @@ class ConversationService:
         model_provider = conversation.ll_model_provider or settings.LL_MODEL_PROVIDER
 
         # Validate provider/model selection before creating LLM client
-        if model_provider not in settings.VALID_LL_MODEL_PROVIDERS:
+        if model_provider not in VALID_LL_MODEL_PROVIDERS:
             raise ValueError(
-                f"Unsupported LLM provider '{model_provider}'. Supported providers: {sorted(settings.VALID_LL_MODEL_PROVIDERS)}"
+                f"Unsupported LLM provider '{model_provider}'. Supported providers: {sorted(VALID_LL_MODEL_PROVIDERS)}"
             )
 
         # Configure LLM Manager based on validated request parameters
@@ -107,7 +107,9 @@ class ConversationService:
         Return selectable provider -> models map for UI consumption.
         """
         return {
-            # Model lists are intentionally open-ended and can be provided by UI/user input.
+            # Azure gateway routes GPT, Claude, Gemini, etc.
+            "Azure": [],
+            # Direct OpenAI API access.
             "OpenAI": [],
             # Ollama models are environment-dependent and discovered at runtime.
             "Ollama": [],

@@ -35,11 +35,11 @@ class LLMManager:
                 if not llm.is_available(): 
                     raise ValueError(f"OpenAI LLM with model '{self.model_name}' is not available. Please ensure the OPENAI_API_KEY environment variable is set and the model name is valid.")
                 return llm
-            case "azureopenai":
-                from app.llm.providers.azure_openai import AzureOpenAIProvider
-                llm = AzureOpenAIProvider(model_name=self.model_name)
+            case "azure":
+                from app.llm.providers.azure import AzureProvider
+                llm = AzureProvider(model_name=self.model_name)
                 if not llm.is_available():
-                    raise ValueError(f"Azure OpenAI LLM with model '{self.model_name}' is not available. Please ensure the LLM_API_BASE and OPENAI_API_KEY environment variables are set and the model name is valid.")
+                    raise ValueError(f"Azure LLM with model '{self.model_name}' is not available. Please ensure the AZURE_OPENAI_API_BASE and AZURE_API_KEY environment variables are set and the model name is valid.")
                 return llm
             case _:
                 raise ValueError(f"Unsupported LLM provider: {self.provider}")

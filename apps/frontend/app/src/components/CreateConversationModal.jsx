@@ -1,47 +1,87 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Modal from './Modal';
 import Button from './Button';
 import { useProjects, useConversations } from '../contexts/index';
 import '../styles/CreateConversationModal.css';
 
-const PROVIDERS = {
-    azureopenai: {
-        label: 'Azure OpenAI',
-        apiValue: 'AzureOpenAI',
-        models: [
-            { id: 'gpt-5.1', label: 'GPT-5.1 (Most Capable)', value: 'gpt-5.1' },
-            { id: 'gpt-4o', label: 'GPT-4o (Balanced)', value: 'gpt-4o' }
-        ],
-        defaultModel: 'gpt-5.1'
-    },
+// Whether the Azure endpoint is configured as a multi-vendor gateway (mirrors
+// the backend AZURE_MULTI_VENDOR_GATEWAY flag). When off, Azure only offers
+// OpenAI models; non-OpenAI vendors (Claude/Gemini) are hidden.
+const VITE_AZURE_MULTI_VENDOR_GATEWAY = import.meta.env.VITE_AZURE_MULTI_VENDOR_GATEWAY === 'true';
+
+// Azure sub-categories: vendor families available through the Azure gateway
+const AZURE_VENDORS = {
     openai: {
         label: 'OpenAI',
+        models: [
+            { id: 'gpt-4o', label: 'GPT-4o', value: 'gpt-4o' },
+            { id: 'gpt-5.4', label: 'GPT-5.4', value: 'gpt-5.4' },
+        ],
+        defaultModel: 'gpt-5.4',
+    },
+    // Non-OpenAI vendors are only reachable when Azure is a multi-vendor gateway.
+    ...(VITE_AZURE_MULTI_VENDOR_GATEWAY
+        ? {
+            claude: {
+                label: 'Claude',
+                models: [
+                    { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', value: 'claude-sonnet-4-5' },
+                    { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', value: 'claude-opus-4-6' },
+                ],
+                defaultModel: 'claude-sonnet-4-5',
+            },
+        }
+        : {}),
+    // TODO: Re-enable Gemini in multi-vendor approach once its streaming is fixed.
+
+};
+
+const PROVIDERS = {
+    azure: {
+        label: 'Azure',
+        apiValue: 'Azure',
+        // Models are driven by the selected vendor sub-filter
+        vendors: AZURE_VENDORS,
+        defaultVendor: 'openai',
+    },
+    openai: {
+        label: 'OpenAI (Direct)',
         apiValue: 'OpenAI',
         models: [
             { id: 'gpt-4o-mini', label: 'GPT-4o Mini (Cheapest)', value: 'gpt-4o-mini' },
-            { id: 'gpt-4.1-mini', label: 'More Intelligent Mode (Balanced) - gpt-4.1-mini', value: 'gpt-4.1-mini' },
-            { id: 'gpt-4.1', label: 'Most Intelligent Mode (Higher Cost) - gpt-4.1', value: 'gpt-4.1' }
+            { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini (Balanced)', value: 'gpt-4.1-mini' },
+            { id: 'gpt-4.1', label: 'GPT-4.1 (Most Capable)', value: 'gpt-4.1' },
         ],
-        defaultModel: 'gpt-4.1-mini'
+        defaultModel: 'gpt-4.1-mini',
     },
     ollama: {
         label: 'Ollama (Local)',
         apiValue: 'Ollama',
         models: [
-            { id: 'gpt-oss:latest', label: 'gpt-oss:latest', value: 'gpt-oss:latest' }
+            { id: 'gpt-oss:latest', label: 'gpt-oss:latest', value: 'gpt-oss:latest' },
         ],
-        defaultModel: 'gpt-oss:latest'
-    }
+        defaultModel: 'gpt-oss:latest',
+    },
 };
 
 export default function CreateConversationModal({ isOpen, onClose }) {
     const { projects, selectedProject } = useProjects();
     const { createConversation } = useConversations();
     const [selectedProjectId, setSelectedProjectId] = useState('');
-    const [provider, setProvider] = useState('azureopenai');
-    const [model, setModel] = useState(PROVIDERS.azureopenai.defaultModel);
+    const [provider, setProvider] = useState('azure');
+    const [azureVendor, setAzureVendor] = useState(PROVIDERS.azure.defaultVendor);
+    const [model, setModel] = useState(AZURE_VENDORS[PROVIDERS.azure.defaultVendor].defaultModel);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+
+    // Derive the visible model list based on provider (and vendor for Azure)
+    const availableModels = useMemo(() => {
+        const prov = PROVIDERS[provider];
+        if (prov.vendors) {
+            return prov.vendors[azureVendor].models;
+        }
+        return prov.models;
+    }, [provider, azureVendor]);
 
     // Pre-select project if one is already selected in the UI
     useEffect(() => {
@@ -53,7 +93,22 @@ export default function CreateConversationModal({ isOpen, onClose }) {
     const handleProviderChange = (e) => {
         const newProvider = e.target.value;
         setProvider(newProvider);
-        setModel(PROVIDERS[newProvider].defaultModel);
+
+        const prov = PROVIDERS[newProvider];
+        if (prov.vendors) {
+            // Azure — reset to default vendor & its default model
+            const defaultVendor = prov.defaultVendor;
+            setAzureVendor(defaultVendor);
+            setModel(prov.vendors[defaultVendor].defaultModel);
+        } else {
+            setModel(prov.defaultModel);
+        }
+    };
+
+    const handleVendorChange = (e) => {
+        const newVendor = e.target.value;
+        setAzureVendor(newVendor);
+        setModel(AZURE_VENDORS[newVendor].defaultModel);
     };
 
     const handleSubmit = async (e) => {
@@ -70,8 +125,6 @@ export default function CreateConversationModal({ isOpen, onClose }) {
         try {
             await createConversation(selectedProjectId, model, PROVIDERS[provider].apiValue);
             onClose();
-            // We don't reset everything if the user might want to create another one with same settings?
-            // But usually closing modal resets state.
             setSelectedProjectId('');
         } catch (err) {
             setError(err.message || 'Failed to create conversation');
@@ -139,6 +192,26 @@ export default function CreateConversationModal({ isOpen, onClose }) {
                     </select>
                 </div>
 
+                {/* Azure vendor sub-filter */}
+                {provider === 'azure' && (
+                    <div className="form-field">
+                        <label className="input-label">
+                            Model Family
+                        </label>
+                        <select
+                            value={azureVendor}
+                            onChange={handleVendorChange}
+                            className="input"
+                        >
+                            {Object.entries(AZURE_VENDORS).map(([id, info]) => (
+                                <option key={id} value={id}>
+                                    {info.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
                 <div className="form-field">
                     <label className="input-label">
                         Model
@@ -150,20 +223,20 @@ export default function CreateConversationModal({ isOpen, onClose }) {
                         className="input"
                         required
                     >
-                        {PROVIDERS[provider].models.map((m) => (
+                        {availableModels.map((m) => (
                             <option key={m.id} value={m.value}>
                                 {m.label}
                             </option>
                         ))}
                     </select>
-                    {provider === 'azureopenai' && (
+                    {provider === 'azure' && (
                         <p className="field-hint">
-                            Choose <strong>gpt-5.1</strong> for the most capable model, or <strong>gpt-4o</strong> for a faster, lower-cost option.
+                            All models are routed through the Azure gateway. Use the Model Family filter to narrow by vendor.
                         </p>
                     )}
                     {provider === 'openai' && (
                         <p className="field-hint">
-                            Choose <strong>gpt-4.1-mini</strong> for a stronger balanced model, or <strong>gpt-4.1</strong> for highest quality at higher cost.
+                            Direct OpenAI API access. Requires a valid <strong>OPENAI_API_KEY</strong>.
                         </p>
                     )}
                 </div>

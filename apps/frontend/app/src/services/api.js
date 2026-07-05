@@ -16,6 +16,7 @@ export const api = {
     conversations: {
         create: async (projectId, llModelName = null, llModelProvider = null) => {
             const providerMap = {
+                azure: 'Azure',
                 openai: 'OpenAI',
                 ollama: 'Ollama',
             };

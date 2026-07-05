@@ -12,6 +12,7 @@ from app.models.data_source import DataSource
 from app.services.file import FileService
 from app.pydantic.pull_request import PullRequestDetail
 from app.pydantic.file_diff_patch import FileDiffPatch
+from app.core import constants
 
 if TYPE_CHECKING:
     from app.data_providers.fetchable.issue_tracker.base import IssueTrackerDataProvider
@@ -88,7 +89,7 @@ class RepositoryDataProvider(IngestibleDataProvider):
         Args:
             path (str): repository file path to test
         """
-        patterns = settings.INGESTION_EXCLUDE_PATTERNS + settings.INGESTION_EXCLUDE_PATTERNS_EXTRA
+        patterns = constants.INGESTION_EXCLUDE_PATTERNS + constants.INGESTION_EXCLUDE_PATTERNS_EXTRA
         return any(fnmatch(path, pattern) for pattern in patterns)
 
 

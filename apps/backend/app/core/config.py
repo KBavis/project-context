@@ -51,14 +51,33 @@ class Settings(BaseSettings):
     # Encoding to fall back to when tiktoken doesn't recognize the configured model.
     OPENAI_FALLBACK_TIKTOKEN_ENCODING: str = "o200k_base"
 
-    # Maps a model name to the Azure deployment name when they differ (e.g gpt-5.1 --> gpt-51)
-    LLM_AZURE_DEPLOYMENT_MAP: dict[str, str] = {}
+    ###########################
+    # Azure Configurations
+    ###########################
+    AZURE_API_KEY: str | None = None
 
-    # Base URL and API version for hosted OpenAI-compatible gateways (e.g. an
-    # Azure-native gateway). The base URL should stop before the `/openai`
-    # segment; the Azure client appends `/openai/deployments/<model>/...`.
-    LLM_API_BASE: str | None = None
-    LLM_API_VERSION: str = "2024-10-21"
+    AZURE_OPENAI_API_BASE: str | None = None
+    AZURE_OPENAI_API_VERSION: str = "2024-10-21"
+    AZURE_STANDARD_API_BASE: str | None = None
+
+    # Model name -> Azure deployment overrides
+    AZURE_OPENAI_DEPLOYMENT_MAP: dict[str, str] = {
+        "gpt-5.1": "gpt-51",
+    }
+
+    # Context windows for models unknown to LlamaIndex (OpenAILike route)
+    # TODO: add Gemini entries once its streaming is fixed
+    AZURE_CONTEXT_WINDOW_OVERRIDES: dict[str, int] = {
+        "claude-sonnet-4-5": 200000,
+        "claude-opus-4-6": 200000,
+    }
+
+    # Fallback context window for unlisted models
+    AZURE_DEFAULT_CONTEXT_WINDOW: int = 128000
+
+    # Set True when the Azure endpoint is a MULTI-VENDOR gateway that also fronts
+    # non-OpenAI models
+    AZURE_MULTI_VENDOR_GATEWAY: bool = False
     LL_MODEL_CHAT_SUMMARY_SYSTEM_PROMPT: str = """
     Your goal is to take the following prompt from the user, along with some basic context such as the Project Name, and construct a high 
     quality, concise, and informative summary of the user's intent. These summary should be no more than 8 words and should clearly convery 
@@ -73,7 +92,8 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
 
     # Base URL and API version for hosted OpenAI-compatible embedding gateways.
-    # Same convention as LLM_API_BASE (stops before `/openai`).
+    # Same convention as AZURE_OPENAI_API_BASE (stops before `/openai`). The API
+    # key used depends on the Selected EMBEDDING_PROVIDER.
     EMBEDDING_API_BASE: str | None = None
     EMBEDDING_API_VERSION: str = "2024-10-21"
     # Maximum tokens the embedding model accepts; used by the Docling chunker.
