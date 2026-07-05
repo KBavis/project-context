@@ -239,7 +239,7 @@ class ConfluenceDataProvider(DocumentationDataProvider):
     def list_directory_description(self) -> str:
         ds = self.data_source
         return (
-            f"List the child pages under a Confluence page in DataSource '{ds.name}' ({ds.type}): {ds.provider}. "
+            f"List the child pages under a Confluence page in DataSource '{ds.name}' ({ds.type}: {ds.provider}). "
             "To list the top-level pages, pass an empty string ''. "
             "To list the children of a specific page, pass that page's numeric ID (the value shown as '(ID: ...)' "
             "in a previous listing) - e.g. '123456'. "
