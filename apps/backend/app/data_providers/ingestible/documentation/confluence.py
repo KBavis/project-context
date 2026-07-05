@@ -230,18 +230,51 @@ class ConfluenceDataProvider(DocumentationDataProvider):
             raise Exception(f"Failure occurred while attempt to view file: {file_path}", e)
 
     async def list_directory(self, path: str) -> str:
-        # Since Confluence is a page tree, path could map to a page ID or empty for root
+        """
+        List the child pages under a Confluence page in a single request.
+        
+        `path` may be empty (root), a numeric page ID, or a page title. IDs/root
+        hit the child endpoint directly; a title is resolved and expanded to its
+        children in one call via `expand=children.page` (Confluence keys child
+        lookups by numeric ID, so a title would otherwise need a second request).
+        """
+        # strip surrounding slashes/whitespace so an agent-supplied "/Title" doesn't
+        # produce a malformed URL
+        normalized = path.strip().strip("/").strip() if path else ""
+        
         try:
-            page_id = path if path else self.root_page_id
-            
-            children_url = f"{self.base_api_url}/{page_id}/child/page"
             async with httpx.AsyncClient() as client:
-                response = await client.get(children_url, headers=self.request_headers)
-                response.raise_for_status()
-                children_data = response.json()
-                
+                if normalized and not normalized.isdigit():
+                    response = await client.get(
+                        self.base_api_url,
+                        params={
+                            "spaceKey": self.space_key,
+                            "title": normalized,
+                            "type": "page",
+                            "expand": "children.page",
+                        },
+                        headers=self.request_headers,
+                    )
+                    response.raise_for_status()
+                    results = response.json().get("results", [])
+                    if not results:
+                        raise Exception(
+                            f"No Confluence page titled '{normalized}' found in space {self.space_key}"
+                        )
+                    page = results[0]
+                    page_id = page["id"]
+                    children = page.get("children", {}).get("page", {}).get("results", [])
+                else:
+                    page_id = normalized or self.root_page_id
+                    response = await client.get(
+                        f"{self.base_api_url}/{page_id}/child/page",
+                        headers=self.request_headers,
+                    )
+                    response.raise_for_status()
+                    children = response.json().get("results", [])
+                    
             path_contents = [f"Children of Page {page_id}:"]
-            for child in children_data.get("results", []):
+            for child in children:
                 path_contents.append(f"{child['title']} (ID: {child['id']})")
             
             return "\n".join(path_contents)
