@@ -221,6 +221,8 @@ class ChromaService:
             result = await self.async_db.execute(stmt)
             chroma_collections = result.scalars().unique().all()
 
+            logger.debug(f"Cleaning up stale Chroma nodes associated with {len(file_ids)} file(s)")
+
             # remove Chunks from Chroma that are assocaited with stale file ID
             async_client = await self.chroma_manager.get_async_client()
             file_ids_str = [str(file_id) for file_id in file_ids]
@@ -230,7 +232,6 @@ class ChromaService:
                 if file_ids_str:
                     await curr_chroma_collection.delete(where={"file_id": {"$in": file_ids_str}}) # type: ignore
             
-            logger.debug(f"Successfully removed Chunks from ChromaDB associated with FileIds={file_ids}")
 
         except Exception as e:
             logger.error(f"Failure occurred while attempting to delete nodes associated with file_ids={file_ids}", exc_info=True)
