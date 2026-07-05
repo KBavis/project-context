@@ -2,7 +2,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llama_index.core import StorageContext, VectorStoreIndex
-from llama_index.core.node_parser import CodeSplitter
+from llama_index.core.node_parser import CodeSplitter, SentenceSplitter
 from llama_index.core.readers import SimpleDirectoryReader
 from llama_index.core.schema import NodeRelationship, RelatedNodeInfo, TextNode
 from llama_index.storage.docstore.postgres import PostgresDocumentStore
@@ -470,6 +470,58 @@ class ChunkInsertionService:
 
         return chunked_docs
     
+    def enforce_embedding_token_limit(self, nodes: list["TextNode"]) -> list["TextNode"]:
+        """
+        Last-resort safety net guaranteeing every node fits the embedding token limit.
+        
+        NOTE: This code was added to handle edge case in Docling's HybridChunker
+        where we have na indivisible unit (e.g. large table row) that exceeds
+        our token limit
+        Args:
+            nodes (list["TextNode"]): chunked nodes about to be embedded
+        """
+        encode = EmbeddingManager.get_token_encode_fn()
+        max_tokens = settings.EMBEDDING_MAX_TOKENS
+        
+        # only construct the splitter if we actually hit an oversized chunk
+        splitter: SentenceSplitter | None = None
+        bounded: list["TextNode"] = []
+        for node in nodes:
+            # skips nodes under limit (i.e. no-op)
+            text = node.get_content()
+            if len(encode(text)) <= max_tokens:
+                bounded.append(node)
+                continue
+            
+            # lazy init sentence splitter instance singular time during ingestion
+            if splitter is None:
+                splitter = SentenceSplitter(
+                    chunk_size=max_tokens,
+                    chunk_overlap=settings.CHUNK_TARGET_TOKENS,
+                    tokenizer=encode,
+                )
+            
+            # split oversized Docling chunk into smaller pieces
+            pieces = splitter.split_text(text)
+            logger.warning(
+                f"Chunk {node.node_id} exceeded the embedding token limit ({max_tokens}); "
+                f"split into {len(pieces)} sub-chunk(s)"
+            )
+            
+            # re-construct relevant LlamaIndex TextNodes
+            for idx, piece in enumerate(pieces):
+                sub_node = TextNode(
+                    id_=f"{node.node_id}_part{idx}",
+                    text=piece,
+                    metadata=dict(node.metadata),
+                )
+                # preserve the same-file 'glue' so retrieval still groups sub-chunks
+                source = node.relationships.get(NodeRelationship.SOURCE)
+                if source is not None:
+                    sub_node.relationships[NodeRelationship.SOURCE] = source
+                bounded.append(sub_node)
+                
+        return bounded
 
     def _save_to_chroma_db(self, nodes: list["TextNode"], data_source: DataSource) -> tuple[str, int, int]: 
         """
@@ -489,6 +541,9 @@ class ChunkInsertionService:
         if nodes:
             largest = max(len(node.get_content()) for node in nodes)
             logger.info(f"Largest chunk to embed is {largest} characters for DataSource={data_source.id}")
+
+        # safety net: guarantee no chunk exceeds the embedding model's hard token limit
+        nodes = self.enforce_embedding_token_limit(nodes)
 
         # retrieve Chroma DB collection by data source ID
         collection = self.chroma_svc.get_real_chroma_collection(str(data_source.id))

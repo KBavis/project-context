@@ -4,6 +4,7 @@ from app.core import settings
 
 import logging
 import asyncio
+from typing import Callable
 
 
 class EmbeddingManager:
@@ -89,9 +90,13 @@ class EmbeddingManager:
     @classmethod
     def get_tokenizer(cls):
         """
-        Retrieve the Tokenizer corresponding to our Embeddings for Docling chunking 
-
-        TODO: Determine if we can do something similar for Code chunking 
+        Retrieve the Tokenizer corresponding to our Embeddings for Docling chunking.
+        
+        The tokenizer's `max_tokens` is the Docling chunker's target chunk size
+        (CHUNK_TARGET_TOKENS) - deliberately well below the embedding model's
+        hard limit so chunks stay semantically coherent.
+        
+        TODO: Determine if we can do something similar for Code chunking
         """
         
         match settings.EMBEDDING_PROVIDER:
@@ -100,14 +105,15 @@ class EmbeddingManager:
                 from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
                 from transformers import AutoTokenizer
                 return HuggingFaceTokenizer(
-                    tokenizer=AutoTokenizer.from_pretrained(settings.EMBEDDING_MODEL)
+                    tokenizer=AutoTokenizer.from_pretrained(settings.EMBEDDING_MODEL),
+                    max_tokens=settings.CHUNK_TARGET_TOKENS,
                 )
             case "Azure":
                 import tiktoken
                 from docling_core.transforms.chunker.tokenizer.openai import OpenAITokenizer
                 return OpenAITokenizer(
                     tokenizer=tiktoken.encoding_for_model(settings.EMBEDDING_MODEL),
-                    max_tokens=settings.EMBEDDING_MAX_TOKENS,
+                    max_tokens=settings.CHUNK_TARGET_TOKENS,
                 )
             case _:
                 logging.error(
@@ -116,3 +122,16 @@ class EmbeddingManager:
                 raise Exception(
                     f"Invalid embedding provider specified: {settings.EMBEDDING_PROVIDER}"
                 )
+
+    @classmethod
+    def get_token_encode_fn(cls) -> Callable[[str], list[int]]:
+        """
+        Return the raw encode function for the configured embedding model's tokenizer.
+        
+        Reuses the same tokenizer as Docling chunking so token counts match, and is
+        used to measure/bound chunk sizes against the embedding model's token limit.
+        
+        # the underlying encoder (tiktoken Encoding / HF tokenizer) exposed by the
+        # Docling tokenizer wrapper; both provide an `.encode(text) -> list[int]`
+        """
+        return cls.get_tokenizer().tokenizer.encode

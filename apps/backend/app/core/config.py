@@ -96,8 +96,10 @@ class Settings(BaseSettings):
     # key used depends on the Selected EMBEDDING_PROVIDER.
     EMBEDDING_API_BASE: str | None = None
     EMBEDDING_API_VERSION: str = "2024-10-21"
-    # Maximum tokens the embedding model accepts; used by the Docling chunker.
+    # Hard cap the embedding endpoint accepts; enforced as a safety net before embedding.
     EMBEDDING_MAX_TOKENS: int = 8191
+    # Target chunk size in tokens (kept well below EMBEDDING_MAX_TOKENS for coherent chunks).
+    CHUNK_TARGET_TOKENS: int = 512
     EMBEDDING_BATCH_SIZE: int = 64 # chunks per embedding request (reduce total requests to handle 429's)
     EMBEDDING_NUM_WORKERS: int = 2
     EMBEDDING_MAX_CHARS_PER_CHUNK: int = 8192
