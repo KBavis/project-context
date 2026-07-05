@@ -188,10 +188,7 @@ class Tools:
             self._ds_list_dir_tools[ds.id] = self._build_function_tool(
                 async_fn=provider.list_directory,
                 function_name=f"list_directory_{slug}",
-                description=(
-                    f"List the contents of a directory in DataSource '{ds.name}' ({ds.type}: {ds.provider}). "
-                    "The path argument MUST begin with a '/' unless listing the root directory. To list the root directory, pass an empty string ''. To list a subdirectory like 'docs', pass '/docs' (NOT 'docs/' or 'docs')."
-                ),
+                description=provider.list_directory_description(),
             )
 
             self._ds_citation_tools[ds.id] = self._build_function_tool(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+from typing import override
 import re
 import asyncio
 import httpx
@@ -27,6 +28,7 @@ class ConfluenceDataProvider(DocumentationDataProvider):
         # Reused across all pages in the tree to avoid re-loading Docling models per page
         self._doc_converter: DocumentConverter | None = None
 
+    @override
     def _parse_documentation_ref(self):
         # Format: https://<domain>/spaces/<SPACE_KEY>/pages/<PAGE_ID>[/<Title>]
         parsed = self.url.rstrip("/").split("/")
@@ -39,6 +41,7 @@ class ConfluenceDataProvider(DocumentationDataProvider):
         except ValueError:
             raise Exception(f"URL {self.url} does not match expected Confluence format: https://<domain>/spaces/<SPACE_KEY>/pages/<PAGE_ID>")
 
+    @override
     def _construct_base_urls(self):
         self._parse_documentation_ref()
         self.base_url = f"https://{self.domain}/spaces/{self.space_key}/pages/"
@@ -54,12 +57,14 @@ class ConfluenceDataProvider(DocumentationDataProvider):
             return {"Authorization": f"Bearer {settings.CONFLUENCE_SECRET_TOKEN}"}
         return None
 
+    @override
     def _validate_url(self):
         if "/spaces/" not in self.url or "/pages/" not in self.url:
             raise Exception(
                 f"The specified data source URL, {self.url}, is not in the proper format: https://<domain>/spaces/<SPACE_KEY>/pages/<PAGE_ID>"
             )
 
+    @override
     async def ingest_data(self, embed_task_id: UUID, file_svc: FileService, touched_file_paths: list[str] | None = None):
         self.file_svc = file_svc
         self.embed_task_id = embed_task_id
@@ -206,6 +211,7 @@ class ConfluenceDataProvider(DocumentationDataProvider):
             chunk = buffer.read(8192)
         return h.hexdigest()
 
+    @override
     async def view_file(self, file_path: str) -> str:
         # File path in this context is "confluence/safe_title_pageId.md"
         # We can extract the pageId and return its markdown content
@@ -229,59 +235,57 @@ class ConfluenceDataProvider(DocumentationDataProvider):
             logger.error(f"Failure viewing file={file_path} with exception={str(e)}")
             raise Exception(f"Failure occurred while attempt to view file: {file_path}", e)
 
+    @override
+    def list_directory_description(self) -> str:
+        ds = self.data_source
+        return (
+            f"List the child pages under a Confluence page in DataSource '{ds.name}' ({ds.type}): {ds.provider}. "
+            "To list the top-level pages, pass an empty string ''. "
+            "To list the children of a specific page, pass that page's numeric ID (the value shown as '(ID: ...)' "
+            "in a previous listing) - e.g. '123456'. "
+            "Do NOT pass page titles or slash-separated paths; always use the numeric page ID."
+        )
+
+    @override
     async def list_directory(self, path: str) -> str:
         """
-        List the child pages under a Confluence page in a single request.
-        
-        `path` may be empty (root), a numeric page ID, or a page title. IDs/root
-        hit the child endpoint directly; a title is resolved and expanded to its
-        children in one call via `expand=children.page` (Confluence keys child
-        lookups by numeric ID, so a title would otherwise need a second request).
+        List the child pages under a Confluence page.
+
+        path: either empty (the root page's children) or a numeric page ID (that page's children). Both resolve in a single request.
         """
         # strip surrounding slashes/whitespace so an agent-supplied "/Title" doesn't
         # produce a malformed URL
         normalized = path.strip().strip("/").strip() if path else ""
-        
+
         try:
-            async with httpx.AsyncClient() as client:
-                if normalized and not normalized.isdigit():
-                    response = await client.get(
-                        self.base_api_url,
-                        params={
-                            "spaceKey": self.space_key,
-                            "title": normalized,
-                            "type": "page",
-                            "expand": "children.page",
-                        },
-                        headers=self.request_headers,
-                    )
-                    response.raise_for_status()
-                    results = response.json().get("results", [])
-                    if not results:
-                        raise Exception(
-                            f"No Confluence page titled '{normalized}' found in space {self.space_key}"
-                        )
-                    page = results[0]
-                    page_id = page["id"]
-                    children = page.get("children", {}).get("page", {}).get("results", [])
-                else:
-                    page_id = normalized or self.root_page_id
-                    response = await client.get(
-                        f"{self.base_api_url}/{page_id}/child/page",
-                        headers=self.request_headers,
-                    )
-                    response.raise_for_status()
-                    children = response.json().get("results", [])
-                    
+            page_id = normalized or self.root_page_id
+            if not page_id.isdigit():
+                raise Exception(
+                    f"'{path}' is not a numeric Confluence page ID. Pass the numeric ID shown as "
+                    f"'(ID: ...)' in a previous listing, or '' to list the top-level pages."
+                )
+
+            children = await self._get_child_pages_by_id(page_id)
+
             path_contents = [f"Children of Page {page_id}:"]
             for child in children:
                 path_contents.append(f"{child['title']} (ID: {child['id']})")
-            
+
             return "\n".join(path_contents)
-            
+
         except Exception as e:
             logger.error(f"Failure listing directory={path} with exception={str(e)}")
             raise Exception(f"Failure occurred while attempt to list directory: {path}", e)
+
+    async def _get_child_pages_by_id(self, page_id: str) -> list[dict]:
+        """Fetch the child pages of a Confluence page by its numeric ID (single request)."""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_api_url}/{page_id}/child/page",
+                headers=self.request_headers,
+            )
+            response.raise_for_status()
+            return response.json().get("results", [])
 
     def _get_page_title(self, file_path: str) -> str:
         try:
@@ -300,6 +304,7 @@ class ConfluenceDataProvider(DocumentationDataProvider):
             logger.warning(f"Failed to extract title from {file_path}: {e}")
             return file_path.split("/")[-1]
 
+    @override
     async def generate_citation(self, file_path: str) -> str:
         # Path format: confluence/safe_title_pageId.md
         try:

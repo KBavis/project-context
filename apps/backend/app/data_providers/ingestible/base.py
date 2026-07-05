@@ -79,6 +79,20 @@ class IngestibleDataProvider(DataProvider):
         """
         raise NotImplementedError()
 
+    def list_directory_description(self) -> str:
+        """
+        The description exposed to the LLM for this provider's `list_directory` tool.
+        Providers whose `list_directory` uses non-filesystem addressing (e.g. Confluence
+        page IDs) override this so the agent supplies the right argument shape.
+        """
+        ds = self.data_source
+        return (
+            f"List the contents of a directory in DataSource '{ds.name}' ({ds.type}): {ds.provider}.\n"
+            "The path argument MUST begin with a '/' unless listing the root directory. \n"
+            "To list the root directory, pass an empty string ''.\n"
+            "To list a subdirectory like 'docs', pass '/docs' (NOT 'docs/' or 'docs')."
+        )
+
     def _write_file(self, full_path: Path, buffer: BytesIO):
         """Sync helper: write buffered content to disk (runs in worker thread)."""
         full_path.parent.mkdir(parents=True, exist_ok=True)
