@@ -9,8 +9,143 @@ import { useAlert } from '../contexts/AlertContext';
 import Button from './Button';
 import '../styles/ChatInterface.css';
 
+// Allow the private `cite:` scheme through react-markdown's URL sanitizer while still
+// blocking genuinely unsafe protocols (javascript:, data:, etc.).
+const safeUrlTransform = (url) => {
+    if (!url) return url;
+    if (url.startsWith('cite:')) return url;
+    if (/^(https?:|mailto:|tel:|#|\/)/i.test(url)) return url;
+    return '';
+};
+
+// Pull the embedded citation map (persisted as a stripped HTML comment) out of stored
+// content so citations still render on reload. Returns the cleaned body + parsed map.
+const extractEmbeddedCitations = (rawContent) => {
+    const text = rawContent || '';
+    const match = text.match(/\n*<!--CITATIONS:([\s\S]*?)-->\s*$/);
+    if (!match) return { body: text, embeddedMap: null };
+    let embeddedMap = null;
+    try {
+        embeddedMap = JSON.parse(match[1]);
+    } catch {
+        embeddedMap = null;
+    }
+    return { body: text.slice(0, match.index).trimEnd(), embeddedMap };
+};
+
+// Renders an assistant/user message: markdown body with de-emphasized inline citations
+// (cite:<id> links) plus an auto-generated, grouped Citations footer built from the
+// markers the answer actually placed.
+function MessageContent({ content, citations }) {
+    const { body, embeddedMap } = extractEmbeddedCitations(content);
+    const citationMap = citations || embeddedMap || {};
+
+    // Collect the citation ids the answer actually referenced, in first-seen order.
+    const usedIds = [];
+    const seen = new Set();
+    const re = /\(cite:(\w+)\)/g;
+    let m;
+    while ((m = re.exec(body)) !== null) {
+        if (!seen.has(m[1]) && citationMap[m[1]]) {
+            seen.add(m[1]);
+            usedIds.push(m[1]);
+        }
+    }
+
+    const components = {
+        a: ({ href, children, ...props }) => {
+            if (href && href.startsWith('cite:')) {
+                const c = citationMap[href.slice(5)];
+                if (c) {
+                    // Show a deterministic, precise label (file:line-range) from the citation
+                    // map rather than whatever text the model wrote, so line numbers always show.
+                    const shortLabel = c.label && c.label.includes('/')
+                        ? c.label.split('/').pop()
+                        : c.label;
+                    return (
+                        <a
+                            href={c.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="citation-link"
+                            title={c.label}
+                        >
+                            {shortLabel || children}
+                        </a>
+                    );
+                }
+                // Unknown/dropped citation id — show the label as plain de-emphasized text.
+                return <span className="citation-link citation-link-missing">{children}</span>;
+            }
+            return (
+                <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+                    {children}
+                </a>
+            );
+        },
+    };
+
+    // Group referenced citations by their data source for the footer, keeping each
+    // unique source (by resolved URL) only once — distinct findings can point to the
+    // same file+lines, which would otherwise duplicate footer entries.
+    const groups = {};
+    const seenUrls = new Set();
+    usedIds.forEach((id) => {
+        const c = citationMap[id];
+        if (seenUrls.has(c.url)) return;
+        seenUrls.add(c.url);
+        const key = c.data_source_name || 'Sources';
+        if (!groups[key]) groups[key] = { url: c.data_source_url, items: [] };
+        groups[key].items.push({ id, ...c });
+    });
+
+    return (
+        <>
+            <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkBreaks]}
+                urlTransform={safeUrlTransform}
+                components={components}
+            >
+                {body}
+            </ReactMarkdown>
+
+            {usedIds.length > 0 && (
+                <div className="citations-section">
+                    <div className="citations-heading">Citations</div>
+                    {Object.entries(groups).map(([name, group]) => (
+                        <div key={name} className="citation-group">
+                            <div className="citation-group-title">
+                                📂{' '}
+                                {group.url ? (
+                                    <a href={group.url} target="_blank" rel="noopener noreferrer">{name}</a>
+                                ) : (
+                                    <span>{name}</span>
+                                )}
+                            </div>
+                            <ul className="citation-list">
+                                {group.items.map((item) => (
+                                    <li key={item.id}>
+                                        <a
+                                            href={item.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="citation-link"
+                                        >
+                                            {item.label}
+                                        </a>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </>
+    );
+}
+
 export default function ChatInterface({ conversationId }) {
-    const { messages, setMessages } = useConversations();
+    const { messages, setMessages, updateConversation } = useConversations();
     const { selectedProject, syncingProjects } = useProjects();
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -35,6 +170,7 @@ export default function ChatInterface({ conversationId }) {
     })();
 
     const [streamingMessage, setStreamingMessage] = useState('');
+    const [streamingCitations, setStreamingCitations] = useState(null);
     const [status, setStatus] = useState('');
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
@@ -95,6 +231,7 @@ export default function ChatInterface({ conversationId }) {
         setInput('');
         setLoading(true);
         setStreamingMessage('');
+        setStreamingCitations(null);
 
         try {
             const response = await api.messages.send(conversationId, input);
@@ -106,6 +243,7 @@ export default function ChatInterface({ conversationId }) {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let assistantMessage = '';
+            let citationsMap = null;
             let buffer = '';
 
             while (true) {
@@ -137,8 +275,16 @@ export default function ChatInterface({ conversationId }) {
                         assistantMessage += parsedEvent.data;
                         setStreamingMessage(assistantMessage);
                         setStatus('Generating...'); // Reset to "Generating" when we get actual tokens
+                    } else if (parsedEvent.event === 'citations') {
+                        citationsMap = parsedEvent.data;
+                        setStreamingCitations(parsedEvent.data);
                     } else if (parsedEvent.event === 'metadata') {
-                        // Final data (token counts, etc)
+                        // Final data (token counts, freshly generated title, etc)
+                        if (parsedEvent.data?.conversation_summary && parsedEvent.data?.conversation_id) {
+                            updateConversation(parsedEvent.data.conversation_id, {
+                                summary: parsedEvent.data.conversation_summary,
+                            });
+                        }
                         console.log('Stream Metadata:', parsedEvent.data);
                     } else if (parsedEvent.event === 'error') {
                         throw new Error(parsedEvent.data);
@@ -149,10 +295,12 @@ export default function ChatInterface({ conversationId }) {
             const completeMessage = {
                 role: 'assistant',
                 content: assistantMessage,
+                citations: citationsMap,
                 timestamp: new Date(),
             };
             setMessages(prev => [...prev, completeMessage]);
             setStreamingMessage('');
+            setStreamingCitations(null);
             setStatus('');
 
         } catch (error) {
@@ -222,9 +370,7 @@ export default function ChatInterface({ conversationId }) {
                         </div>
                         <div className="message-content">
                             <div className="message-text">
-                                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-                                    {msg.content}
-                                </ReactMarkdown>
+                                <MessageContent content={msg.content} citations={msg.citations} />
                             </div>
                             <div className="message-timestamp">
                                 {(msg.timestamp || msg.created_at) && new Date(msg.timestamp || msg.created_at).toLocaleTimeString()}
@@ -239,9 +385,7 @@ export default function ChatInterface({ conversationId }) {
                         <div className="message-content">
                             <div className="message-text">
                                 {streamingMessage ? (
-                                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-                                        {streamingMessage}
-                                    </ReactMarkdown>
+                                    <MessageContent content={streamingMessage} citations={streamingCitations} />
                                 ) : (
                                     <div className="typing-dots">
                                         <span></span><span></span><span></span>

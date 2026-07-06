@@ -2,12 +2,9 @@ from enum import Enum
 
 
 class AgentName(str, Enum):
-    PLANNING  = "PlanningAgent"
-    RESEARCH  = "ResearchAgent"
-    SYNTH     = "SynthAgent"
+    RESEARCH = "ResearchAgent"
 
 
 class AgentType(str, Enum):
-    PLANNING  = "planning"
-    RESEARCH  = "research"
-    SYNTH     = "synth"
+    RESEARCH = "research"
+    ANSWER   = "answer"

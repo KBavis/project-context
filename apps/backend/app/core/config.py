@@ -79,10 +79,22 @@ class Settings(BaseSettings):
     # non-OpenAI models
     AZURE_MULTI_VENDOR_GATEWAY: bool = False
     LL_MODEL_CHAT_SUMMARY_SYSTEM_PROMPT: str = """
-    Your goal is to take the following prompt from the user, along with some basic context such as the Project Name, and construct a high 
-    quality, concise, and informative summary of the user's intent. These summary should be no more than 8 words and should clearly convery 
-    what the user is attempting to achieve in the particular conversation
+    You generate a very short title for a conversation from the user's first message and the project name.
+    Rules:
+    - Maximum 6 words (prefer 3-5).
+    - Title Case. No trailing punctuation, no quotes, no emojis.
+    - Capture the user's specific intent; do NOT simply restate the project name.
+    - Do NOT reuse generic titles like "New Conversation" or "Project Questions".
+    - Output ONLY the title text — nothing else.
     """
+
+    ###########################
+    # Agentic Workflow Budgets
+    ###########################
+    AGENT_RESEARCH_MAX_ITERATIONS: int = 15
+    AGENT_RESEARCH_MAX_ITERATIONS_SIMPLE: int = 8
+    AGENT_RESEARCH_MAX_ITERATIONS_DEEP: int = 40
+    AGENT_MEMORY_TOKEN_LIMIT: int = 40000
     
 
     ###########################

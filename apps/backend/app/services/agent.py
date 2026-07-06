@@ -4,25 +4,28 @@ from typing import AsyncGenerator, TYPE_CHECKING
 import asyncio
 import logging
 import json
+import re
 
 from llama_index.core.base.llms.types import TextBlock
 from workflows.context.context import Context
 from app.pydantic.streaming import StreamEventType
 from app.services.util import format_sse_event
-from app.pydantic.agent import AgentName
+from app.core import settings
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
-from app.agents import Tools, get_agentic_workflow
+from llama_index.core.memory import ChatMemoryBuffer
+from app.agents import Tools, get_agentic_workflow, build_answer_prompt
 from app.llm import LLMBase
 from app.services.mcp import MCPService
 from app.services.data_source import DataSourceService
 from app.services.chunk_retrieval import ChunkRetrievalService
 from app.services.diff_task import DiffTaskService
 from app.models.data_source import DataSource, DataSourceType
+from app.data_providers.ingestible.base import IngestibleDataProvider
 
 from llama_index.core.tools import FunctionTool
-from llama_index.core.agent.workflow import (AgentOutput, AgentStream, ToolCallResult, AgentWorkflow, AgentInput)
+from llama_index.core.agent.workflow import (AgentOutput, ToolCallResult, AgentWorkflow, AgentInput)
 from llama_index.core.llms import ChatMessage
 
 if TYPE_CHECKING:
@@ -77,7 +80,9 @@ class AgentService:
         """
         async with AsyncExitStack() as async_exit_stack:
 
-            # 1. Retrieve the DataSources associated with the Project
+            # ─────────────────────────────────────────────
+            # Setup: resolve data sources, tooling, and MCP tools for this run
+            # ─────────────────────────────────────────────
             data_sources: list[DataSource] = await self.data_source_svc.aget_project_data_sources(project_id)
             if not data_sources:
                 logger.error("No Data Sources found for Project ID: %s", project_id)
@@ -86,18 +91,15 @@ class AgentService:
                     f"no DataSources are associated with Project: {project_id}"
                 )
 
-            # 1b. Kick off the BM25 index build in the background so its ready by ChunkRetrieval time
+            # Warm the BM25 index in the background so it's ready by ChunkRetrieval time.
             asyncio.create_task(self._warm_bm25_cache(project_id))
 
-            # 1c. Build a Project summary so every phase knows *which* project it is assisting with
+            # Project summary so every phase knows *which* project it is assisting with.
             project_context = self._build_project_context(project)
 
-            # 2. Get MCP tools keyed by data_source_id
             mcp_tools: dict[str, list[FunctionTool]] = await self.mcp_svc.get_mcp_tools(data_sources, async_exit_stack)
-            total_mcp = sum(len(t) for t in mcp_tools.values())
-            logger.info("Retrieved %d MCP tools across %d DataSources", total_mcp, len(data_sources))
+            logger.info("Retrieved %d MCP tools across %d DataSources", sum(len(t) for t in mcp_tools.values()), len(data_sources))
 
-            # 3. Initialize internal tooling manager (all DataSources, pre-Diagnosis)
             scope_map = {}
             if self.diff_svc:
                 scope_map = await self.diff_svc.build_scoped_repository_file_id_map(project_id)
@@ -111,22 +113,32 @@ class AgentService:
                 scope_map=scope_map,
                 diff_svc=self.diff_svc,
             )
-            all_internal_tools = tool_manager.get_all_internal_tools()
-            logger.info("Initialized %d internal tools across %d DataSources", len(all_internal_tools), len(data_sources))
 
-            # 4. Phase 1: Diagnosis — refine question and filter MCP tools
-            refined_question, question_type, mcp_tools = await self.diagnose_users_question(
-                llm, user_prompt, data_sources, all_internal_tools, mcp_tools, conversation_history,
-                project_context=project_context,
-            )
-            logger.info("Phase 1 Complete: QuestionType=%s, RefinedQuestion='%s'", question_type, refined_question)
-
-            # 5. Inject scope context
-            scope_summary = await self._build_project_scope_summary(project_id, data_sources)
-
-            # 6. Build the Agent Workflow with per-agent tool sets
+            # Token counting spans the research + answer LLM calls (diagnosis uses its own instance).
             token_counter = TokenCountingHandler()
             callback_manager = CallbackManager([token_counter])
+
+            # ─────────────────────────────────────────────
+            # Phase 1: Diagnosis
+            # Refine the question, classify research depth, and filter MCP tools down to
+            # only what's needed — before any expensive research begins.
+            # ─────────────────────────────────────────────
+            refined_question, question_type, research_depth, mcp_tools = await self.diagnose_users_question(
+                llm, user_prompt, data_sources, tool_manager.get_all_internal_tools(), mcp_tools,
+                conversation_history, project_context=project_context,
+            )
+            logger.info(
+                "Phase 1 (Diagnosis) complete: question_type=%s, research_depth=%s, refined_question='%s'",
+                question_type, research_depth, refined_question,
+            )
+            scope_summary = await self._build_project_scope_summary(project_id, data_sources)
+
+            # ─────────────────────────────────────────────
+            # Phase 2: Research
+            # A single self-planning agent investigates the data sources and logs findings
+            # to shared state, bounded by a depth-derived iteration budget and a
+            # token-limited memory so context can't grow without bound.
+            # ─────────────────────────────────────────────
             workflow: AgentWorkflow = get_agentic_workflow(
                 mcp_tools=mcp_tools,
                 llm=llm,
@@ -134,104 +146,36 @@ class AgentService:
                 tool_manager=tool_manager,
                 refined_question=refined_question,
                 question_type=question_type,
+                research_depth=research_depth,
                 scope_summary=scope_summary,
                 project_context=project_context,
                 callback_manager=callback_manager,
             )
-
-            # 7. Run the Agent Workflow
             ctx = Context(workflow)
-            handler = workflow.run(
-                user_msg=refined_question,
+            memory = ChatMemoryBuffer.from_defaults(
                 chat_history=conversation_history,
-                ctx=ctx,
-                max_iterations=40,
+                token_limit=settings.AGENT_MEMORY_TOKEN_LIMIT,
             )
 
-            # 8. Stream events back to the caller
             try:
-                seen_agents = set()
-                async for event in handler.stream_events():
+                # stream research events (tool calls, status updates) to the caller
+                async for event in self._run_research(
+                    workflow, ctx, refined_question, memory, self._research_budget(research_depth)
+                ):
+                    yield event
 
-                    match event:
-
-                        case AgentStream():
-                            # Stream only SynthAgent's final response to the user
-                            if event.delta and event.current_agent_name == AgentName.SYNTH:
-                                yield format_sse_event(StreamEventType.CHUNK, event.delta), event.delta
-                                continue
-
-                            # All other agent activity is internal dialogue — ignore token-by-token logging to reduce clutter.
-                            pass
-
-                        case AgentInput():
-                            agent_name = event.current_agent_name
-                            phase_name = agent_name.replace("Agent", "")
-                            if phase_name not in seen_agents:
-                                seen_agents.add(phase_name)
-                                logger.info("\n=== [%s Phase Started] ===", phase_name.upper())
-                            yield format_sse_event(StreamEventType.STATUS, f"{agent_name} is thinking..."), None
-
-                        case AgentOutput():
-                            agent_name = event.current_agent_name
-
-                            for tool_call in event.tool_calls:
-                                tool_name = tool_call.tool_name
-                                tool_args = tool_call.tool_kwargs
-
-                                if tool_name == "handoff":
-                                    handoff_to = tool_args.get("to_agent", "unknown").replace("Agent", "")
-                                    reason = str(tool_args.get("reason", ""))[:150]
-                                    logger.info("[%s Agent] Handoff -> %s Agent (Reason: %s)", agent_name, handoff_to, reason)
-                                    yield format_sse_event(StreamEventType.STATUS, f"Handing off to {handoff_to}..."), None
-                                else:
-                                    logger.info("[%s Agent] Tool Call: %s (Args: %s)", agent_name, tool_name, str(tool_args)[:150])
-                                    yield format_sse_event(StreamEventType.STATUS, f"{agent_name} running tool: {tool_name}..."), None
-
-                        case ToolCallResult():
-                            output_str = str(event.tool_output)
-                            output_len = len(output_str)
-
-                            # Check for explicit errors or empty responses
-                            is_error = getattr(event.tool_output, "is_error", False)
-                            
-                            if is_error or (output_len < 100 and "error" in output_str.lower()):
-                                error_msg = output_str[:150].replace('\n', ' ')
-                                logger.warning("[Tool Result] %s FAILED or returned error: %s", event.tool_name, error_msg)
-                            
-                            elif output_len == 0 or output_str.strip() in ["None", "[]", "{}", ""]:
-                                logger.warning("[Tool Result] %s returned NO DATA.", event.tool_name)
-                                
-                            else:
-                                logger.info("[Tool Result] %s: returned %s characters of data.", event.tool_name, output_len)
-
-                        case _:
-                            pass
-
-                # Wait for the final result
-                result = await handler
-                logger.info("Workflow Complete. Result: %s", result)
-
-                # Log plan + accumulated research findings from shared Context
-                await self._log_research_state(ctx)
-
-            except Exception as e:
-                logger.error("Error in agent workflow: %s", e, exc_info=True)
-
-                error_msg = str(e).lower()
-                friendly_msg = "An unexpected error occurred during agent execution."
-
-                if "context_length" in error_msg or "maximum context length" in error_msg:
-                    friendly_msg = "Context window exceeded. Please try a shorter prompt or clear conversation history."
-                elif "rate_limit" in error_msg or "429" in error_msg:
-                    friendly_msg = "Rate limit reached. Please wait a moment before trying again."
-                elif "timeout" in error_msg or "deadline exceeded" in error_msg:
-                    friendly_msg = "The request timed out. The agent took too long to respond."
-
-                yield format_sse_event(StreamEventType.ERROR, friendly_msg, "Workflow Error"), None
-                # Do NOT re-raise — allow token usage to be calculated and returned
+                # ─────────────────────────────────────────────
+                # Phase 3: Stream Response
+                # Resolve deterministic citations from the findings, build the
+                # Constitution-governed answer prompt, and stream the answer to the user.
+                # ─────────────────────────────────────────────
+                async for event in self._stream_response(
+                    llm, tool_manager, ctx, refined_question, project_context, scope_summary, callback_manager
+                ):
+                    yield event
 
             finally:
+                # Always report token usage, even if a phase failed mid-flight.
                 yield StreamEventType.TOKEN_USAGE, {
                     # Tokens fed into the LLM (history, system prompts, tool defs, user prompt)
                     "input_tokens": token_counter.prompt_llm_token_count,
@@ -241,6 +185,273 @@ class AgentService:
                     "total_tokens": token_counter.total_llm_token_count,
                 }
 
+
+    async def _run_research(
+        self,
+        workflow: AgentWorkflow,
+        ctx: Context,
+        refined_question: str,
+        memory: ChatMemoryBuffer,
+        max_iterations: int,
+    ) -> AsyncGenerator[tuple[str, str | dict | None], None]:
+        """
+        Phase 2: run the bounded research loop, streaming lightweight status events.
+
+        The agent logs findings into `ctx.store` via its tools. If the loop hits its
+        iteration budget (rather than finishing naturally), we record
+        `ctx.store['research_truncated'] = True` so the answer phase can note the answer
+        may be partial. Errors are swallowed so we still answer from partial findings.
+        """
+        truncated = False
+        try:
+            yield format_sse_event(StreamEventType.STATUS, "Researching your question...", "Researching"), None
+            handler = workflow.run(
+                user_msg=refined_question,
+                memory=memory,
+                ctx=ctx,
+                max_iterations=max_iterations,
+            )
+
+            async for event in handler.stream_events():
+                match event:
+                    case AgentInput():
+                        # Research turns are internal; surface a lightweight status only.
+                        yield format_sse_event(StreamEventType.STATUS, "Researching your question..."), None
+                    case AgentOutput():
+                        for tool_call in event.tool_calls:
+                            logger.info("[Research] Tool Call: %s (Args: %s)", tool_call.tool_name, str(tool_call.tool_kwargs)[:150])
+                            yield format_sse_event(StreamEventType.STATUS, f"Running {tool_call.tool_name}..."), None
+                    case ToolCallResult():
+                        self._log_tool_result(event)
+                    case _:
+                        pass
+
+            # The research agent's own terminal text is discarded — findings drive the answer.
+            await handler
+
+        except Exception as research_err:
+            # Budget exhaustion or a mid-loop failure must NOT abort the response; we answer
+            # from whatever findings were gathered so far (graceful degradation).
+            err_text = str(research_err).lower()
+            truncated = "max iteration" in err_text or "maximum iteration" in err_text
+            logger.warning("Research phase ended early (answering from findings gathered so far): %s", research_err)
+
+        await self._log_research_state(ctx)
+        await ctx.store.set("research_truncated", truncated)
+
+    def _log_tool_result(self, event: ToolCallResult) -> None:
+        """Log a tool result at the appropriate level (error / no-data / ok) for observability."""
+        output_str = str(event.tool_output)
+        output_len = len(output_str)
+        is_error = getattr(event.tool_output, "is_error", False)
+
+        if is_error or (output_len < 100 and "error" in output_str.lower()):
+            logger.warning("[Tool Result] %s FAILED or returned error: %s", event.tool_name, output_str[:150].replace('\n', ' '))
+        elif output_len == 0 or output_str.strip() in ["None", "[]", "{}", ""]:
+            logger.warning("[Tool Result] %s returned NO DATA.", event.tool_name)
+        else:
+            logger.info("[Tool Result] %s: returned %s characters of data.", event.tool_name, output_len)
+
+    async def _stream_response(
+        self,
+        llm: LLMBase,
+        tool_manager: Tools,
+        ctx: Context,
+        refined_question: str,
+        project_context: str,
+        scope_summary: str,
+        callback_manager: CallbackManager,
+    ) -> AsyncGenerator[tuple[str, str | dict | None], None]:
+        """
+        Phase 3: resolve deterministic citations and stream the Constitution-governed answer.
+
+        Reads the accumulated findings (and the research_truncated flag) from `ctx.store`,
+        resolves citations in code, builds the answer prompt, and streams the answer. Emits
+        the citation map as a final event. Answer-time errors surface as a friendly message
+        rather than being raised, so the caller can still report token usage.
+        """
+        try:
+            findings: list = await ctx.store.get("findings", [])  # type: ignore[arg-type]
+        except Exception:
+            findings = []
+        try:
+            research_truncated: bool = await ctx.store.get("research_truncated", False)  # type: ignore[arg-type]
+        except Exception:
+            research_truncated = False
+        try:
+            file_line_counts: dict = await ctx.store.get("file_line_counts", {})  # type: ignore[arg-type]
+        except Exception:
+            file_line_counts = {}
+
+        try:
+            citation_map = await self._build_citation_map(findings, tool_manager, file_line_counts)
+
+            yield format_sse_event(StreamEventType.STATUS, "Composing answer...", "Answering"), None
+
+            answer_prompt = build_answer_prompt(
+                refined_question=refined_question,
+                project_context=project_context,
+                scope_summary=scope_summary,
+                findings=findings,
+            )
+
+            answer_llm = llm.get_llama_idx_instance(callback_manager=callback_manager)
+            response_stream = await answer_llm.astream_complete(answer_prompt)
+            async for chunk in response_stream:
+                delta = getattr(chunk, "delta", None) or ""
+                if delta:
+                    yield format_sse_event(StreamEventType.CHUNK, delta), delta
+
+            # If research stopped at its budget, tell the user the answer may be partial and
+            # that they can continue. The prior answer stays in conversation history, so a
+            # follow-up "keep searching" lets the next run pick up the thread.
+            if research_truncated:
+                note = (
+                    "\n\n---\n\n> ⚠️ I reached my research limit for this question before fully "
+                    "exploring everything, so this answer may be incomplete. Reply "
+                    "**\"keep searching\"** and I'll continue from where I left off."
+                )
+                yield format_sse_event(StreamEventType.CHUNK, note), note
+
+            # Emit the citation map so the client can render inline cite:<id> links + footer.
+            yield StreamEventType.CITATIONS, citation_map
+
+        except Exception as e:
+            logger.error("Error composing answer: %s", e, exc_info=True)
+
+            error_msg = str(e).lower()
+            friendly_msg = "An unexpected error occurred while composing the answer."
+
+            if "context_length" in error_msg or "maximum context length" in error_msg:
+                friendly_msg = "Context window exceeded. Please try a shorter prompt or clear conversation history."
+            elif "rate_limit" in error_msg or "429" in error_msg:
+                friendly_msg = "Rate limit reached. Please wait a moment before trying again."
+            elif "timeout" in error_msg or "deadline exceeded" in error_msg:
+                friendly_msg = "The request timed out. The agent took too long to respond."
+
+            yield format_sse_event(StreamEventType.ERROR, friendly_msg, "Answer Error"), None
+
+    # ─────────────────────────────────────────────
+    # Citation Resolution (deterministic, code-side — NOT an agent tool)
+    # ─────────────────────────────────────────────
+
+    async def _build_citation_map(
+        self, findings: list[dict], tool_manager: Tools, file_line_counts: dict
+    ) -> dict[str, dict]:
+        """
+        Resolve every research finding into a citation entry, keyed by a stable 1-based
+        finding id (as a string). The answer LLM references these ids via `cite:<id>`
+        markers; the frontend renders them from this map. The 1-based ids must match the
+        numbering used by build_answer_prompt's finding list.
+
+        Each entry: {url, label, data_source_id, data_source_name, data_source_url}.
+        Findings that can't be resolved (unknown DataSource, provider error, or an
+        [UNANSWERABLE] marker) are skipped. DataSource rows come from the run's data sources
+        and providers are built here; `file_line_counts` (recorded by the view_file tool into
+        shared state) lets us drop the anchor when a range spans the whole file.
+        """
+        ds_by_id = {ds.id: ds for ds in tool_manager.data_sources}
+        providers: dict[UUID, IngestibleDataProvider] = {}
+
+        citation_map: dict[str, dict] = {}
+        for idx, finding in enumerate(findings, start=1):
+            source = str(finding.get("source", "")).strip()
+            ds_id_raw = finding.get("data_source_id")
+            if not source or not ds_id_raw or source.startswith("[UNANSWERABLE]"):
+                continue
+            try:
+                ds_uuid = UUID(str(ds_id_raw))
+            except (ValueError, TypeError):
+                logger.warning("Skipping citation for finding %d: invalid data_source_id=%r", idx, ds_id_raw)
+                continue
+
+            ds = ds_by_id.get(ds_uuid)
+            if ds is None:
+                logger.warning("Skipping citation for finding %d: unknown data_source_id=%s", idx, ds_uuid)
+                continue
+
+            provider = providers.get(ds_uuid)
+            if provider is None:
+                try:
+                    provider = IngestibleDataProvider.from_provider(ds)
+                except Exception as e:
+                    logger.warning("Skipping citation for finding %d: cannot build provider for %s: %s", idx, ds_uuid, e)
+                    continue
+                providers[ds_uuid] = provider
+
+            file_path, line_range = self._parse_source(source)
+            try:
+                base_markdown = await provider.generate_citation(file_path)
+            except Exception as e:
+                logger.warning("Skipping citation for finding %d (%s): %s", idx, file_path, e)
+                continue
+
+            label, url = self._parse_markdown_link(base_markdown, fallback_label=file_path)
+
+            # Append a line anchor for repository sources when a line range is known — but
+            # skip it when the range spans the whole file (a file-level link reads cleaner).
+            if line_range and ds.type == DataSourceType.REPOSITORY:
+                start, end = line_range
+                total = file_line_counts.get(f"{ds_uuid}::{file_path.lstrip('/')}")
+                covers_whole_file = total is not None and start <= 1 and end >= total
+                if not covers_whole_file:
+                    url = f"{url}{provider.line_anchor(start, end)}"
+                    label = f"{file_path}:{start}-{end}"
+
+            citation_map[str(idx)] = {
+                "url": url,
+                "label": label,
+                "data_source_id": str(ds_uuid),
+                "data_source_name": ds.name,
+                "data_source_url": ds.url,
+            }
+        return citation_map
+
+    @staticmethod
+    def _parse_source(source: str) -> tuple[str, tuple[int, int] | None]:
+        """
+        Split a finding `source` into (file_path, (start, end)).
+
+        Handles 'path/to/file.py:45-62' and 'path:45'. If the source carries multiple
+        disjoint ranges (e.g. 'file.py:704-721,768-785'), only the FIRST contiguous range
+        is used — a single citation link cannot express disjoint ranges. Returns
+        (source, None) when no range is present.
+        """
+        m = re.match(r"^(?P<path>.+?):(?P<lines>\d[\d\s,\-]*)$", source)
+        if not m:
+            return source, None
+        first = re.match(r"(\d+)(?:-(\d+))?", m.group("lines").strip())
+        if not first:
+            return m.group("path"), None
+        start = int(first.group(1))
+        end = int(first.group(2)) if first.group(2) else start
+        return m.group("path"), (start, end)
+
+    @staticmethod
+    def _parse_markdown_link(markdown: str, fallback_label: str) -> tuple[str, str]:
+        """
+        Extract (label, url) from a provider's `[label](url)` citation string.
+        Falls back to (fallback_label, stripped markdown) if the pattern doesn't match.
+        """
+        m = re.match(r"^\s*\[(?P<label>.*?)\]\((?P<url>.*?)\)\s*$", markdown, re.DOTALL)
+        if not m:
+            return fallback_label, markdown.strip()
+        return (m.group("label") or fallback_label), m.group("url")
+
+    def _research_budget(self, research_depth: str) -> int:
+        """
+        Map the diagnosis research_depth to an iteration budget (a CEILING, not a target).
+
+        The agent's convergence rule stops it early once new searches surface nothing new,
+        so an over-classified question doesn't waste iterations; an under-classified one is
+        covered by the 'keep searching' backstop. Default (standard) on anything unknown.
+        """
+        depth = (research_depth or "standard").lower()
+        if depth == "shallow":
+            return settings.AGENT_RESEARCH_MAX_ITERATIONS_SIMPLE
+        if depth == "deep":
+            return settings.AGENT_RESEARCH_MAX_ITERATIONS_DEEP
+        return settings.AGENT_RESEARCH_MAX_ITERATIONS
 
     async def _warm_bm25_cache(self, project_id: UUID) -> None:
         """
@@ -382,14 +593,15 @@ class AgentService:
         mcp_tools: dict[str, list[FunctionTool]],
         conversation_history: list[ChatMessage],
         project_context: str = "",
-    ) -> tuple[str, str, dict[str, list[FunctionTool]]]:
+    ) -> tuple[str, str, str, dict[str, list[FunctionTool]]]:
         """
         Phase 1: Diagnosis — lightweight LLM call (before the full workflow) that determines:
           a) A clarified/refined version of the question
           b) Which MCP tools (if any) are actually needed
           c) The question type/classification
+          d) The research depth (shallow | standard | deep) used to size the iteration budget
 
-        Returns a tuple of (refined_question, question_type, filtered_mcp_tools).
+        Returns a tuple of (refined_question, question_type, research_depth, filtered_mcp_tools).
         """
         logger.info(
             "Executing Phase 1 Diagnosis via %s/%s for prompt: %s",
@@ -409,10 +621,13 @@ class AgentService:
 
         refined_question = diagnosis.get("refined_question", user_prompt)
         question_type = diagnosis.get("question_type", "General Inquiry")
+        research_depth = str(diagnosis.get("research_depth", "standard")).lower()
+        if research_depth not in ("shallow", "standard", "deep"):
+            research_depth = "standard"
 
         mcp_tools = self._filter_mcp_tools(mcp_tools, diagnosis.get("required_mcp_tools", {}))
 
-        return refined_question, question_type, mcp_tools
+        return refined_question, question_type, research_depth, mcp_tools
 
 
     # ─────────────────────────────────────────────

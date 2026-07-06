@@ -211,29 +211,44 @@ class ConfluenceDataProvider(DocumentationDataProvider):
             chunk = buffer.read(8192)
         return h.hexdigest()
 
-    @override
     async def view_file(self, file_path: str) -> str:
-        # File path in this context is "confluence/safe_title_pageId.md"
-        # We can extract the pageId and return its markdown content
+        # Accept either a numeric page ID ('123456') or the ingested
+        # 'confluence/<title>_<pageId>.md' path. A page title / JIRA key is not a valid reference.
+        candidate = (file_path or "").strip().strip("/").strip()
+        page_id = candidate if candidate.isdigit() else candidate.split("_")[-1].split(".")[0]
+        if not page_id.isdigit():
+            # Return a readable hint instead of raising — the agent can self-correct.
+            return (
+                f"'{file_path}' is not a valid Confluence page reference. Pass the numeric page ID "
+                f"(e.g. '123456') shown as '(ID: ...)' in a list_directory result."
+            )
         try:
-            page_id = file_path.split("_")[-1].split(".")[0]
-            
             content_url = f"{self.base_api_url}/{page_id}?expand=body.storage"
             async with httpx.AsyncClient() as client:
                 response = await client.get(content_url, headers=self.request_headers)
                 response.raise_for_status()
                 content_data = response.json()
-                
+
             html_content = content_data.get("body", {}).get("storage", {}).get("value", "")
             if not html_content:
                 return "No content found."
-                
+
             markdown_content = await asyncio.to_thread(self._convert_html_to_markdown, html_content)
             return markdown_content
-            
+
         except Exception as e:
             logger.error(f"Failure viewing file={file_path} with exception={str(e)}")
             raise Exception(f"Failure occurred while attempt to view file: {file_path}", e)
+
+    @override
+    def view_file_description(self) -> str:
+        ds = self.data_source
+        return (
+            f"View the full text of a Confluence page in DataSource '{ds.name}' ({ds.type}: {ds.provider}). "
+            "Pass the page's NUMERIC ID (the value shown as '(ID: ...)' in a list_directory result), e.g. '123456'. "
+            "You may also pass the full ingested path from a search result ('confluence/<title>_<pageId>.md'). "
+            "Do NOT pass a page title or a JIRA-style key like 'PROJ-123'."
+        )
 
     @override
     def list_directory_description(self) -> str:
@@ -287,6 +302,30 @@ class ConfluenceDataProvider(DocumentationDataProvider):
             response.raise_for_status()
             return response.json().get("results", [])
 
+    async def _fetch_page_title(self, page_id: str) -> str | None:
+        """
+        Resolve a Confluence page's real title from its ID via the API (cached per
+        provider instance). Returns None on failure so the caller can fall back to
+        parsing the filename. Only called when building citations (not per research turn).
+        """
+        if not page_id or not page_id.isdigit():
+            return None
+        if not hasattr(self, "_title_cache"):
+            self._title_cache: dict[str, str] = {}
+        if page_id in self._title_cache:
+            return self._title_cache[page_id]
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{self.base_api_url}/{page_id}", headers=self.request_headers)
+                response.raise_for_status()
+                title = response.json().get("title")
+            if title:
+                self._title_cache[page_id] = title
+                return title
+        except Exception as e:
+            logger.warning(f"Failed to fetch Confluence page title for id={page_id}: {e}")
+        return None
+
     def _get_page_title(self, file_path: str) -> str:
         try:
             filename = file_path.split("/")[-1]
@@ -310,8 +349,10 @@ class ConfluenceDataProvider(DocumentationDataProvider):
         try:
             page_id = file_path.split("_")[-1].split(".")[0]
             url = f"{self.base_url}{page_id}"
-            
-            label = self._get_page_title(file_path)
+
+            # Prefer the real page title from the API (the agent may log a source that
+            # lacks the title portion, which would otherwise leave us citing the page ID).
+            label = await self._fetch_page_title(page_id) or self._get_page_title(file_path)
             return f"[{label}]({url})"
         except Exception as e:
             logger.error(f"Failure generating citation for file_path={file_path} with exception={str(e)}")

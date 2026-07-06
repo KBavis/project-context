@@ -288,6 +288,10 @@ class BitbucketDataProvider(RepositoryDataProvider):
             logger.error(f"Failure generating citation for path={path} with exception={str(e)}")
             raise Exception(f"Failure occurred while attempt to generate citation for path: {path}", e)
 
+    def line_anchor(self, start_line: int, end_line: int) -> str:
+        # Bitbucket Server/DC deep-links use `#<start>-<end>` (no 'L'), appended after the ?at= query.
+        return f"#{start_line}-{end_line}"
+
     def _parse_timestamp(self, ts) -> datetime:
         """
         Parse a dev-status ``authorTimestamp`` into a tz-aware UTC datetime.

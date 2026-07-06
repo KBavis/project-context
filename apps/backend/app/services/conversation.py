@@ -24,33 +24,25 @@ class ConversationService:
         self.db = db 
 
     
-    async def create_conversation_summary(self, conversation: Conversation, message: str, llm_manager: LLMManager) -> str:
+    async def generate_summary_text(self, project_name: str, message: str, llm_manager: LLMManager) -> str:
         """
-        Create a summary of the conversation
+        Generate a short conversation title from the user's first message.
+
+        This performs ONLY the LLM call (no DB writes) so it can run concurrently with
+        the agentic workflow; the caller is responsible for persisting the returned text.
 
         Args:
-            conversation (Conversation): conversation to create summary for
-            message (str): message to create summary for
+            project_name (str): name of the project the conversation is scoped to
+            message (str): the user's first message
+            llm_manager (LLMManager): manager used to resolve the conversation's LLM
         """
+        prompt = settings.LL_MODEL_CHAT_SUMMARY_SYSTEM_PROMPT + f"\n\nProject Name: {project_name}\n\nMessage: {message}"
 
-        logger.info(f"Creating summary for conversation {conversation.id} with message {message}")
+        llm = llm_manager.get_llm()
+        # Low temperature keeps titles stable and short rather than drifting into verbose summaries.
+        llm_response = await llm.send_message(prompt, temperature=0.2)
 
-        # prompt LLM to create new summary based on users first message in conversation
-        prompt = settings.LL_MODEL_CHAT_SUMMARY_SYSTEM_PROMPT + f"\n\nProject Name: {conversation.project.project_name}\n\nMessage: {message}"
-        logger.debug(f"Prompt for conversation summary creation for Conversation={conversation.id}: {prompt}")
-
-        llm = llm_manager.get_llm() 
-        llm_response = await llm.send_message(prompt)
-
-        logger.debug(f"Response from LLM for conversation summary creation for Conversation={conversation.id}: {llm_response}")
-
-        # update Conversation record with summary 
-        conversation.summary = llm_response.text
-
-        self.db.add(conversation)
-        await self.db.flush()
-
-        return conversation.summary
+        return (llm_response.text or "").strip()
         
 
 

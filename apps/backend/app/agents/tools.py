@@ -19,15 +19,18 @@ logger = logging.getLogger(__name__)
 
 class Tools:
     """
-    Manages all internal tooling available during an Agentic Workflow execution.
+    Manages all internal tooling available to the single research agent, plus the
+    deterministic citation resolution used to render sources after research.
 
-    Tools are organized into three purpose-built sets, one per agent phase:
-      - Planning:  semantic_search, list_directory, write_plan
-      - Research:  view_file, list_directory, grep_search, update_research_state, write_plan + MCP tools
-      - Synthesis: generate_citation (per DataSource)
+    The research agent's tool set:
+      - semantic_search, grep_search (project-wide retrieval)
+      - view_file_*, list_directory_* (per-DataSource navigation)
+      - update_research_state (log findings to shared scratchpad)
+      - get_file_diff (when scoped repositories exist) + MCP tools
 
-    Per-DataSource tools are named with a unique slug (first 8 hex chars of the DS UUID)
+    Per-DataSource tools are named with a unique slug (derived from the DS name)
     so the LLM can unambiguously select the right tool for the right data source.
+    Citations are NOT an agent tool — they are resolved in code via build_citation_map().
     """
 
     def __init__(
@@ -52,13 +55,11 @@ class Tools:
         # Per-DataSource tool buckets (keyed by DS id)
         self._ds_view_file_tools: dict[UUID, FunctionTool] = {}
         self._ds_list_dir_tools: dict[UUID, FunctionTool] = {}
-        self._ds_citation_tools: dict[UUID, FunctionTool] = {}
 
         # Project-wide tools (initialized as None, set in _init_tooling)
         self._semantic_search_tool: FunctionTool
         self._grep_search_tool: FunctionTool
         self._update_research_state_tool: FunctionTool
-        self._write_plan_tool: FunctionTool
 
         # DataSource's of type REPOSITORY configured for this Project that are `scoped_by_issues`
         self._scoped_repo_data_sources: list[DataSource] = [
@@ -76,29 +77,13 @@ class Tools:
     # Public: Per-Agent Tool Sets
     # ─────────────────────────────────────────────
 
-    def get_planning_tools(self) -> list[FunctionTool]:
-        """
-        Tools for the PlanningAgent:
-          - semantic_search (find conceptual starting points)
-          - list_directory_* (one per DataSource, explore structure)
-          - write_plan (commit plan to shared state)
-        """
-        return [
-            self._semantic_search_tool,
-            self._grep_search_tool,
-            self._write_plan_tool,
-            *self._ds_list_dir_tools.values(),
-        ]
-
     def get_research_tools(self, mcp_tools: dict[str, list[FunctionTool]]) -> list[FunctionTool]:
         """
-        Tools for the ResearchAgent:
+        Tools for the single research agent:
+          - semantic_search / grep_search (project-wide retrieval)
           - view_file_* (read full file contents, one per DataSource)
           - list_directory_* (navigate structure, one per DataSource)
-          - semantic_search (find conceptually related files when stuck or pivoting)
-          - grep_search (exact keyword / regex matching)
           - update_research_state (log findings to shared scratchpad)
-          - write_plan (revise plan when new discoveries change direction)
           - get_file_diff (when scoped repositories exist)
           - All MCP tools for the relevant DataSources
         """
@@ -106,7 +91,6 @@ class Tools:
             self._semantic_search_tool,
             self._grep_search_tool,
             self._update_research_state_tool,
-            self._write_plan_tool,
             *self._ds_view_file_tools.values(),
             *self._ds_list_dir_tools.values(),
         ]
@@ -116,31 +100,21 @@ class Tools:
             tools.extend(ds_tools)
         return tools
 
-    def get_synthesis_tools(self) -> list[FunctionTool]:
-        """
-        Tools for the SynthesisAgent:
-          - generate_citation_* (one per DataSource, produces formatted markdown citations)
-        """
-        return list(self._ds_citation_tools.values())
-
     def get_all_internal_tools(self) -> list[FunctionTool]:
         """
-        Returns all unique internal tools across all agent phases.
+        Returns all internal (non-MCP) tools.
         Used by the Diagnosis phase to summarize available tooling for the LLM.
         """
         tools = [
             self._semantic_search_tool,
             self._grep_search_tool,
             self._update_research_state_tool,
-            self._write_plan_tool,
             *self._ds_view_file_tools.values(),
             *self._ds_list_dir_tools.values(),
-            *self._ds_citation_tools.values(),
         ]
         if self._get_file_diff_tool:
             tools.append(self._get_file_diff_tool)
         return tools
-
 
     # ─────────────────────────────────────────────
     # Private: Tooling Initialization
@@ -177,28 +151,13 @@ class Tools:
             self._ds_view_file_tools[ds.id] = self._build_function_tool(
                 async_fn=self._make_view_file_fn(ds, provider),
                 function_name=f"view_file_{slug}",
-                description=(
-                    f"View the full contents of a file in DataSource '{ds.name}' ({ds.type}: {ds.provider}). "
-                    "For standard text and code files, this retrieves their contents directly. "
-                    "For PDF files (.pdf), this automatically retrieves the parsed plain text chunks sequentially from our document store, avoiding binary file downloads. "
-                    "The file_path argument must NOT begin with a '/'. If the file is in the root directory, pass the filename (e.g., 'compose.yaml'). If it is in a subdirectory, pass the relative path (e.g., 'sub_dir/filename.extension')."
-                ),
+                description=provider.view_file_description(),
             )
 
             self._ds_list_dir_tools[ds.id] = self._build_function_tool(
                 async_fn=provider.list_directory,
                 function_name=f"list_directory_{slug}",
                 description=provider.list_directory_description(),
-            )
-
-            self._ds_citation_tools[ds.id] = self._build_function_tool(
-                async_fn=provider.generate_citation,
-                function_name=f"generate_citation_{slug}",
-                description=(
-                    f"Generate a formatted markdown citation link for a file in DataSource '{ds.name}' (ID: {ds.id}). "
-                    "The file_path does NOT require a leading '/'. "
-                    "Use this tool for every source cited in your answer."
-                ),
             )
 
         # Step 2: Project-wide tools (search, scratchpad, plan)
@@ -241,27 +200,15 @@ class Tools:
             ),
         )
 
-        self._write_plan_tool = self._build_function_tool(
-            async_fn=self._write_plan,
-            function_name="write_plan",
-            description=(
-                "Write or update the research plan in shared state. "
-                "PlanningAgent: call this ONCE after orientating to commit the step-by-step investigation plan. "
-                "ResearchAgent: call this if new discoveries require pivoting the research direction. "
-                "Arg: plan — full markdown-formatted step-by-step research plan."
-            ),
-        )
-
         # Step 3: Conditional diff tool (only for scoped repositories)
         if self._scoped_repo_data_sources:
             logger.info(f"Found {len(self._scoped_repo_data_sources)} scoped repository data sources for Project={self.project_id}. Setting up internal diff_tool for Agent usage ...")
             self._setup_diff_tool()
 
         logger.debug(
-            "Tools initialized: %d view_file, %d list_directory, %d generate_citation tools across %d DataSources, get_file_diff=%s",
+            "Tools initialized: %d view_file, %d list_directory across %d DataSources, get_file_diff=%s",
             len(self._ds_view_file_tools),
             len(self._ds_list_dir_tools),
-            len(self._ds_citation_tools),
             len(self.data_sources),
             "enabled" if self._get_file_diff_tool else "disabled",
         )
@@ -306,37 +253,38 @@ class Tools:
     # Private: Tool Implementation Functions
     # ─────────────────────────────────────────────
 
-    def _make_view_file_fn(self, ds: DataSource, provider: IngestibleDataProvider) -> Callable[[str], Any]:
+    def _make_view_file_fn(self, ds: DataSource, provider: IngestibleDataProvider) -> Callable[..., Any]:
         """
         Creates a custom view_file wrapper for a specific DataSource and DataProvider.
         Intercepts PDF view requests to route them through chunk retrieval, while
         standard files are routed directly to the provider.
         """
 
-        # wrapper to route PDFs through DocStore instead of HTTP 
-        async def view_file_wrapper(file_path: str) -> str:
+        # wrapper to route PDFs through DocStore instead of HTTP
+        async def view_file_wrapper(ctx: Context, file_path: str) -> str:
             if file_path.lower().endswith('.pdf'):
                 logger.info(f"Intercepted PDF view request for file='{file_path}' in DataSource='{ds.name}'")
                 return await self.chunk_retrieval_svc.retrieve_sequential_chunks(file_path, ds.id)
-            return await provider.view_file(file_path)
-        
-        
+            content = await provider.view_file(file_path)
+            # Prefix code with line numbers so the agent can cite exact, correct ranges, and
+            # record the file's total line count in shared state so the answer phase can drop
+            # the line anchor when a finding spans the whole file.
+            if ds.type == DataSourceType.REPOSITORY:
+                async with ctx.store.edit_state() as state:
+                    counts = state.get("file_line_counts") or {}
+                    counts[f"{ds.id}::{file_path.lstrip('/')}"] = len(content.splitlines())
+                    state["file_line_counts"] = counts
+                content = self._add_line_numbers(content)
+            return content
+
         return view_file_wrapper
 
-    async def _write_plan(self, ctx: Context, plan: str) -> str:
-        """
-        Write or update the current research plan in shared state.
-        Appends to plan_history so every revision is preserved for logging.
-
-        Args:
-            plan: Full text of the research plan (markdown step list)
-        """
-        async with ctx.store.edit_state() as state:
-            if "plan_history" not in state:
-                state["plan_history"] = []
-            state["plan_history"].append(plan)
-            state["plan"] = plan
-        return "Research plan committed to shared state."
+    @staticmethod
+    def _add_line_numbers(content: str) -> str:
+        """Prefix each line with its 1-based line number (`  42: <line>`) for accurate citations."""
+        lines = content.splitlines()
+        width = len(str(len(lines))) if lines else 1
+        return "\n".join(f"{str(i).rjust(width)}: {line}" for i, line in enumerate(lines, start=1))
 
     async def _update_research_state(
         self, ctx: Context, finding: str, source: str, data_source_id: str

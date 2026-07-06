@@ -75,6 +75,13 @@ export function ConversationProvider({ children }) {
 
     const selectConversation = (conv) => setSelectedConversation(conv);
 
+    // Patch a conversation in place (e.g. when the backend reports a freshly generated
+    // summary/title after the first message) so the sidebar updates without a refresh.
+    const updateConversation = (conversationId, patch) => {
+        setConversations(prev => prev.map(c => (c.id === conversationId ? { ...c, ...patch } : c)));
+        setSelectedConversation(prev => (prev?.id === conversationId ? { ...prev, ...patch } : prev));
+    };
+
     const deleteConversation = async (conversationId) => {
         try {
             await api.conversations.delete(conversationId);
@@ -95,6 +102,7 @@ export function ConversationProvider({ children }) {
         createConversation,
         selectConversation,
         deleteConversation,
+        updateConversation,
         setMessages, // Useful for streaming or optimistic updates
     };
 

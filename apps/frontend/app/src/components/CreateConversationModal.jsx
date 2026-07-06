@@ -14,8 +14,8 @@ const AZURE_VENDORS = {
     openai: {
         label: 'OpenAI',
         models: [
-            { id: 'gpt-4o', label: 'GPT-4o', value: 'gpt-4o' },
-            { id: 'gpt-5.4', label: 'GPT-5.4', value: 'gpt-5.4' },
+            { id: 'gpt-4o', label: 'GPT-4o', value: 'gpt-4o', hint: 'Fast, capable general-purpose model.' },
+            { id: 'gpt-5.4', label: 'GPT-5.4 (Recommended)', value: 'gpt-5.4', hint: 'Recommended — the best balance of speed and intelligence. Fastest to respond for most questions.' },
         ],
         defaultModel: 'gpt-5.4',
     },
@@ -25,8 +25,8 @@ const AZURE_VENDORS = {
             claude: {
                 label: 'Claude',
                 models: [
-                    { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', value: 'claude-sonnet-4-5' },
-                    { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', value: 'claude-opus-4-6' },
+                    { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', value: 'claude-sonnet-4-5', hint: 'Strong reasoning at moderate speed.' },
+                    { id: 'claude-opus-4-6', label: 'Claude Opus 4.6 (Most intelligent, slower)', value: 'claude-opus-4-6', hint: 'Highest reasoning quality, but noticeably slower to respond — especially on deeper questions. Choose it when depth matters more than speed.' },
                 ],
                 defaultModel: 'claude-sonnet-4-5',
             },
@@ -82,6 +82,12 @@ export default function CreateConversationModal({ isOpen, onClose }) {
         }
         return prov.models;
     }, [provider, azureVendor]);
+
+    // Hint for the currently selected model (speed / intelligence tradeoff).
+    const selectedModelHint = useMemo(
+        () => availableModels.find((m) => m.value === model)?.hint,
+        [availableModels, model]
+    );
 
     // Pre-select project if one is already selected in the UI
     useEffect(() => {
@@ -229,6 +235,9 @@ export default function CreateConversationModal({ isOpen, onClose }) {
                             </option>
                         ))}
                     </select>
+                    {selectedModelHint && (
+                        <p className="field-hint">{selectedModelHint}</p>
+                    )}
                     {provider === 'azure' && (
                         <p className="field-hint">
                             All models are routed through the Azure gateway. Use the Model Family filter to narrow by vendor.

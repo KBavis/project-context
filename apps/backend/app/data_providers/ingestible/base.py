@@ -93,6 +93,32 @@ class IngestibleDataProvider(DataProvider):
             "To list a subdirectory like 'docs', pass '/docs' (NOT 'docs/' or 'docs')."
         )
 
+    def line_anchor(self, start_line: int, end_line: int) -> str:
+        """
+        URL fragment that deep-links to a line range. Default is GitHub-style (`#L10-L25`).
+        Providers with a different scheme (e.g. Bitbucket) override this.
+        """
+        return f"#L{start_line}-L{end_line}"
+
+    def view_file_description(self) -> str:
+        """
+        The description exposed to the LLM for this provider's `view_file` tool.
+        Providers whose files aren't addressed by a filesystem path (e.g. Confluence pages,
+        addressed by numeric ID) override this so the agent supplies the right argument shape.
+        """
+        ds = self.data_source
+        return (
+            f"View the full contents of a file in DataSource '{ds.name}' ({ds.type}: {ds.provider}). "
+            "For standard text and code files, this retrieves their contents directly. "
+            "Code files are returned with each line prefixed by its line number (e.g. '42: <code>') "
+            "so you can cite exact line ranges — use these numbers for the finding's `source` range, "
+            "and never copy the 'N: ' prefix into any code you quote. "
+            "For PDF files (.pdf), this automatically retrieves the parsed plain text chunks sequentially "
+            "from our document store, avoiding binary file downloads. "
+            "The file_path argument must NOT begin with a '/'. If the file is in the root directory, pass the "
+            "filename (e.g., 'compose.yaml'). If it is in a subdirectory, pass the relative path (e.g., 'sub_dir/filename.extension')."
+        )
+
     def _write_file(self, full_path: Path, buffer: BytesIO):
         """Sync helper: write buffered content to disk (runs in worker thread)."""
         full_path.parent.mkdir(parents=True, exist_ok=True)

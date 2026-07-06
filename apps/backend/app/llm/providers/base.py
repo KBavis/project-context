@@ -40,12 +40,13 @@ class LLMBase(ABC):
             )
         return encoding.encode
 
-    async def send_message(self, prompt: str):
+    async def send_message(self, prompt: str, temperature: float | None = None):
         """
         Send a message to the LLM and return the response
 
         Args:
             prompt (str): The prompt to send to the LLM
+            temperature (float | None): Optional sampling temperature override for this call
         """
 
         valid = await self.validate_context_length(prompt)
@@ -56,6 +57,12 @@ class LLMBase(ABC):
 
         
         llm_instance = self.get_llama_idx_instance()
+        if temperature is not None:
+            # LlamaIndex LLM clients expose a mutable `temperature`; ignore if unsupported.
+            try:
+                llm_instance.temperature = temperature
+            except Exception:
+                logger.debug("LLM instance does not support a temperature override; using default.")
         return await llm_instance.acomplete(prompt)
 
 
@@ -114,7 +121,12 @@ class LLMBase(ABC):
         1. Read the PROJECT CONTEXT and CONVERSATION_HISTORY to resolve any ambiguities in the USER_QUESTION (e.g., identifying what "it", "this file", or "this project" refers to).
         2. "refined_question": A standalone version of the user's prompt with all ambiguities resolved. You must retain the original core intent and technical constraints of the user's question, only injecting the missing context.
         3. "required_mcp_tools": A dictionary mapping a Data Source ID to a list of MCP Tool Names. ONLY select MCP tools that belong to the Data Sources listed above. ONLY include an MCP tool if the Internal Tools cannot accomplish the task. If no MCP tools are needed, return an empty dictionary.
-        4. Your ONLY output MUST be a valid JSON object. Do NOT wrap it in markdown block quotes.
+        4. "research_depth": How much INVESTIGATION is needed to answer accurately. This is about research EFFORT, not how long the answer should be. Choose exactly one:
+           - "shallow": a single fact, definition, or location; or an explicitly high-level / overview / brief request (e.g. "what does the X permission do?", "where is Y configured?", "give me a high-level overview"). A couple of targeted lookups suffice.
+           - "deep": explicitly in-depth / thorough / exhaustive investigation, tracing behavior across many files or components, or "explain everything about / in full detail".
+           - "standard": anything in between. DEFAULT to "standard" whenever the required effort is ambiguous.
+           IMPORTANT: breadth of SUBJECT does not imply deep research. A broad topic asked at a high level (e.g. "high-level overview of the whole project") is "shallow" or "standard", not "deep".
+        5. Your ONLY output MUST be a valid JSON object. Do NOT wrap it in markdown block quotes.
 
         OUTPUT_FORMAT:
         {{
@@ -122,6 +134,7 @@ class LLMBase(ABC):
             "contextual_clarification": "How the conversation history resolves ambiguity.",
             "refined_question": "Standalone version of the prompt.",
             "question_type": "Classification of the question (e.g. 'Deep Research', 'General Inquiry', 'Action Execution')",
+            "research_depth": "shallow | standard | deep",
             "mcp_tool_reasoning": "Brief explanation of which MCP tools are needed, ensuring they ONLY belong to the available data sources.",
             "required_mcp_tools": {{
                 "id1": ["mcp_tool_name_1"]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 from uuid import UUID
+import asyncio
+import json
 import logging
 import heapq
 from typing import AsyncGenerator
@@ -85,11 +87,17 @@ class MessageService:
             llm = llm_manager.get_llm()
 
 
-            # 2. Generate Conversation Summary (if needed)
+            # 2. Kick off Conversation Summary generation (if needed) CONCURRENTLY.
+            #    We only run the LLM call here (no DB writes) so it can overlap with the
+            #    agentic workflow without touching the shared session; it is persisted at commit time.
+            summary_task: asyncio.Task | None = None
             if conversation.summary is None:
-                logger.info(f"Conversation {conversation_id} has no summary, generating one...")
-                yield format_sse_event(StreamEventType.STATUS, "Generating conversation summary...", "Summarizing")
-                await self.conversation_svc.create_conversation_summary(conversation, message.content, llm_manager)
+                logger.info(f"Conversation {conversation_id} has no summary, generating one in the background...")
+                summary_task = asyncio.create_task(
+                    self.conversation_svc.generate_summary_text(
+                        conversation.project.project_name, message.content, llm_manager
+                    )
+                )
 
 
             # 3. Retrieve Conversation History & Decompose Query If Needed
@@ -114,11 +122,18 @@ class MessageService:
             
             full_response = ""
             usage_data = {}
+            citations_map: dict = {}
             has_error = False
             async for sse_event, raw_chunk in response_stream:
                 # extract usage data regarding tokens 
                 if sse_event == StreamEventType.TOKEN_USAGE and isinstance(raw_chunk, dict):
                     usage_data = raw_chunk
+                    continue
+
+                # capture + forward the deterministic citation map (used inline + in the footer)
+                if sse_event == StreamEventType.CITATIONS and isinstance(raw_chunk, dict):
+                    citations_map = raw_chunk
+                    yield format_sse_event(StreamEventType.CITATIONS, raw_chunk, "Citations")
                     continue
                 
                 if isinstance(raw_chunk, str):
@@ -144,6 +159,12 @@ class MessageService:
 
             # 7. Determine User Input and Model Output Token Totals (actual message content)
             user_prompt_tokens, model_output_tokens, total_tokens = await self.calculate_token_totals(message.content, full_response, llm)
+
+            # 7b. Embed the citation map in the persisted content (as a stripped HTML comment)
+            #     so inline cite:<id> links + the grouped footer still render on reload,
+            #     without requiring a new DB column. The frontend parses and strips it.
+            if citations_map:
+                full_response = f"{full_response}\n\n<!--CITATIONS:{json.dumps(citations_map)}-->"
 
             # 8. Persist Updates (Messages and Conversation Metadata)
             query_result_for_save = QueryResponse(
@@ -175,6 +196,16 @@ class MessageService:
             )
             await self.conversation_svc.update_total_execution_tokens(conversation_id, agent_workflow_total_tokens)
 
+            # 9b. Persist the concurrently-generated conversation summary (if any).
+            if summary_task is not None:
+                try:
+                    summary_text = await summary_task
+                    if summary_text:
+                        conversation.summary = summary_text
+                        self.db.add(conversation)
+                except Exception as summary_err:
+                    logger.warning(f"Failed to generate conversation summary for {conversation_id}: {summary_err}")
+
             await self.db.commit() 
 
 
@@ -183,6 +214,7 @@ class MessageService:
                 "user_message": self._get_message_dto(user_msg).model_dump(),
                 "model_message": self._get_message_dto(model_msg).model_dump(),
                 "conversation_id": str(conversation_id),
+                "conversation_summary": conversation.summary,
                 "execution_time_seconds": execution_time_seconds
             }, "Metadata")
 
