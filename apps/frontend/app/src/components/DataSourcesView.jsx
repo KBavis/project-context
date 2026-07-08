@@ -82,7 +82,7 @@ function GripIcon() {
 export default function DataSourcesView({ projectId }) {
     const { projects } = useProjects();
     const { dataSources, loading: dsLoading, error, deleteDataSource, createDataSource, updateDataSource, mcpConfigs, linkProjectToDataSource, unlinkProjectFromDataSource, linkMcpToDataSource } = useDataSources();
-    const { jobs, createJob } = useJobs();
+    const { jobs, createJob, fetchJobs } = useJobs();
     const { showAlert } = useAlert();
 
     const [activeJobView, setActiveJobView] = useState(null); // dataSourceId
@@ -306,6 +306,8 @@ export default function DataSourcesView({ projectId }) {
                     const ds = JSON.parse(dsStr);
                     if (!ds.linked_projects?.includes(projectId)) {
                         await linkProjectToDataSource(projectId, ds.id);
+                        await fetchJobs(true);
+                        setActiveJobView(ds.id);
                         showAlert(`Linked data source to project successfully`, 'success');
                     }
                 }
@@ -476,6 +478,7 @@ export default function DataSourcesView({ projectId }) {
                                                             if (!val) return;
                                                             try {
                                                                 await linkProjectToDataSource(val, ds.id);
+                                                                await fetchJobs(true);
                                                                 showAlert('Project linked successfully', 'success');
                                                             } catch (err) {
                                                                 showAlert('Failed to link project: ' + err.message, 'error');
