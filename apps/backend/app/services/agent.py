@@ -302,14 +302,12 @@ class AgentService:
                 if delta:
                     yield format_sse_event(StreamEventType.CHUNK, delta), delta
 
-            # If research stopped at its budget, tell the user the answer may be partial and
-            # that they can continue. The prior answer stays in conversation history, so a
-            # follow-up "keep searching" lets the next run pick up the thread.
+            # inform user if research was cut shorted by backstop
             if research_truncated:
                 note = (
-                    "\n\n---\n\n> ⚠️ I reached my research limit for this question before fully "
-                    "exploring everything, so this answer may be incomplete. Reply "
-                    "**\"keep searching\"** and I'll continue from where I left off."
+                    "\n\n---\n\n_This answer is based on the most relevant sources I found within my "
+                    "research budget for this question. If it doesn't fully cover what you need, ask a "
+                    "more specific follow-up and I'll focus there._"
                 )
                 yield format_sse_event(StreamEventType.CHUNK, note), note
 
