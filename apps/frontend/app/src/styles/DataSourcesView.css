@@ -2,7 +2,7 @@
     padding: var(--spacing-xl);
     height: 100%;
     overflow-y: auto;
-    background: var(--color-bg-secondary);
+    background: transparent;
 }
 
 .data-sources-header {
