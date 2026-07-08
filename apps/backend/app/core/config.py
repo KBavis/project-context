@@ -91,9 +91,9 @@ class Settings(BaseSettings):
     ###########################
     # Agentic Workflow Budgets
     ###########################
-    AGENT_RESEARCH_MAX_ITERATIONS: int = 15
-    AGENT_RESEARCH_MAX_ITERATIONS_SIMPLE: int = 8
-    AGENT_RESEARCH_MAX_ITERATIONS_DEEP: int = 40
+    AGENT_RESEARCH_MAX_ITERATIONS: int = 24
+    AGENT_RESEARCH_MAX_ITERATIONS_SIMPLE: int = 14
+    AGENT_RESEARCH_MAX_ITERATIONS_DEEP: int = 50
     AGENT_MEMORY_TOKEN_LIMIT: int = 40000
     
 
