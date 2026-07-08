@@ -580,7 +580,7 @@ export default function DataSourcesView({ projectId }) {
                         </div>
 
                         {/* Per-source last sync indicator, paired with the sync history toggle on the same row */}
-                        {ds.type !== 'ISSUE_TRACKER' && (() => {
+                        {ds.type !== 'ISSUE_TRACKER' && (!projectId || ds.linked_projects?.includes(projectId)) && (() => {
                             const latestJobs = getLatestJobsForDataSource(ds);
                             const running = latestJobs.some(j => mapStatus(j.status) === 'running');
                             // A skipped embed (already up-to-date / embed-once) still counts as synced
