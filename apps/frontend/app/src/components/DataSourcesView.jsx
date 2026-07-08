@@ -11,6 +11,74 @@ import '../styles/IngestionJobsView.css';
 // projects.
 const isIssueScopedRepo = (ds) => ds.type === 'REPOSITORY' && !!ds.scope_by_issues;
 
+// Maps a data source to a provider identity used for grouping and the muted
+// icon tint. Falls back to `type` for sources that don't carry a provider.
+function getProviderMeta(provider, type) {
+    const key = (provider || type || '').toString().toLowerCase();
+    if (key.includes('github')) return { label: 'GitHub', className: 'ds-provider-github' };
+    if (key.includes('bitbucket')) return { label: 'Bitbucket', className: 'ds-provider-bitbucket' };
+    if (key.includes('jira')) return { label: 'Jira', className: 'ds-provider-jira' };
+    if (key.includes('confluence')) return { label: 'Confluence', className: 'ds-provider-confluence' };
+    return { label: provider || type || 'Other', className: 'ds-provider-default' };
+}
+
+// Groups a flat list of data sources into provider buckets, preserving each
+// provider's first-seen order so the page doesn't reshuffle on refetch.
+function groupDataSourcesByProvider(list) {
+    const map = new Map();
+    list.forEach(ds => {
+        const meta = getProviderMeta(ds.provider, ds.type);
+        if (!map.has(meta.label)) map.set(meta.label, { ...meta, items: [] });
+        map.get(meta.label).items.push(ds);
+    });
+    return Array.from(map.values());
+}
+
+function RefreshIcon() {
+    return (
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path>
+        </svg>
+    );
+}
+
+function PencilIcon() {
+    return (
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+        </svg>
+    );
+}
+
+function TrashIcon() {
+    return (
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+        </svg>
+    );
+}
+
+function ChevronIcon() {
+    return (
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+    );
+}
+
+function GripIcon() {
+    return (
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+            <circle cx="9" cy="6" r="1.5"></circle><circle cx="15" cy="6" r="1.5"></circle>
+            <circle cx="9" cy="12" r="1.5"></circle><circle cx="15" cy="12" r="1.5"></circle>
+            <circle cx="9" cy="18" r="1.5"></circle><circle cx="15" cy="18" r="1.5"></circle>
+        </svg>
+    );
+}
+
 export default function DataSourcesView({ projectId }) {
     const { projects } = useProjects();
     const { dataSources, loading: dsLoading, error, deleteDataSource, createDataSource, updateDataSource, mcpConfigs, linkProjectToDataSource, unlinkProjectFromDataSource, linkMcpToDataSource } = useDataSources();
@@ -91,7 +159,7 @@ export default function DataSourcesView({ projectId }) {
     }, [refreshGlobalJobs, jobs]);
 
     const getLatestJobsForDataSource = (ds) => {
-        const source = isIssueScopedRepo(ds) 
+        const source = isIssueScopedRepo(ds)
             ? jobs.filter(job => job.data_source_id === ds.id)
             : (globalJobs[ds.id] || []);
         return [...source]
@@ -289,6 +357,27 @@ export default function DataSourcesView({ projectId }) {
             setIsDragOver(false);
         };
 
+        const renderGroupedGrid = (list) => (
+            <>
+                {groupDataSourcesByProvider(list).map(group => (
+                    <div className="ds-provider-group" key={group.label}>
+                        <div className="ds-provider-group-header">
+                            <span className={`ds-provider-group-icon ${group.className}`}>
+                                {getDataSourceIcon(group.label)}
+                            </span>
+                            <span className="ds-provider-group-label">{group.label}</span>
+                            <span className="ds-provider-group-count">
+                                {group.items.length} source{group.items.length !== 1 ? 's' : ''}
+                            </span>
+                        </div>
+                        <div className="data-sources-grid">
+                            {group.items.map(renderCard)}
+                        </div>
+                    </div>
+                ))}
+            </>
+        );
+
         const renderCard = (ds) => {
             const url = ds.config?.url || ds.url;
             const displayName = ds.name || url;
@@ -301,254 +390,230 @@ export default function DataSourcesView({ projectId }) {
                     onDragStart={(e) => handleDragStart(e, ds)}
                 >
                     <div className={`data-source-card fade-in ${activeJobView === ds.id ? 'active' : ''}`}>
-                        <button
-                            className="delete-icon-button"
-                            onClick={() => handleDelete(ds.id)}
-                            title="Delete Data Source"
-                        >
-                            🗑️
-                        </button>
-
                         <div className="data-source-main">
-                            <div className="data-source-icon">
+                            <div
+                                className={`data-source-icon ${getProviderMeta(ds.provider, ds.type).className}`}
+                                title={ds.scope_by_issues && ds.type === 'REPOSITORY' ? 'Issue-scoped ingestion' : undefined}
+                            >
                                 {getDataSourceIcon(ds.provider || ds.type)}
                             </div>
 
                             <div className="data-source-content">
                                 <div className="data-source-title-row">
                                     <h3 className="data-source-name">
-                                        <a href={href} target="_blank" rel="noopener noreferrer" className="ds-link">
+                                        <a href={href} target="_blank" rel="noopener noreferrer" className="ds-title-link">
                                             {displayName}
                                         </a>
                                     </h3>
-                                    {ds.branch && (
-                                        <p className="data-source-provider">
-                                            <span className="data-source-branch-badge">{ds.branch}</span>
-                                        </p>
-                                    )}
                                 </div>
-                                <p className="data-source-url" title={url}>
-                                    <a href={href} target="_blank" rel="noopener noreferrer" className="ds-link">{url}</a>
-                                </p>
+                            </div>
 
-                                <div className="data-source-meta-row">
-                                    <div className="meta-section">
-                                        <div className="meta-section-label-row">
-                                            <span className="meta-section-label">Projects</span>
-                                            {ds.scope_by_issues && ds.type === 'REPOSITORY' && (
-                                                <span className="scope-indicator-pill" title="Ingests repository changes grouped by project issues.">
-                                                    <svg className="scope-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                                        <circle cx="12" cy="12" r="10"></circle>
-                                                        <line x1="22" y1="12" x2="18" y2="12"></line>
-                                                        <line x1="6" y1="12" x2="2" y2="12"></line>
-                                                        <line x1="12" y1="6" x2="12" y2="2"></line>
-                                                        <line x1="12" y1="22" x2="12" y2="18"></line>
-                                                    </svg>
-                                                    Scoped
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="meta-section-tags">
-                                            {ds.linked_projects && ds.linked_projects.map(pId => {
-                                                const p = projects.find(proj => proj.id === pId);
-                                                return (
-                                                    <span key={pId} className={`project-tag ${pId === projectId ? 'active' : ''}`}>
-                                                        {p?.project_name || p?.name || 'Unknown Project'}
-                                                    </span>
-                                                );
-                                            })}
-                                            {!projectId && (() => {
-                                                const unlinked = projects.filter(p => !ds.linked_projects?.includes(p.id));
-                                                if (unlinked.length > 0) {
-                                                    return (
-                                                        <select
-                                                            className="link-selector projects-link-select"
-                                                            defaultValue=""
-                                                            onChange={async (e) => {
-                                                                const val = e.target.value;
-                                                                if (!val) return;
-                                                                try {
-                                                                    await linkProjectToDataSource(val, ds.id);
-                                                                    showAlert('Project linked successfully', 'success');
-                                                                } catch (err) {
-                                                                    showAlert('Failed to link project: ' + err.message, 'error');
-                                                                }
-                                                                e.target.value = "";
-                                                            }}
-                                                        >
-                                                            <option value="" disabled>+ Link</option>
-                                                            {unlinked.map(p => (
-                                                                <option key={p.id} value={p.id}>
-                                                                    {p.project_name || p.name}
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                    );
-                                                }
-                                                return null;
-                                            })()}
-                                        </div>
-                                    </div>
-
-                                    {!projectId && (
-                                        <div className="meta-section">
-                                            <span className="meta-section-label">MCP Server</span>
-                                            <div className="meta-section-tags">
-                                                {ds.mcp_configs && ds.mcp_configs.length > 0 ? (
-                                                    ds.mcp_configs.map(mcp => (
-                                                        <div key={mcp.id} className="mcp-badge linked" title={`Connected to MCP: ${mcp.name}`}>
-                                                            <span className="mcp-icon">⚡</span>
-                                                            <span className="mcp-name">{mcp.name}</span>
-                                                        </div>
-                                                    ))
-                                                ) : ds.mcp_config ? (
-                                                    <div className="mcp-badge linked" title={`Connected to MCP: ${ds.mcp_config.name}`}>
-                                                        <span className="mcp-icon">⚡</span>
-                                                        <span className="mcp-name">{ds.mcp_config.name}</span>
-                                                    </div>
-                                                ) : (
-                                                    <div className="mcp-badge none" title="This data source is not currently linked to an MCP protocol server">
-                                                        <span className="mcp-icon">⚙️</span>
-                                                        <span>None</span>
-                                                    </div>
-                                                )}
-
-                                                {(() => {
-                                                    const linkedMcpIds = ds.mcp_configs ? ds.mcp_configs.map(mcp => mcp.id) : (ds.mcp_config ? [ds.mcp_config.id] : []);
-                                                    const unlinked = mcpConfigs.filter(mcp => !linkedMcpIds.includes(mcp.id));
-                                                    if (unlinked.length > 0) {
-                                                        return (
-                                                            <select
-                                                                className="link-selector mcp-link-select"
-                                                                defaultValue=""
-                                                                onChange={async (e) => {
-                                                                    const val = e.target.value;
-                                                                    if (!val) return;
-                                                                    try {
-                                                                        await linkMcpToDataSource(ds.id, val);
-                                                                        showAlert('MCP server linked successfully', 'success');
-                                                                    } catch (err) {
-                                                                        showAlert('Failed to link MCP server: ' + err.message, 'error');
-                                                                    }
-                                                                    e.target.value = "";
-                                                                }}
-                                                            >
-                                                                <option value="" disabled>+ Link</option>
-                                                                {unlinked.map(mcp => (
-                                                                    <option key={mcp.id} value={mcp.id}>
-                                                                        {mcp.name}
-                                                                    </option>
-                                                                ))}
-                                                            </select>
-                                                        );
-                                                    }
-                                                    return null;
-                                                })()}
-                                            </div>
-                                        </div>
-                                    )}
-
-
-                                </div>
+                            <div className="ds-action-icons">
+                                {ds.type !== 'ISSUE_TRACKER' && projectId && (
+                                    <button
+                                        className="ds-icon-btn"
+                                        onClick={() => handleRunIngestion(ds.id)}
+                                        disabled={creatingJob}
+                                        title="Sync now"
+                                        aria-label="Sync now"
+                                    >
+                                        <RefreshIcon />
+                                    </button>
+                                )}
+                                <button
+                                    className="ds-icon-btn"
+                                    onClick={() => {
+                                        setEditingDS({
+                                            id: ds.id,
+                                            provider: ds.provider,
+                                            type: ds.type,
+                                            url: ds.config?.url || ds.url,
+                                            name: ds.name,
+                                            branch: ds.branch || '',
+                                            scope_by_issues: !!ds.scope_by_issues
+                                        });
+                                        setIsConfirmingEdit(false);
+                                        setEditModalOpen(true);
+                                    }}
+                                    title="Edit"
+                                    aria-label="Edit"
+                                >
+                                    <PencilIcon />
+                                </button>
+                                <button
+                                    className="ds-icon-btn"
+                                    onClick={() => handleDelete(ds.id)}
+                                    title="Delete"
+                                    aria-label="Delete"
+                                >
+                                    <TrashIcon />
+                                </button>
                             </div>
                         </div>
 
-                        {/* Per-source last sync indicator */}
+                        <div className="data-source-meta-row">
+                            {!projectId && (
+                                <div className="meta-section">
+                                    <span className="meta-section-label">Projects</span>
+                                    <div className="meta-section-tags">
+                                        {ds.linked_projects && ds.linked_projects.map(pId => {
+                                            const p = projects.find(proj => proj.id === pId);
+                                            return (
+                                                <span key={pId} className={`project-tag ${pId === projectId ? 'active' : ''}`}>
+                                                    {p?.project_name || p?.name || 'Unknown Project'}
+                                                </span>
+                                            );
+                                        })}
+                                        {!projectId && (() => {
+                                            const unlinked = projects.filter(p => !ds.linked_projects?.includes(p.id));
+                                            if (unlinked.length > 0) {
+                                                return (
+                                                    <select
+                                                        className="link-selector projects-link-select"
+                                                        defaultValue=""
+                                                        onChange={async (e) => {
+                                                            const val = e.target.value;
+                                                            if (!val) return;
+                                                            try {
+                                                                await linkProjectToDataSource(val, ds.id);
+                                                                showAlert('Project linked successfully', 'success');
+                                                            } catch (err) {
+                                                                showAlert('Failed to link project: ' + err.message, 'error');
+                                                            }
+                                                            e.target.value = "";
+                                                        }}
+                                                    >
+                                                        <option value="" disabled>+ Link</option>
+                                                        {unlinked.map(p => (
+                                                            <option key={p.id} value={p.id}>
+                                                                {p.project_name || p.name}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+                                    </div>
+                                </div>
+                            )}
+
+                            {!projectId ? (
+                                <div className="meta-section">
+                                    <span className="meta-section-label">MCP Server</span>
+                                    <div className="meta-section-tags">
+                                        {ds.mcp_configs && ds.mcp_configs.length > 0 ? (
+                                            ds.mcp_configs.map(mcp => (
+                                                <div key={mcp.id} className="mcp-badge linked" title={`Connected to MCP: ${mcp.name}`}>
+                                                    <span className="mcp-icon">⚡</span>
+                                                    <span className="mcp-name">{mcp.name}</span>
+                                                </div>
+                                            ))
+                                        ) : ds.mcp_config ? (
+                                            <div className="mcp-badge linked" title={`Connected to MCP: ${ds.mcp_config.name}`}>
+                                                <span className="mcp-icon">⚡</span>
+                                                <span className="mcp-name">{ds.mcp_config.name}</span>
+                                            </div>
+                                        ) : (
+                                            <div className="mcp-badge none" title="This data source is not currently linked to an MCP protocol server">
+                                                <span className="mcp-icon">⚙️</span>
+                                                <span>None</span>
+                                            </div>
+                                        )}
+
+                                        {(() => {
+                                            const linkedMcpIds = ds.mcp_configs ? ds.mcp_configs.map(mcp => mcp.id) : (ds.mcp_config ? [ds.mcp_config.id] : []);
+                                            const unlinked = mcpConfigs.filter(mcp => !linkedMcpIds.includes(mcp.id));
+                                            if (unlinked.length > 0) {
+                                                return (
+                                                    <select
+                                                        className="link-selector mcp-link-select"
+                                                        defaultValue=""
+                                                        onChange={async (e) => {
+                                                            const val = e.target.value;
+                                                            if (!val) return;
+                                                            try {
+                                                                await linkMcpToDataSource(ds.id, val);
+                                                                showAlert('MCP server linked successfully', 'success');
+                                                            } catch (err) {
+                                                                showAlert('Failed to link MCP server: ' + err.message, 'error');
+                                                            }
+                                                            e.target.value = "";
+                                                        }}
+                                                    >
+                                                        <option value="" disabled>+ Link</option>
+                                                        {unlinked.map(mcp => (
+                                                            <option key={mcp.id} value={mcp.id}>
+                                                                {mcp.name}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="meta-section">
+                                    <span className="meta-section-label">MCP Server</span>
+                                    <div className="meta-section-tags">
+                                        {(ds.mcp_configs?.length ? ds.mcp_configs : (ds.mcp_config ? [ds.mcp_config] : [])).length > 0 ? (
+                                            (ds.mcp_configs?.length ? ds.mcp_configs : [ds.mcp_config]).map(mcp => (
+                                                <div key={mcp.id} className="mcp-badge linked readonly" title={`Connected to MCP: ${mcp.name}. Change this from the system-wide Data Sources view.`}>
+                                                    <span className="mcp-icon">⚡</span>
+                                                    <span className="mcp-name">{mcp.name}</span>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="mcp-badge none readonly" title="This data source is not linked to an MCP server. Configure this from the system-wide Data Sources view.">
+                                                <span className="mcp-icon">⚙️</span>
+                                                <span>None</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Per-source last sync indicator, paired with the sync history toggle on the same row */}
                         {ds.type !== 'ISSUE_TRACKER' && (() => {
                             const latestJobs = getLatestJobsForDataSource(ds);
                             const running = latestJobs.some(j => mapStatus(j.status) === 'running');
                             // A skipped embed (already up-to-date / embed-once) still counts as synced
                             const syncedJob = latestJobs.find(j => ['completed', 'skipped'].includes(mapStatus(j.status)));
-                            // Never successfully synced -> warning badge (no "Last Sync" row)
-                            if (!running && !syncedJob) {
-                                return (
-                                    <div style={{
-                                        padding: '8px 16px',
-                                        borderTop: '1px solid var(--border-color)',
-                                        marginTop: '4px'
-                                    }}>
-                                        <span style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'baseline',
-                                            gap: '5px',
-                                            fontSize: '0.72rem',
-                                            fontWeight: 600,
-                                            color: 'var(--color-warning, #f0ad4e)',
-                                            background: 'rgba(240, 173, 78, 0.12)',
-                                            padding: '2px 8px',
-                                            borderRadius: '10px'
-                                        }}>
-                                            ⚠️ Not Synced
-                                        </span>
-                                    </div>
-                                );
-                            }
+                            const neverSynced = !running && !syncedJob;
 
                             return (
-                                <div style={{
-                                    padding: '8px 16px 8px',
-                                    display: 'flex',
-                                    justifyContent: 'flex-start',
-                                    gap: '6px',
-                                    alignItems: 'baseline',
-                                    fontSize: '0.78rem',
-                                    color: 'var(--color-text-tertiary)',
-                                    borderTop: '1px solid var(--border-color)',
-                                    marginTop: '4px',
-                                }}>
-                                    <span style={{ fontWeight: 600, color: 'var(--color-text-secondary)' }}>Last Synced:</span>
-                                    <span style={{ fontSize: '0.72rem', color: 'var(--color-text-tertiary)' }}>
-                                        {running ? 'Syncing...' : (syncedJob ? getTimeAgo(syncedJob.end_time || syncedJob.start_time || syncedJob.created_at) : '—')}
-                                    </span>
+                                <div className="ds-status-row">
+                                    {neverSynced ? (
+                                        <span className="ds-status-badge warning">⚠️ Not Synced</span>
+                                    ) : (
+                                        <span className="ds-status-text">
+                                            <span className="ds-status-label">Last synced</span>{' '}
+                                            <span className="ds-status-value">
+                                                {running ? 'Syncing…' : getTimeAgo(syncedJob.end_time || syncedJob.start_time || syncedJob.created_at)}
+                                            </span>
+                                        </span>
+                                    )}
+                                    <button
+                                        className={`ds-sync-toggle ${activeJobView === ds.id ? 'open' : ''}`}
+                                        onClick={() => {
+                                            const isActive = activeJobView === ds.id;
+                                            setActiveJobView(isActive ? null : ds.id);
+                                        }}
+                                    >
+                                        Sync history
+                                        <ChevronIcon />
+                                    </button>
                                 </div>
                             );
                         })()}
 
-                        <div className="data-source-actions-flat">
-                            {ds.type !== 'ISSUE_TRACKER' && (
-                                <button
-                                    className={`flat-action ${activeJobView === ds.id ? 'active' : ''}`}
-                                    onClick={() => {
-                                        const isActive = activeJobView === ds.id;
-                                        setActiveJobView(isActive ? null : ds.id);
-                                    }}
-                                >
-                                    {activeJobView === ds.id ? 'Hide History' : 'Sync History'}
-                                </button>
-                            )}
-                            <button
-                                className="flat-action"
-                                onClick={() => {
-                                    setEditingDS({
-                                        id: ds.id,
-                                        provider: ds.provider,
-                                        type: ds.type,
-                                        url: ds.config?.url || ds.url,
-                                        name: ds.name,
-                                        branch: ds.branch || '',
-                                        scope_by_issues: !!ds.scope_by_issues
-                                    });
-                                    setIsConfirmingEdit(false);
-                                    setEditModalOpen(true);
-                                }}
-                            >
-                                Edit
-                            </button>
-                            {ds.type !== 'ISSUE_TRACKER' && projectId && (
-                                <button
-                                    className="flat-action primary"
-                                    onClick={() => handleRunIngestion(ds.id)}
-                                    disabled={creatingJob}
-                                >
-                                    {creatingJob ? 'Starting...' : 'Sync'}
-                                </button>
-                            )}
-                        </div>
-
                         {activeJobView === ds.id && (
                             <div className="data-source-jobs-mini fade-in">
                                 <div className="mini-jobs-header">
-                                    <span>Sync History</span>
+                                    <span>Sync history</span>
                                     {getLatestJobsForDataSource(ds).length > 0 && <span className="jobs-count">{getLatestJobsForDataSource(ds).length}/3</span>}
                                 </div>
                                 {getLatestJobsForDataSource(ds).length === 0 ? (
@@ -583,8 +648,8 @@ export default function DataSourcesView({ projectId }) {
 
         if (!projectId) {
             return (
-                <div className="data-sources-grid">
-                    {dataSources.map(renderCard)}
+                <div className="data-sources-sections">
+                    {renderGroupedGrid(dataSources)}
                 </div>
             );
         }
@@ -593,7 +658,7 @@ export default function DataSourcesView({ projectId }) {
         const unlinkedDS = dataSources.filter(ds => !ds.linked_projects?.includes(projectId));
 
         return (
-            <div className="data-sources-sections">
+            <div className="data-sources-sections project-mode">
 
                 <div
                     className={`ds-section fade-in ${isDragOver ? 'drag-over' : ''}`}
@@ -604,12 +669,13 @@ export default function DataSourcesView({ projectId }) {
                     <div className="ds-section-header">
                         <span className="ds-section-label">🔗 Linked to {currentProject?.project_name || 'This Project'}</span>
                         <span className="ds-section-count">{linkedDS.length}</span>
-                        <span className="drag-drop-tip" style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>💡 Drag and drop Data Sources to link or unlink from Project</span>
+                        <span className="drag-drop-tip">
+                            <GripIcon />
+                            Drag to link
+                        </span>
                     </div>
                     {linkedDS.length > 0 ? (
-                        <div className="data-sources-grid">
-                            {linkedDS.map(renderCard)}
-                        </div>
+                        renderGroupedGrid(linkedDS)
                     ) : (
                         <div style={{ padding: '40px', border: '2px dashed var(--color-border)', borderRadius: '12px', textAlign: 'center', color: 'var(--color-text-tertiary)', background: 'rgba(255, 255, 255, 0.02)' }}>
                             Drag and drop data sources here from the available sources below to link them to this project.
@@ -661,7 +727,8 @@ export default function DataSourcesView({ projectId }) {
                 <div style={{ display: 'flex', gap: '10px' }}>
                     {projectId && dataSources.filter(ds => ds.linked_projects?.includes(projectId) && ds.type === 'REPOSITORY' && ds.scope_by_issues).length > 0 && (
                         <button className="sync-project-btn" onClick={() => handleRunProjectJobs()} disabled={creatingJob}>
-                            {creatingJob ? 'Starting...' : '🔄 Sync Project'}
+                            <RefreshIcon />
+                            <span>{creatingJob ? 'Syncing...' : 'Sync Project'}</span>
                         </button>
                     )}
                     <Button size="sm" onClick={() => setShowAddForm(!showAddForm)}>
