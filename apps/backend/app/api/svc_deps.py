@@ -14,6 +14,7 @@ from app.services import (
     MCPService,
     AgentService,
     DiffTaskService,
+    RepositoryChangesService,
     JobService,
 )
 
@@ -112,16 +113,29 @@ def get_async_record_lock_svc():
     return RecordLockService()
     
 
+def get_repository_changes_svc(
+    async_db: AsyncSession = Depends(get_async_db_session),
+    db: Session = Depends(get_sync_db_session),
+):
+    """
+    Setup RepositoryChangesService dependency.
+    Provides both sync and async sessions for query/delete flexibility.
+    """
+    return RepositoryChangesService(async_db=async_db, db=db)
+
+
 def get_async_diff_task_svc(
     db: AsyncSession = Depends(get_async_db_session),
-    data_source_svc: DataSourceService = Depends(get_data_source_svc)
+    data_source_svc: DataSourceService = Depends(get_data_source_svc),
+    repo_changes_svc: RepositoryChangesService = Depends(get_repository_changes_svc),
 ):
     """
     Setup DiffTaskService dependency.
     """
     return DiffTaskService(
         async_db=db, 
-        data_source_svc=data_source_svc
+        data_source_svc=data_source_svc,
+        repo_changes_svc=repo_changes_svc,
     )
 
 
@@ -170,7 +184,7 @@ def get_async_agent_svc(
     mcp_svc: MCPService = Depends(get_mcp_svc),
     data_source_svc: DataSourceService = Depends(get_data_source_svc),
     chunk_retrieval_svc: ChunkRetrievalService = Depends(get_async_chunk_retrieval_svc),
-    diff_task_svc: DiffTaskService = Depends(get_async_diff_task_svc)
+    repo_changes_svc: RepositoryChangesService = Depends(get_repository_changes_svc),
 ):
     """
     Setup async AgentService dependency
@@ -180,13 +194,14 @@ def get_async_agent_svc(
         mcp_svc (MCPService): async mcp service dependency
         data_source_svc (DataSourceService): async data source service dependency
         chunk_retrieval_svc (ChunkRetrievalService): async chunk retrieval service dependency
+        repo_changes_svc (RepositoryChangesService): repository changes data access service
     """
     return AgentService(
         db=db, 
         mcp_svc=mcp_svc, 
         data_source_svc=data_source_svc,
         chunk_retrieval_svc=chunk_retrieval_svc,
-        diff_svc=diff_task_svc
+        repo_changes_svc=repo_changes_svc,
     )
 
 
@@ -194,7 +209,7 @@ def get_async_agent_svc(
 def get_async_embed_task_svc(
         db: AsyncSession = Depends(get_async_db_session),
         data_source_svc: DataSourceService = Depends(get_data_source_svc),
-        diff_task_svc: DiffTaskService = Depends(get_async_diff_task_svc)
+        repo_changes_svc: RepositoryChangesService = Depends(get_repository_changes_svc),
 ):
     """
     Setup async EmbedTaskService dependency.
@@ -205,11 +220,12 @@ def get_async_embed_task_svc(
     Args:
         db (AsyncSession): async db session
         data_source_svc (DataSourceService): async data source service dependency
+        repo_changes_svc (RepositoryChangesService): repository changes data access service
     """
     return EmbedTaskService(
         db=db, 
         data_source_svc=data_source_svc,
-        diff_task_svc=diff_task_svc
+        repo_changes_svc=repo_changes_svc,
     )
 
 
@@ -227,7 +243,7 @@ def get_job_svc(
         async_db=async_db,
         diff_svc=diff_task_svc,
         embed_task_svc=embed_task_svc,
-        data_source_svc=data_source_svc
+        data_source_svc=data_source_svc,
     )
 
 
@@ -236,6 +252,7 @@ def get_project_svc(
         async_db: AsyncSession = Depends(get_async_db_session),
         data_source_svc: DataSourceService = Depends(get_data_source_svc),
         job_svc: JobService = Depends(get_job_svc),
+        repo_changes_svc: RepositoryChangesService = Depends(get_repository_changes_svc),
 ):
     """
     Setup ProjectService dependency
@@ -243,13 +260,15 @@ def get_project_svc(
     Args:
         db (Session): current DB session
         data_source_svc (DataSourceService): data source service dependency
+        repo_changes_svc (RepositoryChangesService): repository changes data access service
     """
     
     return ProjectService(
         db=db, 
         async_db=async_db,
         data_source_svc=data_source_svc,
-        job_svc=job_svc
+        job_svc=job_svc,
+        repo_changes_svc=repo_changes_svc,
     )
 
 

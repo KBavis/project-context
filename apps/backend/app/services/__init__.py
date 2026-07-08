@@ -12,6 +12,7 @@ from .chunk_insertion import ChunkInsertionService
 from .mcp import MCPService
 from .agent import AgentService
 from .diff_task import DiffTaskService
+from .repository_changes import RepositoryChangesService
 from .execution_token_usage import ExecutionTokenUsageService
 from .job import JobService
 
@@ -29,6 +30,7 @@ __all__ = [
     "MCPService",
     "AgentService",
     "DiffTaskService",
+    "RepositoryChangesService",
     "ExecutionTokenUsageService",
     "JobService",
 ]

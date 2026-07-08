@@ -10,7 +10,7 @@ from app.llm import LLMBase
 from app.models.data_source import DataSource, DataSourceType
 from app.services.chunk_retrieval import ChunkRetrievalService
 from app.services.data_source import DataSourceService
-from app.services.diff_task import DiffTaskService
+from app.services.repository_changes import RepositoryChangesService
 from app.data_providers.ingestible.base import IngestibleDataProvider
 
 import logging
@@ -41,14 +41,14 @@ class Tools:
         chunk_retrieval_svc: ChunkRetrievalService,
         data_source_svc: DataSourceService,
         scope_map: dict[str, list[str]],
-        diff_svc: DiffTaskService | None = None,
+        repo_changes_svc: RepositoryChangesService | None = None,
     ):
         self.data_sources = data_sources
         self.project_id = project_id
         self.llm = llm
         self.chunk_retrieval_svc = chunk_retrieval_svc
         self.data_source_svc = data_source_svc
-        self.diff_svc = diff_svc
+        self.repo_changes_svc = repo_changes_svc
         # scope_map restricts search queries for issue-scoped repos
         self.scope_map = scope_map
 
@@ -220,10 +220,10 @@ class Tools:
         """
 
         # validate the DiffService is available in the case that relevant Repositories are configured 
-        if not self.diff_svc:
+        if not self.repo_changes_svc:
             raise ValueError(
                 "DiffService is required when scoped repository data sources exist, "
-                f"but diff_svc was None. Scoped repos: {[ds.name for ds in self._scoped_repo_data_sources]}"
+                f"but repo_changes_svc was None. Scoped repos: {[ds.name for ds in self._scoped_repo_data_sources]}"
             )
 
         # Build the dynamic description enumerating valid data sources
@@ -360,10 +360,10 @@ class Tools:
             data_source_id: UUID string of the scoped repository DataSource
         """
         # Note: This validation should have already been made above 
-        if not self.diff_svc:
+        if not self.repo_changes_svc:
             raise Exception(f"DiffService not injected into Tools")
 
-        return await self.diff_svc.get_file_diff_string(self.project_id, UUID(data_source_id), file_path)
+        return await self.repo_changes_svc.get_file_diff_string(self.project_id, UUID(data_source_id), file_path)
 
 
     # ─────────────────────────────────────────────

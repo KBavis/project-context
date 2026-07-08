@@ -20,7 +20,7 @@ from app.llm import LLMBase
 from app.services.mcp import MCPService
 from app.services.data_source import DataSourceService
 from app.services.chunk_retrieval import ChunkRetrievalService
-from app.services.diff_task import DiffTaskService
+from app.services.repository_changes import RepositoryChangesService
 from app.models.data_source import DataSource, DataSourceType
 from app.data_providers.ingestible.base import IngestibleDataProvider
 
@@ -53,14 +53,14 @@ class AgentService:
         mcp_svc: MCPService,
         data_source_svc: DataSourceService,
         chunk_retrieval_svc: ChunkRetrievalService,
-        diff_svc: DiffTaskService | None = None,
+        repo_changes_svc: RepositoryChangesService | None = None,
     ) -> None:
 
         self.db = db
         self.mcp_svc = mcp_svc
         self.data_source_svc = data_source_svc
         self.chunk_retrieval_svc = chunk_retrieval_svc
-        self.diff_svc = diff_svc
+        self.repo_changes_svc = repo_changes_svc
 
 
     async def run_agent(
@@ -101,8 +101,8 @@ class AgentService:
             logger.info("Retrieved %d MCP tools across %d DataSources", sum(len(t) for t in mcp_tools.values()), len(data_sources))
 
             scope_map = {}
-            if self.diff_svc:
-                scope_map = await self.diff_svc.build_scoped_repository_file_id_map(project_id)
+            if self.repo_changes_svc:
+                scope_map = await self.repo_changes_svc.build_scoped_repository_file_id_map(project_id)
 
             tool_manager = Tools(
                 data_sources=data_sources,
@@ -111,7 +111,7 @@ class AgentService:
                 chunk_retrieval_svc=self.chunk_retrieval_svc,
                 data_source_svc=self.data_source_svc,
                 scope_map=scope_map,
-                diff_svc=self.diff_svc,
+                repo_changes_svc=self.repo_changes_svc,
             )
 
             # Token counting spans the research + answer LLM calls (diagnosis uses its own instance).
@@ -498,15 +498,15 @@ class AgentService:
         """
         Builds a summary of the project scope for Data Sources that are scoped by issues.
         """
-        if not self.diff_svc:
+        if not self.repo_changes_svc:
             return ""
             
         scope_summary = ""
         for ds in data_sources:
             if ds.type == DataSourceType.REPOSITORY and ds.scope_by_issues:
-                changes = await self.diff_svc.get_project_repo_summary(project_id, ds.id)
+                changes = await self.repo_changes_svc.get_project_repo_summary(project_id, ds.id)
                 if changes:
-                    file_diffs = await self.diff_svc.get_file_diffs(project_id, ds.id)
+                    file_diffs = await self.repo_changes_svc.get_file_diffs(project_id, ds.id)
                     if file_diffs:
                         if not scope_summary:
                             scope_summary = (

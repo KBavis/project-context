@@ -18,7 +18,7 @@ from app.services.file import FileService
 from app.services.chroma import ChromaService
 from app.services.chunk_insertion import ChunkInsertionService
 from app.data_providers.ingestible.base import IngestibleDataProvider
-from app.services.diff_task import DiffTaskService
+from app.services.repository_changes import RepositoryChangesService
 from app.core import get_current_session
 from app.exceptions import TaskSkipped
 
@@ -33,7 +33,7 @@ class EmbedTaskService:
             self, 
             db: AsyncSession, 
             data_source_svc: DataSourceService,
-            diff_task_svc: DiffTaskService
+            repo_changes_svc: RepositoryChangesService
     ):
         """
         Initialize EmbedTaskService with necessary dependencies
@@ -41,10 +41,11 @@ class EmbedTaskService:
         Args:
             db (AsyncSession): Database session for ORM operations
             data_source_svc (DataSourceService): Service for managing data sources
+            repo_changes_svc (RepositoryChangesService): Service for managing repository changes
         """
         self.db: AsyncSession = db
         self.data_source_svc: DataSourceService = data_source_svc
-        self.diff_task_svc: DiffTaskService = diff_task_svc
+        self.repo_changes_svc: RepositoryChangesService = repo_changes_svc
 
     @staticmethod
     def _build_ingestion_services(
@@ -284,7 +285,7 @@ class EmbedTaskService:
 
         touched_file_paths = None
         if provider.data_source.type == DataSourceType.REPOSITORY and provider.data_source.scope_by_issues:
-            touched_file_paths = await self.diff_task_svc.get_project_touched_file_paths(provider.data_source.id, async_session=async_session)
+            touched_file_paths = await self.repo_changes_svc.get_project_touched_file_paths(provider.data_source.id, async_session=async_session)
             logger.info(f"DataSource {provider.data_source.id} is scoped by issues. Fetched {len(touched_file_paths)} touched file paths across projects.")
 
         await provider.ingest_data(embed_task_id=embed_task_id, file_svc=file_svc, touched_file_paths=touched_file_paths) 

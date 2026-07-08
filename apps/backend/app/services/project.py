@@ -1,9 +1,6 @@
 from __future__ import annotations
-import asyncio
 import logging
 from typing import TYPE_CHECKING
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,31 +9,33 @@ from fastapi import HTTPException
 
 from app.pydantic import ProjectRequest
 from app.pydantic.status import ProcessingStatus
-from app.models import Project, ProjectData, DataSource 
+from app.models import Project, ProjectData, DataSource
 from app.models.data_source import DataSourceType
-from app.data_providers.ingestible.base import IngestibleDataProvider
 
 from uuid import UUID
 
 if TYPE_CHECKING:
-    from app.services.diff_task import DiffTaskService
     from app.services.data_source import DataSourceService
     from app.services.job import JobService
+    from app.services.repository_changes import RepositoryChangesService
 
 logger = logging.getLogger(__name__)
 
 class ProjectService:
+
     def __init__(
         self,
         db: Session,
         async_db: AsyncSession,
         job_svc: JobService,
-        data_source_svc: DataSourceService | None = None,
+        data_source_svc: DataSourceService,
+        repo_changes_svc: RepositoryChangesService,
     ):
-        self.db = db
-        self.async_db = async_db
-        self.data_source_svc = data_source_svc
-        self.job_svc = job_svc
+        self.db: Session = db
+        self.async_db: AsyncSession = async_db
+        self.data_source_svc: DataSourceService = data_source_svc
+        self.job_svc: JobService = job_svc
+        self.repo_changes_svc: RepositoryChangesService = repo_changes_svc
 
     # ─────────────────────────────────────────────
     # Project Readiness
@@ -281,10 +280,10 @@ class ProjectService:
                         raise ValueError(
                             "Cannot unlink Issue Tracker because the project has one or more issue-scoped repositories linked. "
                             "Unlink those repositories first."
-                        )
-
-            # Delete the ProjectRepoSummary explicitly to cascade its children using diff_svc
-            await self.diff_svc.adelete_project_repo_summary(project_id, data_source_id)
+                       )
+            
+            # delete associated repo changes
+            self.repo_changes_svc.delete_project_repo_summary_sync(project_id, data_source_id)
 
             # Finally, delete the association
             self.db.delete(association)

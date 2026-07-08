@@ -29,6 +29,10 @@ from app.pydantic.change_type import ChangeType
 from app.core import get_current_session
 import hashlib
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from app.services.repository_changes import RepositoryChangesService
+
 logger = logging.getLogger(__name__)
 
 # Maximum number of bytes of unified-diff text stored per file PR diff; larger
@@ -46,9 +50,11 @@ class DiffTaskService:
         self, 
         async_db: AsyncSession, 
         data_source_svc: DataSourceService,
+        repo_changes_svc: RepositoryChangesService,
     ):
         self.async_db: AsyncSession = async_db
         self.data_source_svc = data_source_svc
+        self.repo_changes_svc = repo_changes_svc
     
 
 
@@ -325,7 +331,7 @@ class DiffTaskService:
         async_session: AsyncSession,
     ) -> ProjectRepoSummary:
         """Get the ProjectRepoSummary row, creating an empty one on first sync."""
-        repo_changes = await self.get_project_repo_summary(
+        repo_changes = await self.repo_changes_svc.get_project_repo_summary(
             project_id=project_id,
             data_source_id=repository_data_source_id,
             async_session=async_session,
@@ -612,177 +618,4 @@ class DiffTaskService:
         stmt = select(DiffTask).where(DiffTask.job_id == job_id)
         res = await db.execute(stmt)
         return list(res.scalars().all())
-
-    async def get_total_repository_code_changes(self, project_id: UUID, data_source_id: UUID | None = None) -> list[dict]:
-        """
-        Get the accumulation of `Repository Code Changes` that we're introduced as a part of this Project
-            - shows all changes across each Repository that are a part of this Project if no DataSourceID supplied 
-        
-        Args:
-            project_id (UUID): The ID of the Project for which to retrieve the changes.
-            data_source_id (UUID | None): The ID of the Data Source to filter the changes by.
-        """
-        return []
-
-
-    async def get_project_repo_summary(
-        self, 
-        project_id: UUID, 
-        data_source_id: UUID,
-        async_session: AsyncSession | None = None
-    ) -> ProjectRepoSummary | None:
-        """
-        Get the accumulation of `Repository Code Changes` that we're introduced as a part of this Project
-            - shows all changes across each Repository that are a part of this Project if no DataSourceID supplied 
-        
-        Args:
-            project_id (UUID): The ID of the Project for which to retrieve the changes.
-            data_source_id (UUID): The ID of the Data Source to filter the changes by.
-            async_session (AsyncSession?): optional AsyncSession to leverage if this is a background job (default to use this if present)
-        """
-        stmt = select(ProjectRepoSummary).where(ProjectRepoSummary.project_id == project_id, ProjectRepoSummary.data_source_id == data_source_id)
-        result = await async_session.execute(stmt) if async_session else await self.async_db.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def adelete_project_repo_summary(self, project_id: UUID, data_source_id: UUID) -> None:
-        """
-        Delete the ProjectRepoSummary record associated with a given Project and Data Source.
-        This cascades down to ProjectAffectedFile and PullRequest records.
-        """
-        stmt = select(ProjectRepoSummary).where(
-            ProjectRepoSummary.project_id == project_id,
-            ProjectRepoSummary.data_source_id == data_source_id
-        )
-        result = await self.async_db.execute(stmt)
-        repo_changes = result.scalar_one_or_none()
-        if repo_changes:
-            await self.async_db.delete(repo_changes)
-            await self.async_db.flush()
-
-
-
-    async def get_file_diffs(self, project_id: UUID, data_source_id: UUID) -> list[ProjectAffectedFile]:
-        """
-        Get the `project_affected_file` records that are associated with a given Project and DataSource
-        """
-        stmt = select(ProjectAffectedFile).where(ProjectAffectedFile.project_id == project_id, ProjectAffectedFile.data_source_id == data_source_id)
-        result = await self.async_db.execute(stmt)
-        return list(result.scalars().all())
-
-    async def get_project_touched_file_paths(
-        self,
-        data_source_id: UUID,
-        async_session: AsyncSession | None = None,
-    ) -> list[str]:
-        """
-        Return the list of all unique file paths touched by any project on a specific data source.
-        """
-        stmt = (
-            select(ProjectAffectedFile.file_path)
-            .where(
-                ProjectAffectedFile.data_source_id == data_source_id,
-                ProjectAffectedFile.change_type != ChangeType.DELETED,
-            )
-            .distinct()
-        )
-        res = await (async_session or self.async_db).execute(stmt)
-        return list(res.scalars().all())
-
-    async def build_scoped_repository_file_id_map(self, project_id: UUID) -> dict[str, list[str]]:
-        """
-        Returns a mapping of data source IDs (as strings) to list of file IDs (as strings)
-        
-        This mapping only includes:
-          a) Data sources configured for the project (via ProjectData), AND
-          b) Data sources that are scoped by issues (scope_by_issues is True and type is REPOSITORY).
-          
-        Other data sources do not have a ProjectAffectedFile record, and are excluded
-        from this mapping (rather than returning empty lists/mappings).
-        """
-        stmt = (
-            select(DataSource.id, func.array_agg(File.id))
-            .join(ProjectData, ProjectData.data_source_id == DataSource.id)
-            .outerjoin(
-                ProjectAffectedFile,
-                (ProjectAffectedFile.data_source_id == DataSource.id) &
-                (ProjectAffectedFile.project_id == project_id)
-            )
-            .outerjoin(
-                File,
-                (File.path == ProjectAffectedFile.file_path) &
-                (File.data_source_id == ProjectAffectedFile.data_source_id)
-            )
-            .where(
-                ProjectData.project_id == project_id,
-                DataSource.type == DataSourceType.REPOSITORY,
-                DataSource.scope_by_issues.is_(True)
-            )
-            .group_by(DataSource.id)
-        )
-        result = await self.async_db.execute(stmt)
-        
-        return {
-            str(ds_id): [str(fid) for fid in file_ids if fid is not None] if file_ids is not None else []
-            for ds_id, file_ids in result.all()
-        }
-
-
-
-
-    async def get_file_diff_string(self, project_id: UUID, data_source_id: UUID, file_path: str) -> str:
-        """
-        Retrieve the chronological list of per-pull-request diff slices for a file
-        introduced by the specified Project.
-
-        Each slice is one merged pull request's change to the file, ordered oldest
-        first. The latest slice is NOT a netted composite of all changes — callers
-        must reason across the slices to understand the file's net change over time.
-
-        Args:
-            project_id (UUID): The ID of the Project for which to retrieve the changes.
-            data_source_id (UUID): The ID of the Data Source to filter the changes by.
-            file_path (str): The path to the file for which to retrieve the changes.
-        """
-        try:
-            stmt = select(ProjectAffectedFile).options(
-                selectinload(ProjectAffectedFile.pr_diffs).selectinload(ProjectFileDiff.pull_request)
-            ).where(
-                ProjectAffectedFile.project_id == project_id,
-                ProjectAffectedFile.data_source_id == data_source_id,
-                ProjectAffectedFile.file_path == file_path,
-            )
-            result = await self.async_db.execute(stmt)
-            file_history = result.scalar_one_or_none()
-
-            if not file_history or not file_history.pr_diffs:
-                return f"No project-scoped changes recorded for the file={file_path} in dataSource={data_source_id} for project_id={project_id}."
-
-            lines: list[str] = [
-                f"## Per-PR diff history for `{file_path}` (net change_type: {file_history.change_type.value})",
-                "",
-                "These are chronological per-pull-request diff slices (oldest first). The latest "
-                "entry is NOT the composite of all changes — reason across every slice to determine "
-                "the file's net state.",
-            ]
-
-            for revision in file_history.pr_diffs:
-                pr = revision.pull_request
-                issue_key = pr.issue_key if pr and pr.issue_key else "no linked issue"
-                merged = pr.merged_at.isoformat() if pr and pr.merged_at else "unknown date"
-                pr_number = pr.pr_number if pr else "?"
-                lines.append("")
-                lines.append(
-                    f"### PR #{pr_number} ({issue_key}) merged {merged} — {revision.change_type.value}"
-                )
-                if revision.diff_truncated:
-                    lines.append("WARNING: This diff slice was truncated due to size limits.")
-                lines.append("```diff")
-                lines.append(revision.unified_diff or "")
-                lines.append("```")
-
-            return "\n".join(lines)
-
-        except Exception as e:
-            logger.error(f"Error retrieving file diff for file_path={file_path}, data_source_id={data_source_id}", exc_info=True)
-            return f"Error retrieving file diff: {str(e)}"
 
