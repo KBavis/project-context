@@ -192,11 +192,12 @@ class Tools:
             async_fn=self._update_research_state,
             function_name="update_research_state",
             description=(
-                "Record a research finding into the shared scratchpad. "
-                "Call this EVERY TIME you discover relevant information. "
-                "Args: finding — concise summary of what was found; "
-                "source — exact file path and line range (e.g. 'src/auth/service.py:45-62'); "
-                "data_source_id — UUID string of the DataSource this file belongs to."
+                "Record one or MORE research findings into the shared scratchpad. "
+                "PREFER batching several findings into one call — each call counts against your budget. "
+                "Arg: findings — a list of objects, each with: "
+                "'finding' (concise summary of what was found), "
+                "'source' (exact file path and a single line range, e.g. 'src/auth/service.py:45-62'), "
+                "'data_source_id' (UUID string of the DataSource this file belongs to)."
             ),
         )
 
@@ -286,27 +287,35 @@ class Tools:
         width = len(str(len(lines))) if lines else 1
         return "\n".join(f"{str(i).rjust(width)}: {line}" for i, line in enumerate(lines, start=1))
 
-    async def _update_research_state(
-        self, ctx: Context, finding: str, source: str, data_source_id: str
-    ) -> str:
+    async def _update_research_state(self, ctx: Context, findings: list[dict[str, Any]]) -> str:
         """
-        Record a research finding into the shared scratchpad.
-        Call this every time relevant information is discovered.
+        Record one or more research findings into the shared scratchpad in a single call.
+        Batching multiple findings per call keeps the research loop efficient, since each
+        call counts against the iteration budget.
 
         Args:
-            finding: Concise summary of what was found
-            source: Exact file path and line range (e.g. "src/auth/service.py:45-62")
-            data_source_id: UUID string of the DataSource this finding belongs to
+            findings: A list of finding objects, each shaped:
+                {"finding": "<concise summary>", "source": "<path:line-range>", "data_source_id": "<uuid>"}
         """
+        # Be tolerant if the model passes a single object instead of a list.
+        if isinstance(findings, dict):
+            findings = [findings]
+
         async with ctx.store.edit_state() as state:
             if "findings" not in state:
                 state["findings"] = []
-            state["findings"].append({
-                "source": source,
-                "finding": finding,
-                "data_source_id": data_source_id,
-            })
-        return "Finding recorded in shared state."
+            
+            recorded = state.get("findings") or []
+            for f in findings:
+                if not isinstance(f, dict):
+                    continue
+                recorded.append({
+                    "source": f.get("source", ""),
+                    "finding": f.get("finding", ""),
+                    "data_source_id": f.get("data_source_id", ""),
+                })
+            state["findings"] = recorded
+        return f"Recorded {len(findings)} finding(s) in shared state."
 
     async def _grep_search_wrapper(
         self, key_word: str, source_type: str | None = None, data_source_ids: list[str] | None = None
