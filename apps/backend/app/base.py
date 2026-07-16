@@ -32,7 +32,11 @@ def create_app() -> FastAPI:
 
     setup_logging()
 
-    app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
+    app = FastAPI(
+        title=settings.PROJECT_NAME,
+        lifespan=lifespan,
+        root_path=settings.ROOT_PATH,
+    )
 
     # Add Middleware For CORS
     origins = [ #TODO: make these configs 

@@ -161,6 +161,9 @@ class Settings(BaseSettings):
     ###########################
     ENV: str | None = "dev"
 
+    # optional path prefix for FastAPI
+    ROOT_PATH: str = ""
+
 
     ###########################
     # Docling Configurations 

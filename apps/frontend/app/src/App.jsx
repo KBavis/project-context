@@ -5,9 +5,12 @@ import Dashboard from './pages/Dashboard';
 import Workspace from './pages/Workspace';
 import AlertContainer from './components/Alert';
 
+// configure root path 
+const basename = import.meta.env.BASE_URL?.replace(/\/+$/, '') || '/';
+
 function App() {
   return (
-    <Router>
+    <Router basename={basename}>
       <AppProvider>
         <Routes>
           <Route path="/" element={<Landing />} />

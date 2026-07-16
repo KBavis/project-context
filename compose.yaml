@@ -5,7 +5,7 @@ services:
     build:
       context: ./apps/backend
       dockerfile: docker/Dockerfile
-    container_name: backend 
+    container_name: backend
     env_file:
       - ./apps/backend/.env
     ports:
@@ -17,20 +17,26 @@ services:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - ANONYMIZED_TELEMETRY=FALSE
     extra_hosts:
-      - "host.docker.internal:host-gateway"  # linux usage 
+      - "host.docker.internal:host-gateway" # linux usage 
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-  
+    networks: [ default, shared ]
+
   frontend:
     image: frontend-app
     build:
       context: ./apps/frontend
       dockerfile: docker/Dockerfile
+      args:
+        VITE_BASE_PATH: ${VITE_BASE_PATH:-/}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+        VITE_AZURE_MULTI_VENDOR_GATEWAY: ${VITE_AZURE_MULTI_VENDOR_GATEWAY:-false}
     container_name: frontend
     ports:
       - "3000:3000"
     depends_on:
       - backend
+    networks: [ default, shared ]
 
   chromadb:
     image: chromadb/chroma:1.5.9
@@ -43,19 +49,21 @@ services:
       - IS_PERSISTENT=TRUE
       - PERSIST_DIRECTORY=/data
       - ANONYMIZED_TELEMETRY=FALSE
-    
-  
-  db: 
+
+  db:
     image: postgres:15
-    container_name: postgres_db 
+    container_name: postgres_db
     env_file:
       - ./apps/backend/.env
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-  
+
 volumes:
   postgres_data:
   chroma_data:
-    
+
+networks:
+  shared:
+    name: shared
