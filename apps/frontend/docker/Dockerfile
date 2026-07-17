@@ -17,13 +17,6 @@ RUN npm config set cafile /etc/ssl/certs/ca-certificates.crt
 COPY app/package.json app/package-lock.json ./
 RUN npm ci
 
-ARG VITE_BASE_PATH=/
-ARG VITE_API_BASE_URL=
-ARG VITE_AZURE_MULTI_VENDOR_GATEWAY=
-ENV VITE_BASE_PATH=${VITE_BASE_PATH} \
-    VITE_API_BASE_URL=${VITE_API_BASE_URL} \
-    VITE_AZURE_MULTI_VENDOR_GATEWAY=${VITE_AZURE_MULTI_VENDOR_GATEWAY}
-
 # bring in the rest of the React source. .dockerignore (in app/) keeps
 # host node_modules/dist out so the freshly-installed node_modules isn't
 # overlaid.

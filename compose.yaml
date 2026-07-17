@@ -27,10 +27,6 @@ services:
     build:
       context: ./apps/frontend
       dockerfile: docker/Dockerfile
-      args:
-        VITE_BASE_PATH: ${VITE_BASE_PATH:-/}
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
-        VITE_AZURE_MULTI_VENDOR_GATEWAY: ${VITE_AZURE_MULTI_VENDOR_GATEWAY:-false}
     container_name: frontend
     ports:
       - "3000:3000"
