@@ -73,6 +73,7 @@ class AgentService:
         conversation_history: list[ChatMessage],
         project_id: UUID,
         project: "Project | None" = None,
+        lightweight_llm: LLMBase | None = None,
     ) -> AsyncGenerator[tuple[str, str | dict | None], None]:
         """
         Run the full agentic workflow and stream events back to the caller.
@@ -133,18 +134,19 @@ class AgentService:
                 time.perf_counter() - agent_t0,
             )
 
-            # Token counting spans the research + answer LLM calls (diagnosis uses its own instance).
+            # Token counting spans the research + answer LLM calls.
             token_counter = TokenCountingHandler()
             callback_manager = CallbackManager([token_counter])
 
             # ─────────────────────────────────────────────
-            # Phase 1: Diagnosis
+            # Phase 1: Diagnosis (uses lightweight LLM for speed/cost)
             # Refine the question, classify research depth, and filter MCP tools down to
             # only what's needed — before any expensive research begins.
             # ─────────────────────────────────────────────
+            diag_llm = lightweight_llm or llm
             diag_t0 = time.perf_counter()
             refined_question, question_type, research_depth, mcp_tools = await self.diagnose_users_question(
-                llm, user_prompt, data_sources, tool_manager.get_all_internal_tools(), mcp_tools,
+                diag_llm, user_prompt, data_sources, tool_manager.get_all_internal_tools(), mcp_tools,
                 conversation_history, project_context=project_context,
             )
             logger.debug(

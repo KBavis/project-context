@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     LL_MODEL_PROVIDER: str = "Ollama"
     LL_MODEL: str = "gpt-oss:latest"
     LLM_EXPECTED_RESPONSE_SIZE: int = 500 
+    LIGHTWEIGHT_LLM_MODEL: str = "" # light-weight LLM model to leverage for Diagnosis (cost/performance enhancements)
 
     # Encoding to fall back to when tiktoken doesn't recognize the configured model.
     OPENAI_FALLBACK_TIKTOKEN_ENCODING: str = "o200k_base"

@@ -86,6 +86,7 @@ class MessageService:
 
             llm_manager = LLMManager(model_name=conversation.ll_model_name, provider=conversation.ll_model_provider)
             llm = llm_manager.get_llm()
+            lightweight_llm = llm_manager.get_lightweight_llm()
 
 
             # 2. Kick off Conversation Summary generation (if needed) CONCURRENTLY.
@@ -124,6 +125,7 @@ class MessageService:
                 conversation_history,
                 conversation.project_id,
                 project=project,
+                lightweight_llm=lightweight_llm,
             )
             
             full_response = ""
