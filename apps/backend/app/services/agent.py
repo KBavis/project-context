@@ -7,6 +7,8 @@ import json
 import re
 import time
 
+import openai
+
 from llama_index.core.base.llms.types import TextBlock
 from workflows.context.context import Context
 from app.pydantic.streaming import StreamEventType
@@ -322,6 +324,10 @@ class AgentService:
         resolves citations in code, builds the answer prompt, and streams the answer. Emits
         the citation map as a final event. Answer-time errors surface as a friendly message
         rather than being raised, so the caller can still report token usage.
+
+        Rate Limit Strategy (429's):
+            Retry the entire ``astream_complete`` call with exponential backoff,
+            honouring the ``Retry-After`` header when present.
         """
         try:
             findings: list = await ctx.store.get("findings", [])  # type: ignore[arg-type]
@@ -359,9 +365,12 @@ class AgentService:
             )
 
             answer_llm = llm.get_llama_idx_instance(callback_manager=callback_manager)
+
+            # invoke astream_complete with rate-limit retry logic
+            response_stream = await self._astream_complete_with_retry(answer_llm, answer_prompt)
+
             stream_t0 = time.perf_counter()
             first_token_logged = False
-            response_stream = await answer_llm.astream_complete(answer_prompt)
             async for chunk in response_stream:
                 delta = getattr(chunk, "delta", None) or ""
                 if delta:
@@ -403,6 +412,41 @@ class AgentService:
                 friendly_msg = "The request timed out. The agent took too long to respond."
 
             yield format_sse_event(StreamEventType.ERROR, friendly_msg, "Answer Error"), None
+
+    async def _astream_complete_with_retry(self, llm, prompt: str, max_retries: int = 4):
+        """
+        Call ``llm.astream_complete`` with exponential backoff on rate-limit errors 
+        and honors the ``Retry-After`` header when present.
+        """
+        base_delay = 1.0           # seconds; doubles each attempt (1, 2, 4, 8)
+        max_delay = 30.0           # cap per-retry wait
+        max_retry_after = 120.0    # cap for server-specified Retry-After
+        last_err: openai.RateLimitError | None = None
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                return await llm.astream_complete(prompt)
+            except openai.RateLimitError as e:
+                last_err = e
+                if attempt >= max_retries:
+                    raise
+
+                # Honour Retry-After header; fall back to exponential backoff.
+                wait = min(base_delay * (2 ** (attempt - 1)), max_delay)
+                retry_after = self._parse_retry_after_header(e)
+                if retry_after is not None:
+                    wait = min(retry_after, max_retry_after)
+
+                logger.warning(
+                    "Rate-limited on astream_complete (attempt %d/%d). "
+                    "Retrying in %.1fs... [Retry-After=%s]",
+                    attempt, max_retries, wait,
+                    f"{retry_after:.1f}s" if retry_after is not None else "absent",
+                )
+                await asyncio.sleep(wait)
+
+        # Should never reach here, but satisfy type-checkers.
+        raise last_err  # type: ignore[misc]
 
     # ─────────────────────────────────────────────
     # Citation Resolution (deterministic, code-side — NOT an agent tool)
@@ -759,3 +803,24 @@ class AgentService:
 
         except Exception as state_err:
             logger.warning("Could not read research state from Context: %s", state_err)
+
+
+    @staticmethod
+    def _parse_retry_after_header(exc: openai.RateLimitError) -> float | None:
+        """
+        Extract the ``Retry-After`` value (in seconds) from a RateLimitError.
+        """
+        response = getattr(exc, "response", None)
+        if response is None:
+            return None
+        headers = getattr(response, "headers", None)
+        if headers is None:
+            return None
+        raw = headers.get("retry-after")  # httpx.Headers is case-insensitive
+        if raw is None:
+            return None
+        try:
+            value = float(raw)
+        except (ValueError, TypeError):
+            return None
+        return value if value > 0 else None
