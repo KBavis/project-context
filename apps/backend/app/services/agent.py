@@ -5,7 +5,6 @@ import asyncio
 import logging
 import json
 import re
-import time
 
 import openai
 
@@ -84,9 +83,6 @@ class AgentService:
         """
         async with AsyncExitStack() as async_exit_stack:
 
-            agent_t0 = time.perf_counter()
-            logger.debug("[PERF] run_agent ENTRY | project=%s", project_id)
-
             # ─────────────────────────────────────────────
             # Setup: resolve data sources, tooling, and MCP tools for this run
             # ─────────────────────────────────────────────
@@ -104,21 +100,13 @@ class AgentService:
             # Project summary so every phase knows *which* project it is assisting with.
             project_context = self._build_project_context(project)
 
-            mcp_t0 = time.perf_counter()
             mcp_tools: dict[str, list[FunctionTool]] = await self.mcp_svc.get_mcp_tools(data_sources, async_exit_stack)
-            logger.debug(
-                "[PERF] MCP tools retrieved | count=%d | elapsed=%.3fs | total=%.3fs",
-                sum(len(t) for t in mcp_tools.values()),
-                time.perf_counter() - mcp_t0,
-                time.perf_counter() - agent_t0,
-            )
             logger.info("Retrieved %d MCP tools across %d DataSources", sum(len(t) for t in mcp_tools.values()), len(data_sources))
 
             scope_map = {}
             if self.repo_changes_svc:
                 scope_map = await self.repo_changes_svc.build_scoped_repository_file_id_map(project_id)
 
-            tools_t0 = time.perf_counter()
             tool_manager = Tools(
                 data_sources=data_sources,
                 project_id=project_id,
@@ -127,11 +115,6 @@ class AgentService:
                 data_source_svc=self.data_source_svc,
                 scope_map=scope_map,
                 repo_changes_svc=self.repo_changes_svc,
-            )
-            logger.debug(
-                "[PERF] Tool manager configured | elapsed=%.3fs | total=%.3fs",
-                time.perf_counter() - tools_t0,
-                time.perf_counter() - agent_t0,
             )
 
             # Token counting spans the research + answer LLM calls.
@@ -144,15 +127,9 @@ class AgentService:
             # only what's needed — before any expensive research begins.
             # ─────────────────────────────────────────────
             diag_llm = lightweight_llm or llm
-            diag_t0 = time.perf_counter()
             refined_question, question_type, research_depth, mcp_tools = await self.diagnose_users_question(
                 diag_llm, user_prompt, data_sources, tool_manager.get_all_internal_tools(), mcp_tools,
                 conversation_history, project_context=project_context,
-            )
-            logger.debug(
-                "[PERF] Phase 1 (Diagnosis) complete | elapsed=%.3fs | total=%.3fs",
-                time.perf_counter() - diag_t0,
-                time.perf_counter() - agent_t0,
             )
             logger.info(
                 "Phase 1 (Diagnosis) complete: question_type=%s, research_depth=%s, refined_question='%s'",
@@ -166,7 +143,6 @@ class AgentService:
             # to shared state, bounded by a depth-derived iteration budget and a
             # token-limited memory so context can't grow without bound.
             # ─────────────────────────────────────────────
-            workflow_t0 = time.perf_counter()
             workflow: AgentWorkflow = get_agentic_workflow(
                 mcp_tools=mcp_tools,
                 llm=llm,
@@ -184,40 +160,23 @@ class AgentService:
                 chat_history=conversation_history,
                 token_limit=settings.AGENT_MEMORY_TOKEN_LIMIT,
             )
-            logger.debug(
-                "[PERF] Workflow + memory constructed | elapsed=%.3fs | total=%.3fs",
-                time.perf_counter() - workflow_t0,
-                time.perf_counter() - agent_t0,
-            )
 
             try:
                 # stream research events (tool calls, status updates) to the caller
-                research_t0 = time.perf_counter()
                 async for event in self._run_research(
                     workflow, ctx, refined_question, memory, self._research_budget(research_depth)
                 ):
                     yield event
-                logger.debug(
-                    "[PERF] Phase 2 (Research) complete | elapsed=%.3fs | total=%.3fs",
-                    time.perf_counter() - research_t0,
-                    time.perf_counter() - agent_t0,
-                )
 
                 # ─────────────────────────────────────────────
                 # Phase 3: Stream Response
                 # Resolve deterministic citations from the findings, build the
                 # Constitution-governed answer prompt, and stream the answer to the user.
                 # ─────────────────────────────────────────────
-                stream_t0 = time.perf_counter()
                 async for event in self._stream_response(
                     llm, tool_manager, ctx, refined_question, project_context, scope_summary, callback_manager
                 ):
                     yield event
-                logger.debug(
-                    "[PERF] Phase 3 (Stream Response) complete | elapsed=%.3fs | total=%.3fs",
-                    time.perf_counter() - stream_t0,
-                    time.perf_counter() - agent_t0,
-                )
 
             finally:
                 # Always report token usage, even if a phase failed mid-flight.
@@ -248,7 +207,6 @@ class AgentService:
         may be partial. Errors are swallowed so we still answer from partial findings.
         """
         truncated = False
-        research_t0 = time.perf_counter()
         try:
             yield format_sse_event(StreamEventType.STATUS, "Researching your question...", "Researching"), None
             handler = workflow.run(
@@ -268,11 +226,6 @@ class AgentService:
                             logger.info("[Research] Tool Call: %s (Args: %s)", tool_call.tool_name, str(tool_call.tool_kwargs)[:150])
                             yield format_sse_event(StreamEventType.STATUS, f"Running {tool_call.tool_name}..."), None
                     case ToolCallResult():
-                        tool_elapsed = time.perf_counter() - research_t0
-                        logger.debug(
-                            "[PERF] Tool result: %s | research_elapsed=%.3fs",
-                            event.tool_name, tool_elapsed,
-                        )
                         self._log_tool_result(event)
                     case _:
                         pass
@@ -287,13 +240,7 @@ class AgentService:
             truncated = "max iteration" in err_text or "maximum iteration" in err_text
             logger.warning("Research phase ended early (answering from findings gathered so far): %s", research_err)
 
-        log_state_t0 = time.perf_counter()
         await self._log_research_state(ctx)
-        logger.debug(
-            "[PERF] Research state logged | elapsed=%.3fs | research_total=%.3fs",
-            time.perf_counter() - log_state_t0,
-            time.perf_counter() - research_t0,
-        )
         await ctx.store.set("research_truncated", truncated)
 
     def _log_tool_result(self, event: ToolCallResult) -> None:
@@ -345,25 +292,15 @@ class AgentService:
             file_line_counts = {}
 
         try:
-            cite_t0 = time.perf_counter()
             citation_map = await self._build_citation_map(findings, tool_manager, file_line_counts)
-            logger.debug(
-                "[PERF] Citation map built | citations=%d | elapsed=%.3fs",
-                len(citation_map), time.perf_counter() - cite_t0,
-            )
 
             yield format_sse_event(StreamEventType.STATUS, "Composing answer...", "Answering"), None
 
-            prompt_t0 = time.perf_counter()
             answer_prompt = build_answer_prompt(
                 refined_question=refined_question,
                 project_context=project_context,
                 scope_summary=scope_summary,
                 findings=findings,
-            )
-            logger.debug(
-                "[PERF] Answer prompt built | length=%d chars | elapsed=%.3fs",
-                len(answer_prompt), time.perf_counter() - prompt_t0,
             )
 
             answer_llm = llm.get_llama_idx_instance(callback_manager=callback_manager)
@@ -371,22 +308,10 @@ class AgentService:
             # invoke astream_complete with rate-limit retry logic
             response_stream = await self._astream_complete_with_retry(answer_llm, answer_prompt)
 
-            stream_t0 = time.perf_counter()
-            first_token_logged = False
             async for chunk in response_stream:
                 delta = getattr(chunk, "delta", None) or ""
                 if delta:
-                    if not first_token_logged:
-                        logger.debug(
-                            "[PERF] First answer token streamed | time_to_first_token=%.3fs",
-                            time.perf_counter() - stream_t0,
-                        )
-                        first_token_logged = True
                     yield format_sse_event(StreamEventType.CHUNK, delta), delta
-            logger.debug(
-                "[PERF] Answer streaming finished | elapsed=%.3fs",
-                time.perf_counter() - stream_t0,
-            )
 
             # inform user if research was cut shorted by backstop
             if research_truncated:
@@ -732,14 +657,9 @@ class AgentService:
         )
         conversation_history_str = self._format_conversation_history(conversation_history)
 
-        diag_llm_t0 = time.perf_counter()
         diagnosis = await llm.diagnose_question(
             user_prompt, data_source_info, internal_tool_info, mcp_info, conversation_history_str,
             project_context=project_context,
-        )
-        logger.debug(
-            "[PERF] Diagnosis LLM call | elapsed=%.3fs",
-            time.perf_counter() - diag_llm_t0,
         )
         logger.info("Diagnosis Result: %s", diagnosis)
 

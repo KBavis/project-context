@@ -73,7 +73,6 @@ class MessageService:
             # 1. Initialize 
             import time
             start_time = time.perf_counter()
-            logger.debug("[PERF] agentic_send_message_stream ENTRY | conversation=%s | t=0.000s", conversation_id)
             yield format_sse_event(StreamEventType.STATUS, "Initializing conversation context...", "Initializing")
             
             conversation = await self.conversation_svc.get_conversation(conversation_id)
@@ -109,11 +108,6 @@ class MessageService:
 
 
             # 4. Kick of Agentic Flow 
-            pre_agent_elapsed = time.perf_counter() - start_time
-            logger.debug(
-                "[PERF] Pre-agent setup complete | conversation=%s | elapsed=%.3fs",
-                conversation_id, pre_agent_elapsed,
-            )
             yield format_sse_event(StreamEventType.STATUS, "Executing Agentic Workflow...", "Executing")
 
             # Fetch the Project so the agent knows *which* project it is assisting with
@@ -155,11 +149,6 @@ class MessageService:
                         has_error = True
 
             # 5. Finalize and Persist
-            agent_elapsed = time.perf_counter() - start_time
-            logger.debug(
-                "[PERF] Agent streaming complete | conversation=%s | elapsed=%.3fs",
-                conversation_id, agent_elapsed,
-            )
             if not has_error:
                 yield format_sse_event(StreamEventType.STATUS, "Finalizing response...", "Finalizing")
             
