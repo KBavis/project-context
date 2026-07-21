@@ -14,7 +14,7 @@ export default function Workspace() {
     const { projectId } = useParams();
     const navigate = useNavigate();
     const { projects, selectProject } = useProjects();
-    const { conversations, selectedConversation, selectConversation, deleteConversation } = useConversations();
+    const { conversations, selectedConversation, selectConversation, deleteConversation, getStream } = useConversations();
     const { dataSources } = useDataSources();
     
     const [view, setView] = useState('chat');
@@ -138,8 +138,11 @@ export default function Workspace() {
                                             className={`conv-item ${selectedConversation?.id === c.id ? 'active' : ''}`}
                                             style={{ flex: 1, minWidth: 0 }}
                                          >
-                                             <span className="conv-icon">💭</span>
+                                             <span className="conv-icon">💬</span>
                                              <span className="conv-title">{c.summary || 'New Chat'}</span>
+                                             {getStream(c.id).isStreaming && (
+                                                 <span className="conv-processing-dot" title="Agent is processing..." />
+                                             )}
                                          </button>
                                          <button
                                              className="conv-delete-btn"

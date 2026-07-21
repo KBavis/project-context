@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
-import { api } from '../services/api';
 import { useConversations } from '../contexts/ConversationContext';
 import { useProjects } from '../contexts/ProjectContext';
 import { useAlert } from '../contexts/AlertContext';
@@ -145,10 +144,9 @@ function MessageContent({ content, citations }) {
 }
 
 export default function ChatInterface({ conversationId }) {
-    const { messages, setMessages, updateConversation } = useConversations();
+    const { getMessages, getStream, sendMessage } = useConversations();
     const { selectedProject, syncingProjects } = useProjects();
     const [input, setInput] = useState('');
-    const [loading, setLoading] = useState(false);
     const { showAlert } = useAlert();
     const [lastAlertedConvId, setLastAlertedConvId] = useState(null);
 
@@ -169,9 +167,10 @@ export default function ChatInterface({ conversationId }) {
         return `This project isn't ready to chat yet - sync it from the Data Sources tab.${suffix}`;
     })();
 
-    const [streamingMessage, setStreamingMessage] = useState('');
-    const [streamingCitations, setStreamingCitations] = useState(null);
-    const [status, setStatus] = useState('');
+    // Per-conversation view state (lives in context so it survives navigation)
+    const messages = getMessages(conversationId);
+    const { isStreaming, status, streamingMessage, streamingCitations } = getStream(conversationId);
+
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
     const shouldAutoScrollRef = useRef(true);
@@ -220,108 +219,15 @@ export default function ChatInterface({ conversationId }) {
     }, [input]);
 
     const handleSend = async () => {
-        if (!input.trim() || loading) return;
+        if (!input.trim() || isStreaming) return;
         if (notReady) {
             showAlert(blockMessage, syncStatus === 'failed' ? 'error' : 'warning');
             return;
         }
 
-        const userMessage = { role: 'user', content: input, timestamp: new Date() };
-        setMessages(prev => [...prev, userMessage]);
+        const content = input;
         setInput('');
-        setLoading(true);
-        setStreamingMessage('');
-        setStreamingCitations(null);
-
-        try {
-            const response = await api.messages.send(conversationId, input);
-
-            if (!response.body) {
-                throw new Error('No response body');
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let assistantMessage = '';
-            let citationsMap = null;
-            let buffer = '';
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-
-                // Process buffer for SSE lines
-                const lines = buffer.split('\n');
-                // Keep the last partial line in the buffer
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-
-                    let parsedEvent;
-                    try {
-                        const jsonStr = line.replace('data: ', '');
-                        parsedEvent = JSON.parse(jsonStr);
-                    } catch (e) {
-                        console.error('Failed to parse SSE event:', e, line);
-                        continue;
-                    }
-
-                    if (parsedEvent.event === 'status') {
-                        setStatus(parsedEvent.data);
-                    } else if (parsedEvent.event === 'chunk') {
-                        assistantMessage += parsedEvent.data;
-                        setStreamingMessage(assistantMessage);
-                        setStatus('Generating...'); // Reset to "Generating" when we get actual tokens
-                    } else if (parsedEvent.event === 'citations') {
-                        citationsMap = parsedEvent.data;
-                        setStreamingCitations(parsedEvent.data);
-                    } else if (parsedEvent.event === 'metadata') {
-                        // Final data (token counts, freshly generated title, etc)
-                        if (parsedEvent.data?.conversation_summary && parsedEvent.data?.conversation_id) {
-                            updateConversation(parsedEvent.data.conversation_id, {
-                                summary: parsedEvent.data.conversation_summary,
-                            });
-                        }
-                        console.log('Stream Metadata:', parsedEvent.data);
-                    } else if (parsedEvent.event === 'error') {
-                        throw new Error(parsedEvent.data);
-                    }
-                }
-            }
-
-            const completeMessage = {
-                role: 'assistant',
-                content: assistantMessage,
-                citations: citationsMap,
-                timestamp: new Date(),
-            };
-            setMessages(prev => [...prev, completeMessage]);
-            setStreamingMessage('');
-            setStreamingCitations(null);
-            setStatus('');
-
-        } catch (error) {
-            console.error('Failed to send message:', error);
-
-            // Extract the specific error message if it came from our SSE stream
-            const errorText = error.message && error.message !== 'Failed to fetch'
-                ? `**Error:** ${error.message}`
-                : 'Sorry, there was an error processing your message.';
-
-            const errorMessage = {
-                role: 'assistant',
-                content: errorText,
-                timestamp: new Date(),
-                error: true,
-            };
-            setMessages(prev => [...prev, errorMessage]);
-        } finally {
-            setLoading(false);
-            setStatus('');
-        }
+        sendMessage(conversationId, content);
     };
 
     const handleKeyPress = (e) => {
@@ -343,8 +249,6 @@ export default function ChatInterface({ conversationId }) {
         if (syncStatus === 'not_yet_synced') return "Project not synced - sync it in Data Sources to chat";
         return "Project not ready - sync it in Data Sources to chat";
     };
-
-
 
     const getRoleClass = (msg) => {
         return isUser(msg) ? 'message-user' : 'message-assistant';
@@ -379,7 +283,7 @@ export default function ChatInterface({ conversationId }) {
                     </div>
                 ))}
 
-                {(loading || streamingMessage) && (
+                {(isStreaming || streamingMessage) && (
                     <div className="message message-assistant message-streaming">
                         <div className="message-avatar">🤖</div>
                         <div className="message-content">
@@ -412,12 +316,12 @@ export default function ChatInterface({ conversationId }) {
                         onKeyDown={handleKeyPress}
                         placeholder={getSyncPlaceholder()}
                         rows={1}
-                        disabled={loading || isSyncing}
+                        disabled={isStreaming || isSyncing}
                     />
                     <Button
                         onClick={handleSend}
-                        disabled={!input.trim() || loading || notReady}
-                        loading={loading}
+                        disabled={!input.trim() || isStreaming || notReady}
+                        loading={isStreaming}
                         icon={notReady ? undefined : "→"}
                     >
                         Send

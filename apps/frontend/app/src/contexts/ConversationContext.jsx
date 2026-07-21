@@ -1,6 +1,10 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 import { useProjects } from './ProjectContext';
+
+// Stable defaults so the per-conversation accessors don't return fresh refs each call.
+const EMPTY_MESSAGES = [];
+const DEFAULT_STREAM = { isStreaming: false, status: '', streamingMessage: '', streamingCitations: null };
 
 const ConversationContext = createContext();
 
@@ -20,8 +24,21 @@ export function ConversationProvider({ children }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
+    // Per-conversation state so a stream is scoped to its conversation: a run started
+    // in one conversation never touches another's view, survives navigation (including
+    // to other projects), and multiple conversations can stream concurrently.
+    const [messagesByConv, setMessagesByConv] = useState({});
+    const [streamsByConv, setStreamsByConv] = useState({});
+
+    // Conversations whose persisted history we've already fetched (avoids re-fetch and
+    // clobbering an in-flight stream's optimistic messages).
+    const loadedConvIdsRef = useRef(new Set());
+
     useEffect(() => {
         // Clear stale selection from previous project immediately
+        // Switching projects clears the *selection* only. In-flight streams and their
+        // per-conversation state are intentionally preserved so the user can navigate
+        // away (even to another project) and return to a still-running answer.
         setSelectedConversation(null);
         setMessages([]);
 
@@ -44,18 +61,27 @@ export function ConversationProvider({ children }) {
         loadConversations();
     }, [selectedProject]);
 
+    // Lazily load a conversation's persisted history the first time it is selected.
     useEffect(() => {
         const loadMessages = async () => {
             if (!selectedConversation) {
                 setMessages([]);
                 return;
             }
-            try {
-                const messagesData = await api.messages.list(selectedConversation.id);
-                setMessages(messagesData);
-            } catch (err) {
-                console.error('Failed to load messages:', err);
-            }
+            const conv = selectedConversation;
+            if (loadedConvIdsRef.current.has(conv.id)) return;
+            loadedConvIdsRef.current.add(conv.id);
+            (async () => {
+                try {
+                    const messagesData = await api.messages.list(conv.id);
+                    setMessages(messagesData);
+                    // Never clobber messages a stream already populated for this conversation.
+                    setMessagesByConv(prev => (prev[conv.id] ? prev : { ...prev, [conv.id]: messagesData }));
+                } catch (err) {
+                    console.error('Failed to load messages:', err);
+                    loadedConvIdsRef.current.delete(conv.id);
+                }
+            })();
         };
         loadMessages();
     }, [selectedConversation]);
@@ -64,7 +90,7 @@ export function ConversationProvider({ children }) {
     const createConversation = async (projectId, llModelName, llModelProvider) => {
         try {
             const conv = await api.conversations.create(projectId, llModelName, llModelProvider);
-            setConversations(prev => [...prev, conv]);
+            setConversations(prev => [conv, ...prev]);
             setSelectedConversation(conv);
             return conv;
         } catch (err) {
@@ -87,9 +113,96 @@ export function ConversationProvider({ children }) {
             await api.conversations.delete(conversationId);
             setConversations(prev => prev.filter(c => c.id !== conversationId));
             setSelectedConversation(prev => (prev?.id === conversationId ? null : prev));
+            setMessagesByConv(prev => { const next = { ...prev }; delete next[conversationId]; return next; });
+            setStreamsByConv(prev => { const next = { ...prev }; delete next[conversationId]; return next; });
+            loadedConvIdsRef.current.delete(conversationId);
         } catch (err) {
             console.error('Failed to delete conversation:', err);
             throw err;
+        }
+    };
+
+    // Per-conversation accessors + streaming
+    const getMessages = (convId) => messagesByConv[convId] || EMPTY_MESSAGES;
+    const getStream = (convId) => streamsByConv[convId] || DEFAULT_STREAM;
+
+    const patchStream = (convId, patch) =>
+        setStreamsByConv(prev => ({ ...prev, [convId]: { ...(prev[convId] || DEFAULT_STREAM), ...patch } }));
+
+    const appendMessage = (convId, msg) =>
+        setMessagesByConv(prev => ({ ...prev, [convId]: [...(prev[convId] || EMPTY_MESSAGES), msg] }));
+
+    // Fire an agentic message for a specific conversation and stream the answer into
+    // THAT conversation's state. Runs independently of the current selection, so it
+    // is safe to navigate away or start another conversation's run concurrently.
+    const sendMessage = async (convId, content) => {
+        if (!convId || !content?.trim()) return;
+        if (streamsByConv[convId]?.isStreaming) return; // one in-flight run per conversation
+
+        appendMessage(convId, { role: 'user', content, timestamp: new Date() });
+        patchStream(convId, { isStreaming: true, status: 'Thinking...', streamingMessage: '', streamingCitations: null });
+
+        let assistantMessage = '';
+        let citationsMap = null;
+        try {
+            const response = await api.messages.send(convId, content);
+            if (!response.body) throw new Error('No response body');
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+
+                    let parsedEvent;
+                    try {
+                        parsedEvent = JSON.parse(line.replace('data: ', ''));
+                    } catch {
+                        continue;
+                    }
+
+                    if (parsedEvent.event === 'status') {
+                        patchStream(convId, { status: parsedEvent.data });
+                    } else if (parsedEvent.event === 'chunk') {
+                        assistantMessage += parsedEvent.data;
+                        patchStream(convId, { streamingMessage: assistantMessage, status: 'Generating...' });
+                    } else if (parsedEvent.event === 'citations') {
+                        citationsMap = parsedEvent.data;
+                        patchStream(convId, { streamingCitations: parsedEvent.data });
+                    } else if (parsedEvent.event === 'metadata') {
+                        if (parsedEvent.data?.conversation_summary && parsedEvent.data?.conversation_id) {
+                            updateConversation(parsedEvent.data.conversation_id, {
+                                summary: parsedEvent.data.conversation_summary,
+                            });
+                        }
+                    } else if (parsedEvent.event === 'error') {
+                        throw new Error(parsedEvent.data);
+                    }
+                }
+            }
+
+            appendMessage(convId, {
+                role: 'assistant',
+                content: assistantMessage,
+                citations: citationsMap,
+                timestamp: new Date(),
+            });
+        } catch (err) {
+            console.error('Failed to send message:', err);
+            const errorText = err.message && err.message !== 'Failed to fetch' ? `**Error:** ${err.message}` : 'Sorry, there was an error processing your message.';
+            appendMessage(convId, { role: 'assistant', content: errorText, timestamp: new Date(), error: true });
+        } finally {
+            patchStream(convId, { isStreaming: false, status: '', streamingMessage: '', streamingCitations: null });
         }
     };
 
@@ -104,6 +217,9 @@ export function ConversationProvider({ children }) {
         deleteConversation,
         updateConversation,
         setMessages, // Useful for streaming or optimistic updates
+        getMessages,
+        getStream,
+        sendMessage,
     };
 
     return (

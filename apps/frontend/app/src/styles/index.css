@@ -153,6 +153,18 @@ body {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* Sidebar indicator: agent is actively processing (searching or streaming) a conversation */
+.conv-processing-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success);
+  flex-shrink: 0;
+  margin-left: auto;
+  animation: pulse 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
 .spin {
   animation: spin 1s linear infinite;
 }

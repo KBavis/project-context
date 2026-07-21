@@ -14,7 +14,7 @@ import '../styles/App.css';
 export default function Home({ view }) {
     const [currentView, setCurrentView] = useState(view || 'chat');
     const { projects, selectedProject, selectProject } = useProjects();
-    const { conversations, selectedConversation, selectConversation, deleteConversation } = useConversations();
+    const { conversations, selectedConversation, selectConversation, deleteConversation, getStream } = useConversations();
     const [showCreateConversation, setShowCreateConversation] = useState(false);
     const [showCreateProject, setShowCreateProject] = useState(false);
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, confirmLabel: 'Confirm' });
@@ -136,9 +136,12 @@ export default function Home({ view }) {
                                                 {conv.summary || 'New Conversation'}
                                             </span>
                                             <span className="conversation-meta">
-                                                {conv.ll_model_name || 'Default Model'}
+                                                {conv.llm_model_name || 'Default Model'}
                                             </span>
                                         </div>
+                                        {getStream(conv.id).isStreaming && (
+                                            <span className="conv-processing-dot" title="Agent is processing..." />
+                                        )}
                                     </button>
                                     <button
                                         className="conversation-delete-btn"
