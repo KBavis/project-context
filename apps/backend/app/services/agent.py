@@ -306,9 +306,7 @@ class AgentService:
             answer_llm = llm.get_llama_idx_instance(callback_manager=callback_manager)
 
             # invoke astream_complete with rate-limit retry logic
-            response_stream = await self._astream_complete_with_retry(answer_llm, answer_prompt)
-
-            async for chunk in response_stream:
+            async for chunk in self._astream_answer_with_retry(answer_llm, answer_prompt):
                 delta = getattr(chunk, "delta", None) or ""
                 if delta:
                     yield format_sse_event(StreamEventType.CHUNK, delta), delta
@@ -340,40 +338,44 @@ class AgentService:
 
             yield format_sse_event(StreamEventType.ERROR, friendly_msg, "Answer Error"), None
 
-    async def _astream_complete_with_retry(self, llm, prompt: str, max_retries: int = 4):
+    async def _astream_answer_with_retry(self, llm, prompt: str, max_retries: int = 5) -> AsyncGenerator:
         """
-        Call ``llm.astream_complete`` with exponential backoff on rate-limit errors 
-        and honors the ``Retry-After`` header when present.
+        Stream the answer completion, transparently retrying reate-limit (429) errors with
+        exponential backoff that honours the ``Retry-After`` header when present 
+
+        First 429 can surfae wehn opening the stream OR on the first chunk read, 
+        so each attempt (re)starts the whole stream 
         """
         base_delay = 1.0           # seconds; doubles each attempt (1, 2, 4, 8)
         max_delay = 30.0           # cap per-retry wait
         max_retry_after = 120.0    # cap for server-specified Retry-After
-        last_err: openai.RateLimitError | None = None
 
         for attempt in range(1, max_retries + 1):
+            produced = False
             try:
-                return await llm.astream_complete(prompt)
+                response_stream = await llm.astream_complete(prompt)
+                async for chunk in response_stream:
+                    produced = True
+                    yield chunk
+                return
+            # TODO: This currently asumes that all RateLimitErrors belong to OpenAI, but should be generalized ot handle other LLM providers
             except openai.RateLimitError as e:
-                last_err = e
-                if attempt >= max_retries:
+                # Once tokens have been emitted, we cannot safely restart the stream.
+                if produced or attempt >= max_retries:
                     raise
 
-                # Honour Retry-After header; fall back to exponential backoff.
+                # Honour Retry-After when present; else exponential backoff.
                 wait = min(base_delay * (2 ** (attempt - 1)), max_delay)
                 retry_after = self._parse_retry_after_header(e)
                 if retry_after is not None:
                     wait = min(retry_after, max_retry_after)
 
                 logger.warning(
-                    "Rate-limited on astream_complete (attempt %d/%d). "
-                    "Retrying in %.1fs... [Retry-After=%s]",
+                    "Rate-limited composing answer (attempt %d/%d). Retrying in %.1fs [Retry-After=%s]",
                     attempt, max_retries, wait,
                     f"{retry_after:.1f}s" if retry_after is not None else "absent",
                 )
                 await asyncio.sleep(wait)
-
-        # Should never reach here, but satisfy type-checkers.
-        raise last_err  # type: ignore[misc]
 
     # ─────────────────────────────────────────────
     # Citation Resolution (deterministic, code-side — NOT an agent tool)
