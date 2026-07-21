@@ -136,7 +136,7 @@ export default function Home({ view }) {
                                                 {conv.summary || 'New Conversation'}
                                             </span>
                                             <span className="conversation-meta">
-                                                {conv.llm_model_name || 'Default Model'}
+                                                {conv.ll_model_name || 'Default Model'}
                                             </span>
                                         </div>
                                         {getStream(conv.id).isStreaming && (

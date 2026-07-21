@@ -227,7 +227,7 @@ export default function ChatInterface({ conversationId }) {
 
         const content = input;
         setInput('');
-        sendMessage(conversationId, content);
+        await sendMessage(conversationId, content);
     };
 
     const handleKeyPress = (e) => {

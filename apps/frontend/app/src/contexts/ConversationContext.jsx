@@ -20,7 +20,6 @@ export function ConversationProvider({ children }) {
     const { selectedProject } = useProjects();
     const [conversations, setConversations] = useState([]);
     const [selectedConversation, setSelectedConversation] = useState(null);
-    const [messages, setMessages] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
@@ -40,7 +39,6 @@ export function ConversationProvider({ children }) {
         // per-conversation state are intentionally preserved so the user can navigate
         // away (even to another project) and return to a still-running answer.
         setSelectedConversation(null);
-        setMessages([]);
 
         const loadConversations = async () => {
             if (!selectedProject) {
@@ -64,24 +62,17 @@ export function ConversationProvider({ children }) {
     // Lazily load a conversation's persisted history the first time it is selected.
     useEffect(() => {
         const loadMessages = async () => {
-            if (!selectedConversation) {
-                setMessages([]);
-                return;
-            }
+            if (!selectedConversation) return;
             const conv = selectedConversation;
             if (loadedConvIdsRef.current.has(conv.id)) return;
             loadedConvIdsRef.current.add(conv.id);
-            (async () => {
-                try {
-                    const messagesData = await api.messages.list(conv.id);
-                    setMessages(messagesData);
-                    // Never clobber messages a stream already populated for this conversation.
-                    setMessagesByConv(prev => (prev[conv.id] ? prev : { ...prev, [conv.id]: messagesData }));
-                } catch (err) {
-                    console.error('Failed to load messages:', err);
-                    loadedConvIdsRef.current.delete(conv.id);
-                }
-            })();
+            try {
+                const messagesData = await api.messages.list(conv.id);
+                setMessagesByConv(prev => (prev[conv.id] ? prev : { ...prev, [conv.id]: messagesData }));
+            } catch (err) {
+                console.error('Failed to load messages:', err);
+                loadedConvIdsRef.current.delete(conv.id);
+            }
         };
         loadMessages();
     }, [selectedConversation]);
@@ -209,14 +200,12 @@ export function ConversationProvider({ children }) {
     const value = {
         conversations,
         selectedConversation,
-        messages,
         loading,
         error,
         createConversation,
         selectConversation,
         deleteConversation,
         updateConversation,
-        setMessages, // Useful for streaming or optimistic updates
         getMessages,
         getStream,
         sendMessage,
