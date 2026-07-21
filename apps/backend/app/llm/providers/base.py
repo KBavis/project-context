@@ -123,9 +123,9 @@ class LLMBase(ABC):
         3. "required_mcp_tools": A dictionary mapping a Data Source ID to a list of MCP Tool Names. ONLY select MCP tools that belong to the Data Sources listed above. ONLY include an MCP tool if the Internal Tools cannot accomplish the task. If no MCP tools are needed, return an empty dictionary.
         4. "research_depth": How much INVESTIGATION is needed to answer accurately. This is about research EFFORT, not how long the answer should be. Choose exactly one:
            - "shallow": a single fact, definition, or location; or an explicitly high-level / overview / brief request (e.g. "what does the X permission do?", "where is Y configured?", "give me a high-level overview"). A couple of targeted lookups suffice.
-           - "deep": explicitly in-depth / thorough / exhaustive investigation, tracing behavior across many files or components, or "explain everything about / in full detail".
-           - "standard": anything in between. DEFAULT to "standard" whenever the required effort is ambiguous.
-           IMPORTANT: breadth of SUBJECT does not imply deep research. A broad topic asked at a high level (e.g. "high-level overview of the whole project") is "shallow" or "standard", not "deep".
+           - "deep": ONLY for explicitly EXHAUSTIVE requests that must cover many files/components - e.g. "find ALL discrepancies between docs and code", "audit every endpoint", "explain everything about X in full detail". If the word "all"/"every"/"exhaustive"/"comprehensive" (or a clear equivalent) is not present, it is almost never "deep".
+           - "standard": anything in between, and the DEFAULT whenever effort is ambiguous. A SPECIFIC question about one behavior, flow, endpoint, or validation - e.g. "what happens when banking info is not provided?", "how is X validated?" - is "standard" even if answering it requires reading a few files.
+           IMPORTANT: breadth of SUBJECT does not imply deep research. A broad topic asked at a high level (e.g. "high-level overview of the whole project") is "shallow" or "standard", not "deep". Prefer "standard" over "deep" when unsure - over-classifying as "deep" wastes a large amount of time.
         5. Your ONLY output MUST be a valid JSON object. Do NOT wrap it in markdown block quotes.
 
         OUTPUT_FORMAT:
