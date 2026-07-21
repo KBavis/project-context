@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     # Model name -> Azure deployment overrides
     AZURE_OPENAI_DEPLOYMENT_MAP: dict[str, str] = {
         "gpt-5.1": "gpt-51",
+        "gpt-4.1-nano": "gpt-41-nano"
     }
 
     # Context windows for models unknown to LlamaIndex (OpenAILike route)
